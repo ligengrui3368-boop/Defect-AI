@@ -10,6 +10,9 @@
 //                 from the spec and the negotiation target
 //   verify      – factory verification stub (registry / customs lookups): returns what is and
 //                 isn't configured, so the UI can show it honestly
+//   operator    – the Home page assistant: reads the workspace's clients and open requests,
+//                 answers questions, or returns one action for the page to carry out
+//                 (create_request, create_client, open)
 // Secrets (Supabase Edge Function Secrets, set by Gary only): ANTHROPIC_API_KEY, APIFY_TOKEN.
 // Optional: APIFY_1688_ACTOR (default viralanalyzer~wholesale-1688-scraper-pro), SOURCING_MODEL.
 
@@ -194,6 +197,35 @@ async function verify(sb: SupabaseClient, body: Any) {
   return { ok: true, configured, checks, note: configured.registry_api || configured.customs_api ? "Automatic lookups run when their API keys are set." : "Automatic registry and customs lookups are not configured yet; the steps above are manual for now. Record the result on the factory with the 'Verified factory' switch." };
 }
 
+async function operator(sb: SupabaseClient, body: Any) {
+  const message = String(body.message ?? "").trim().slice(0, 4000);
+  if (!message) throw new HttpError(400, "Empty message");
+  const history = (Array.isArray(body.history) ? body.history : []).slice(-8).map((h: Any) => `${h.role === "operator" ? "Operator" : "User"}: ${String(h.text ?? "").slice(0, 800)}`).join("\n");
+  const { data: clients } = await sb.from("clients").select("id, name, company").limit(100);
+  const { data: reqs } = await sb.from("sourcing_requests").select("id, title, status, quantity, target_unit_price, deadline, client_id, spec").neq("status", "closed").order("updated_at", { ascending: false }).limit(30);
+  const { data: negs } = await sb.from("negotiations").select("request_id, status, current_offer_cny, agreed_cny").limit(200);
+  const today = new Date().toISOString().slice(0, 10);
+  const open = (reqs ?? []).map((r: Any) => ({ id: r.id, title: r.title, status: r.status, quantity: r.quantity, target_usd: r.target_unit_price, deadline: r.deadline, client: (clients ?? []).find((c: Any) => c.id === r.client_id)?.company ?? null, open_questions: r.spec?.questions?.length ?? 0, negotiations: (negs ?? []).filter((n: Any) => n.request_id === r.id).map((n: Any) => n.status) }));
+  const out = await askJson(`You are Operator, the assistant inside Defect Check. Gary runs it: US brands tell him what they want made, he sources it from Chinese factories (1688), negotiates himself, quotes the full landed cost, and checks quality before the balance is paid.
+Today is ${today}.
+Clients: ${JSON.stringify((clients ?? []).map((c: Any) => ({ name: c.name, company: c.company })))}
+Open requests: ${JSON.stringify(open)}
+Conversation so far:
+${history || "(none)"}
+User: ${message}
+
+Decide what to do and return a JSON object:
+{ "reply": string, "action": null | {...} }
+Possible actions:
+- { "type": "create_request", "title": short product name with key spec (under 70 chars), "brief": everything the user said about the product (specs, materials, packaging, branding, price, timing), "quantity": number|null, "target_unit_price": number|null (USD per unit), "deadline": "YYYY-MM-DD"|null (resolve relative dates from today), "client_name": existing client name or company if one was named or clearly implied, else the new name the user gave, else null }
+- { "type": "create_client", "name": string, "company": string|null, "email": string|null }
+- { "type": "open", "href": one of "sourcing.html#/requests", "sourcing.html#/request/<id>", "sourcing.html#/clients", "sourcing.html#/factories", "sourcing.html#/rates", "ops.html#/orders", "app.html" }
+Rules: only create a request when the user asks to source, make, buy or quote a physical product. When you create one, the reply is one short sentence saying you're creating it and running intake. Answer status questions from the open requests list only, briefly and specifically (name the requests and what each needs next). Never invent prices, factories or facts that are not in the data. Plain sentences, no markdown except links written as [title](sourcing.html#/request/<id>).`, 1500);
+  const a = out?.action && typeof out.action === "object" ? out.action : null;
+  const allowed = ["create_request", "create_client", "open"];
+  return { ok: true, reply: String(out?.reply ?? "").slice(0, 3000), action: a && allowed.includes(a.type) ? a : null };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
@@ -209,6 +241,7 @@ Deno.serve(async (req) => {
       case "rank": return json(await rank(sb, body));
       case "draft_rfq": return json(await draftRfq(sb, body));
       case "verify": return json(await verify(sb, body));
+      case "operator": return json(await operator(sb, body));
       case "status": return json({ ok: true, anthropic: Boolean(ANTHROPIC_API_KEY), apify: Boolean(APIFY_TOKEN), actor: APIFY_ACTOR, model: MODEL });
       default: return json({ error: "Unknown task" }, 400);
     }
