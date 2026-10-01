@@ -90,3 +90,22 @@ git push -u origin main
 - AI screening assists a person; it doesn't replace final sign-off, and photo checks can't measure millimetre dimensions without a scale in the frame.
 - Some sites block automated page fetches. If *Import from this link* fails, paste the listing text or add screenshots and use *Read pasted text and screenshots*.
 - Next: invite teammates and factory staff into a workspace, factory-facing capture flow per purchase order, batch reports for a lot, and export to PDF for suppliers.
+
+### Arrival checks (factory → warehouse)
+When a shipment lands, open **Check a unit**, switch to **On arrival**, and enter the same lot/PO number and unit number used at the factory. The arrival photos are compared with that unit's factory photos (or, if the unit wasn't numbered, with photos of other units from the same lot), and every finding is tagged:
+
+- **From the factory** — the problem was already there, or it's a manufacturing fault shipping can't cause.
+- **In transit** — the factory photos show that part clean, or it's typical shipping damage.
+- **Origin unclear** — not enough evidence either way.
+
+Each product page lists its **lots**. A lot report shows factory and arrival checks side by side and can copy a **claim summary** (transit damage for the carrier, factory faults for the supplier). Evidence is strongest when units are numbered at the factory and the same numbers are used on arrival.
+
+Database: `inspections.stage` (`factory` | `arrival`), `origin_id` (the matched factory check), `damage_origin` (`none` | `factory` | `transit` | `both` | `unclear`). See `supabase/migrations/20261001000000_arrival_checks.sql`.
+
+### Factory links (factory staff, no account)
+On a product page, tap **Send a link to a factory**, enter the lot/PO number, and send the link (the app copies a ready-made Chinese/English message for WeChat or email). Factory staff open it on a phone. The page is in Chinese with an English switch. They see your standard, enter a unit number, photograph the unit, and get the result (合格 / 不合格 / 待复核 / 需重拍) with findings in Chinese. Each submission is saved as a factory check in your workspace and shows up live in your lot report, ready to be matched by arrival checks later.
+
+Links expire (60 days by default), cap at 500 units, and can be closed or reopened from the product page. Photos uploaded through a link can only land in that link's folder, and the link can only read its own product and checks. Every submitted unit uses your Anthropic API credit.
+
+Database: `factory_links` (one row per product lot, with a random token), plus `inspections.factory_link_id` and `inspections.submitted_by`. See `supabase/migrations/20261001000100_factory_links.sql`.
+
