@@ -11,7 +11,6 @@ AI-verified production QC for cross-border sourcing. A buyer sets up the approve
 | `supabase/migrations/` | Database schema, row level security, photo storage bucket, realtime. |
 | `supabase/functions/qc/` | Edge Function that talks to the Claude API: identify photo parts, import a product page from a link, read listings, draft a standard from photos, run inspections. |
 | `.github/workflows/pages.yml` | Publishes `web/` to GitHub Pages on every push to `main`. |
-| `prototypes/` | The earlier demos: the inline machine-vision station console and the claude.ai artifact version of the phone app. |
 
 ## How it fits together
 
@@ -32,6 +31,11 @@ Each new user gets their own workspace automatically. Everything they create liv
 
 You need a Supabase project, an Anthropic API key, and (optionally) a GitHub repo for hosting.
 
+### Required secret: `ANTHROPIC_API_KEY`
+The only secret the app needs. Add it **only** in Supabase → Edge Functions → Secrets, under the exact name `ANTHROPIC_API_KEY` (create a key at https://console.anthropic.com). Never put it in this repo, `web/config.js`, the README, screenshots or logs. The web app never sees it: the `qc` Edge Function reads it on the server. Without it, everything except the AI steps works, and checks end with "ANTHROPIC_API_KEY is not set".
+
+`SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are provided to Edge Functions automatically by Supabase; don't add them yourself.
+
 ### 1. Supabase project
 Create a project at https://supabase.com/dashboard. The free plan is enough for a pilot.
 
@@ -49,8 +53,9 @@ supabase functions deploy qc
 ```
 
 Without the CLI:
-1. Dashboard → SQL Editor → paste `supabase/migrations/20260930000000_init.sql` → Run.
-2. Dashboard → Edge Functions → Deploy a new function named `qc` → paste `supabase/functions/qc/index.ts`.
+1. Dashboard → SQL Editor → run each file in `supabase/migrations/`, one at a time, in filename order:
+   `20260930000000_init.sql`, `20260930000100_harden_functions.sql`, `20261001000000_arrival_checks.sql`, `20261001000100_factory_links.sql`.
+2. Dashboard → Edge Functions → Deploy a new function named `qc` → paste `supabase/functions/qc/index.ts`. Keep "Verify JWT" on (factory links still work: the page sends the public anon key, and the function checks the link token itself).
 3. Dashboard → Edge Functions → Secrets → add `ANTHROPIC_API_KEY`.
 
 Optional secrets: `QC_MODEL`, `QC_MODEL_CAREFUL`, `QC_MODEL_QUICK`, `QC_MAX_IMAGES_PER_CALL` (see `.env.example`).
@@ -65,15 +70,33 @@ Dashboard → Authentication → URL Configuration. Set the Site URL to where th
 - **GitHub Pages:** push to `main`, then repo Settings → Pages → Source: GitHub Actions. The included workflow publishes `web/`.
 - **Locally:** `cd web && python3 -m http.server 8000`, then open http://localhost:8000.
 
-## Pushing this folder to GitHub
+## Current deployment
 
-The folder is already a git repository with one commit.
+| Piece | Where |
+| --- | --- |
+| Code | https://github.com/ligengrui3368-boop/Defect-AI (branch `main`) |
+| Web app | https://ligengrui3368-boop.github.io/Defect-AI/ (GitHub Pages, deployed by `.github/workflows/pages.yml` on every push to `main` that touches `web/`) |
+| Backend | Supabase project `jkgevzgfacfqcjqxosnm`: all four migrations applied, `qc` Edge Function deployed with Verify JWT on |
 
-```bash
-# create an empty repo on github.com first (no README), then:
-git remote add origin https://github.com/<you>/defect-check.git
-git push -u origin main
-```
+To reproduce on a new Supabase project, follow Setup above, then change `web/config.js` to the new project's URL and anon key.
+
+## Testing
+
+**Without AI (free):** serve the app locally (`cd web && python3 -m http.server 8000`), sign in with the email link, create a product, create a factory link, and open that link in a private window. You should see the Chinese factory page with the standard and photo capture. Photos upload, but checks end with an error until `ANTHROPIC_API_KEY` is set.
+
+**End to end (uses API credit, about 5–10 cents per unit):**
+1. Set up a product with a few good-unit photos. Views: Front, Back, Top.
+2. On the product page, **Send a link to a factory**, lot `TEST-1`. Open the link on a phone.
+3. Enter unit `1`, photograph a good unit, submit. Expect 合格 (PASS) with a Chinese summary.
+4. Make a visible mark on the same unit, submit as unit `2`. Expect 不合格 (FAIL) with the mark boxed and described in Chinese.
+5. Back in the buyer app, open **Lot TEST-1** on the product page. Both units are listed under *At the factory*, tagged *Factory*.
+6. Tap **Check a unit on arrival**, enter unit `1`, photograph it with a new dent or crushed box. Expect *Damaged in transit*, with factory and arrival photos side by side.
+7. Clean up: close the link on the product page and delete the test checks (or the test product).
+
+## Costs and limitations
+- **AI checks require paid Anthropic API usage.** Plan on paying from the first check: buy prepaid credit in the Anthropic console and set a monthly spend limit. Rough cost is 5–10 cents per unit with the default Sonnet model, under 1 cent for photo identification, and several times more for *Careful check* (Opus). $5 covers a prototype demo of 50–100 checks.
+- Every factory link can submit up to 500 units (`factory_links.max_units`) and expires after 60 days by default. Close links when production is done.
+- Supabase free plan: about 1 GB of photo storage, roughly 4,000 photos at the app's compression.
 
 ## Using it
 1. **Set up a product:** paste the official product page link and tap *Import from this link* (the server opens the page, saves its product images and fills in the specs), or photograph a good unit. Edit anything, set the views that are enough for a check, save.
@@ -89,7 +112,8 @@ git push -u origin main
 ## Limits and next steps
 - AI screening assists a person; it doesn't replace final sign-off, and photo checks can't measure millimetre dimensions without a scale in the frame.
 - Some sites block automated page fetches. If *Import from this link* fails, paste the listing text or add screenshots and use *Read pasted text and screenshots*.
-- Next: invite teammates and factory staff into a workspace, factory-facing capture flow per purchase order, batch reports for a lot, and export to PDF for suppliers.
+- Factory staff see your standard text as you wrote it. If you write it in English, only the AI findings are translated to Chinese.
+- Next: invite teammates into a workspace, export lot reports and claim summaries to PDF, and prompt caching to cut per-unit cost on large lots.
 
 ### Arrival checks (factory → warehouse)
 When a shipment lands, open **Check a unit**, switch to **On arrival**, and enter the same lot/PO number and unit number used at the factory. The arrival photos are compared with that unit's factory photos (or, if the unit wasn't numbered, with photos of other units from the same lot), and every finding is tagged:
