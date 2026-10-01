@@ -54,6 +54,7 @@ main{padding:30px 32px 80px;max-width:1240px;width:100%}
 .corridor a:hover .lab{text-decoration:underline}
 .cols{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:18px;margin-top:22px;align-items:start}
 h2{font-size:17px;font-weight:800;font-stretch:108%;margin:0 0 10px}
+.src{margin-top:22px;padding:18px 22px}.src .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.src .top a.b{display:inline-flex;padding:8px 14px;border-radius:9px;font-weight:700;font-size:14px;text-decoration:none;border:1px solid var(--line2);color:var(--ink);background:var(--panel)}.src .top a.b.main{background:var(--ink);color:var(--panel);border-color:var(--ink)}.src .stg{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:14px}.src .stg a{display:flex;flex-direction:column;padding:10px 12px;border-radius:9px;background:var(--sunk);text-decoration:none;color:var(--ink)}.src .stg a b{font-family:var(--stencil);font-size:30px;line-height:1}.src .stg a b.z{color:var(--line2)}.src .stg a span{font-size:12.5px;font-weight:700;color:var(--muted)}.src ul{list-style:none;margin:12px 0 0;padding:0}.src li a{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid var(--line);text-decoration:none;color:var(--ink)}.src li small{color:var(--muted)}@media (max-width:900px){.src .stg{grid-template-columns:repeat(4,1fr)}}
 .acts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .act{display:grid;grid-template-columns:40px 1fr;gap:12px;align-items:start;padding:14px;text-decoration:none;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:12px}
 .act:hover{border-color:var(--ink)}
@@ -109,7 +110,8 @@ footer{margin-top:28px;font-size:13px;color:var(--muted)}
   .corridor .n{font-size:34px;grid-row:1/3}
   .corridor .dot{display:none}
 }
-</style></head><body>
+</style><script>/* Browsers keep pages for up to 10 minutes. If the server has a newer copy, reload once. */(function(){try{fetch(location.pathname,{method:'HEAD',cache:'no-store'}).then(function(r){var lm=r.headers.get('last-modified');if(!lm)return;var k='dc-fresh:'+location.pathname;if(new Date(lm).getTime()-new Date(document.lastModified).getTime()>1000&&sessionStorage.getItem(k)!==lm){sessionStorage.setItem(k,lm);location.reload();}}).catch(function(){});}catch(e){}})();</script>
+</head><body>
 <div class="shell">
   <nav class="rail" aria-label="Main">
     <div class="brand"><i aria-hidden="true"></i>Defect Check</div>
@@ -141,6 +143,7 @@ const I = {
   product: icon('<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/>'),
   dock: icon('<path d="M3 20h18M5 20V9l7-5 7 5v11"/><path d="M9 20v-6h6v6"/>'),
   chart: icon('<path d="M4 20V4M4 20h16"/><path d="M8 16v-5M12 16V8M16 16v-3"/>'),
+  sourcing: icon('<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/><path d="M9 11h4M11 9v4"/>'),
   factory: icon('<path d="M3 21V10l5 3V10l5 3V6l8 4v11z"/><path d="M7 17h2M12 17h2M17 17h1"/>'),
 };
 
@@ -176,8 +179,15 @@ function render() {
     return `<a href="ops.html#/orders" class="${here.length ? 'has' : ''} ${bad ? 'bad' : ''}"><span class="n ${here.length ? '' : 'zero'}">${here.length}</span><span class="dot"></span><span class="lab">${esc(s)}</span><span class="sub ${bad ? 'bad' : ''}">${bad ? `${bad} need${bad === 1 ? 's' : ''} attention` : here.length === 1 ? '1 order' : here.length + ' orders'}</span></a>`;
   }).join('')}</div></section>`;
 
+  const SST = [['intake', 'Intake'], ['sourcing', 'Sourcing'], ['shortlisted', 'Shortlist'], ['negotiating', 'Negotiating'], ['quoted', 'Quoted'], ['approved', 'Approved'], ['ordered', 'Ordered']];
+  const openReq = D.reqs.filter(r => r.status !== 'closed');
+  const sourcing = `<section class="panel src" aria-label="Sourcing"><div class="top"><div><h2 style="margin:0">Sourcing</h2><span class="mut" style="color:var(--muted);font-size:14px">${openReq.length ? `${openReq.length} open request${openReq.length === 1 ? '' : 's'}` : 'Client requests, factories on 1688, negotiation and landed-cost quotes.'}</span></div><div style="display:flex;gap:8px"><a class="b" href="sourcing.html#/clients">Clients</a><a class="b" href="sourcing.html#/factories">Factories</a><a class="b main" href="sourcing.html#/new">New sourcing request</a></div></div>
+    <div class="stg">${SST.map(([k, l]) => { const n = D.reqs.filter(r => r.status === k).length; return `<a href="sourcing.html#/requests"><b class="${n ? '' : 'z'}">${n}</b><span>${l}</span></a>`; }).join('')}</div>
+    ${openReq.length ? `<ul>${openReq.slice(0, 4).map(r => `<li><a href="sourcing.html#/request/${r.id}"><span>${esc(r.title)}</span><small>${esc((SST.find(s => s[0] === r.status) || [, r.status])[1])} · ${esc(ago(r.updated_at))}</small></a></li>`).join('')}</ul>` : ''}</section>`;
+
   const actions = `<div class="acts">
-    <a class="act main" href="ops.html#/new">${I.po}<div><b>New purchase order</b><span>One link for the factory: inspection for each product, then the loading check.</span></div></a>
+    <a class="act main" href="sourcing.html#/new">${I.sourcing}<div><b>New sourcing request</b><span>What the client wants made: specs, quantity, target price. The agent structures it and finds factories.</span></div></a>
+    <a class="act" href="ops.html#/new">${I.po}<div><b>New purchase order</b><span>One link for the factory: inspection for each product, then the loading check.</span></div></a>
     <a class="act" href="app.html?go=check">${I.check}<div><b>Check a unit</b><span>Photograph one unit and compare it with its approved standard.</span></div></a>
     <a class="act" href="app.html?go=new">${I.product}<div><b>Set up a product</b><span>From the official listing, or photos of a good unit.</span></div></a>
     <a class="act" href="ops.html#/orders">${I.dock}<div><b>Receive a container</b><span>Seal, carton counts and damage, traced to factory or carrier.</span></div></a>
@@ -189,6 +199,7 @@ function render() {
     ...D.insps.filter(i => i.status === 'done').slice(0, 15).map(i => ({ at: i.created_at, cls: i.final_result || i.verdict, href: 'app.html', t: `${i.stage === 'arrival' ? 'Arrival check' : 'Factory check'}: ${i.product_name}${i.unit ? ', unit ' + i.unit : ''}`, s: (i.final_result || i.verdict || '').toLowerCase() })),
     ...D.loads.filter(x => x.status === 'done').map(x => ({ at: x.checked_at, cls: x.result, href: 'ops.html#/po/' + x.po_id, t: `Container loaded: ${poNum(x.po_id)}`, s: `${x.container_no || ''}, ${String(x.result || '').toLowerCase()}` })),
     ...D.receipts.filter(x => x.status === 'done').map(x => ({ at: x.checked_at, cls: x.result, href: 'ops.html#/po/' + x.po_id, t: `Received: ${poNum(x.po_id)}`, s: (x.ai && x.ai.summary) || '' })),
+    ...D.reqs.map(r => ({ at: r.created_at, cls: '', href: 'sourcing.html#/request/' + r.id, t: `Sourcing request: ${r.title}`, s: r.status })),
     ...D.pos.map(p => ({ at: p.created_at, cls: '', href: 'ops.html#/po/' + p.id, t: `Order created: ${p.po_number}`, s: p.supplier_name || '' })),
   ].filter(x => x.at).sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 12);
 
@@ -198,6 +209,7 @@ function render() {
     <li><b>Create a purchase order</b><span>Add each product with its quantity and carton size.</span><br><a href="ops.html#/new">New purchase order</a></li>
     <li><b>Send the factory its link</b><span>They inspect random units, then photograph the container as it's loaded.</span><br><a href="ops.html#/orders">Open orders</a></li>
   </ol></section>` : corridor}
+  ${sourcing}
   <div class="stats"><div class="panel"><b>${D.products.length}</b><span>Products with a standard</span></div><div class="panel"><b>${units.length}</b><span>Units checked, 30 days</span></div><div class="panel"><b>${units.length ? (failed / units.length * 100).toFixed(1) + '%' : '—'}</b><span>Units failed, 30 days</span></div><div class="panel"><b>${findings}</b><span>Defects found, 30 days</span></div></div>
   <div class="cols">
     <section>${at.length ? `<h2>Needs your attention</h2><ul class="att">${at.slice(0, 6).map(x => `<li><a class="${esc(x.att[0].level)}" href="ops.html#/po/${x.po.id}"><b>${esc(x.po.po_number)}</b><span>${esc(x.att.map(a => a.text).join('; '))}</span></a></li>`).join('')}</ul>` : ''}
@@ -211,8 +223,8 @@ const poNum = id => (D.pos.find(p => p.id === id) || {}).po_number || 'order';
 async function load(sb, ws) {
   const q = (t, sel = '*', order = 'created_at', lim = 1000) => sb.from(t).select(sel).eq('workspace_id', ws).order(order, { ascending: false }).limit(lim);
   const r = await Promise.all([q('products', 'id, name', 'updated_at'), q('purchase_orders'), q('po_lines'), q('factory_sessions'), q('loading_checks', '*', 'started_at'), q('receipts'),
-    q('inspections', 'id, product_name, unit, stage, status, verdict, final_result, created_at', 'created_at', 300), q('defect_findings', 'in_spec, created_at', 'created_at', 5000)]);
-  [D.products, D.pos, D.lines, D.sessions, D.loads, D.receipts, D.insps, D.findings] = r.map(x => x.data || []);
+    q('inspections', 'id, product_name, unit, stage, status, verdict, final_result, created_at', 'created_at', 300), q('defect_findings', 'in_spec, created_at', 'created_at', 5000), q('sourcing_requests', 'id, title, status, created_at, updated_at', 'updated_at', 200)]);
+  [D.products, D.pos, D.lines, D.sessions, D.loads, D.receipts, D.insps, D.findings, D.reqs] = r.map(x => x.data || []);
 }
 (async () => {
   if (!CFG.supabaseUrl || !window.supabase) { app.innerHTML = '<p>Setup needed: add your Supabase URL and anon key to config.js.</p>'; return; }
@@ -224,7 +236,7 @@ async function load(sb, ws) {
   const ws = m[0].workspace_id; D.wsName = m[0].workspaces && m[0].workspaces.name; D.email = session.user.is_anonymous ? '' : session.user.email;
   await load(sb, ws); render();
   let t = null; const ch = sb.channel('home-' + ws);
-  ['purchase_orders', 'loading_checks', 'receipts', 'factory_sessions', 'inspections', 'products'].forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb, filter: 'workspace_id=eq.' + ws }, () => { clearTimeout(t); t = setTimeout(async () => { await load(sb, ws); render(); }, 500); }));
+  ['purchase_orders', 'loading_checks', 'receipts', 'factory_sessions', 'inspections', 'products', 'sourcing_requests'].forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb, filter: 'workspace_id=eq.' + ws }, () => { clearTimeout(t); t = setTimeout(async () => { await load(sb, ws); render(); }, 500); }));
   ch.subscribe(st => { $('#sync').textContent = st === 'SUBSCRIBED' ? 'Live' : 'Reconnecting…'; });
 })();
 })();
