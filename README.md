@@ -6,7 +6,9 @@ AI-verified production QC for cross-border sourcing. A buyer sets up the approve
 
 | Path | What it is |
 | --- | --- |
-| `web/` | The phone-first web app (plain HTML/JS, no build step). Sign-in by email link, products, checks, review. |
+| `web/` | The phone-first web app (plain HTML/JS, no build step). Products, checks, review. |
+| `web/ops.html` | Operations console for buyers: purchase orders, container loading, dock receiving, defects, suppliers. |
+| `web/po.html` | Factory page for one purchase order (Chinese first): each product's inspection and the container loading check. |
 | `web/config.js` | Your Supabase URL and anon key go here. |
 | `supabase/migrations/` | Database schema, row level security, photo storage bucket, realtime. |
 | `supabase/functions/qc/` | Edge Function that talks to the Claude API: identify photo parts, import a product page from a link, read listings, draft a standard from photos, run inspections. |
@@ -54,7 +56,7 @@ supabase functions deploy qc
 
 Without the CLI:
 1. Dashboard → SQL Editor → run each file in `supabase/migrations/`, one at a time, in filename order:
-   `20260930000000_init.sql`, `20260930000100_harden_functions.sql`, `20261001000000_arrival_checks.sql`, `20261001000100_factory_links.sql`, `20261001000200_sampled_inspection.sql`, `20261001000300_continuous_capture_and_decisions.sql`.
+   `20260930000000_init.sql`, `20260930000100_harden_functions.sql`, `20261001000000_arrival_checks.sql`, `20261001000100_factory_links.sql`, `20261001000200_sampled_inspection.sql`, `20261001000300_continuous_capture_and_decisions.sql`, `20261001000400_leads.sql`, `20261002000000_po_loading_receiving_defects.sql`.
 2. Dashboard → Edge Functions → Deploy a new function named `qc` → paste `supabase/functions/qc/index.ts`. Keep "Verify JWT" on (factory links still work: the page sends the public anon key, and the function checks the link token itself).
 3. Dashboard → Edge Functions → Secrets → add `ANTHROPIC_API_KEY`.
 
@@ -76,7 +78,9 @@ Dashboard → Authentication → URL Configuration. Set the Site URL to where th
 | --- | --- |
 | Code | https://github.com/ligengrui3368-boop/Defect-AI (branch `main`) |
 | Web app | https://ligengrui3368-boop.github.io/Defect-AI/ (GitHub Pages, deployed by `.github/workflows/pages.yml` on every push to `main` that touches `web/`) |
-| Backend | Supabase project `jkgevzgfacfqcjqxosnm`: all six migrations applied, `qc` Edge Function deployed with Verify JWT on |
+| Backend | Supabase project `jkgevzgfacfqcjqxosnm`: all migrations applied, `qc` Edge Function deployed with Verify JWT on |
+
+The deployed `qc` function is a one-line entry file that imports `supabase/functions/qc/index.ts` from a pinned GitHub commit (`raw.githubusercontent.com/.../<commit>/supabase/functions/qc/index.ts`), so what runs is byte-for-byte what is in the repo. After changing the function, commit it and redeploy with the new commit hash, or deploy `index.ts` directly with `supabase functions deploy qc`.
 
 To reproduce on a new Supabase project, follow Setup above, then change `web/config.js` to the new project's URL and anon key.
 
@@ -156,3 +160,13 @@ Links expire (60 days by default), cap at 500 units, and can be closed or reopen
 
 Database: `factory_links` (one row per product lot, with a random token), plus `inspections.factory_link_id` and `inspections.submitted_by`. See `supabase/migrations/20261001000100_factory_links.sql`.
 
+
+### Purchase orders, container loading and dock receiving
+The operations console (`ops.html`) follows each purchase order from the factory to your dock: **Ordered → In production → Inspected → Loaded → Received**.
+
+- **Purchase orders with many products.** Each line is a product with units, units per carton and cartons. Every line gets its own anti-cheat sampled inspection (a factory link with the PO number as the lot). The factory gets **one link for the whole order** (`po.html?t=…`), plus a ready-to-paste WeChat message in Chinese and English.
+- **Container loading check.** From the same link, the factory photographs seven stages live: empty container, container number, half loaded, fully loaded, carton marks (optional), doors sealed, seal close-up. It enters the container number (checked live against the ISO 6346 check digit), the seal number and the cartons loaded per product. Photos must be uploaded into that check's folder after it was started and within 12 hours. The AI reads the container and seal numbers from the photos, checks the container's condition, the stowage, the carton marks and photo authenticity. On top of that the server fails a short shipment, flags typed numbers that don't match the photos, and flags products loaded before their inspection passed.
+- **Dock receiving.** Photograph the seal before cutting it, count cartons received and damaged per product, and add each damaged carton with photos. The check reads the seal, compares it with the seal recorded at loading, and decides who is responsible for each gap: cartons short at loading are the factory's; cartons missing after loading with the same intact seal were most likely never loaded (factory); a broken or different seal points to the carrier. Each damaged carton is compared with the loading photos and tagged factory, carrier or unclear. **Copy claim summary** splits the issues by party.
+- **Defect codes.** Every finding (unit checks, loading, receiving) carries one of 33 codes from `public.defect_codes` (English and Chinese names, default severity). Older findings are mapped from their text. The **Defects** page ranks them (Pareto) by stage, period and supplier; **Suppliers** shows each factory's lots passed, units failed, containers passed, cartons short and damage attributed to the factory.
+
+Database: `purchase_orders` (with the factory hub `token`), `po_lines` (each with its `factory_links` row), `loading_checks`, `receipts`, `defect_codes`, and the `defect_findings` view (security invoker, so row level security applies). Loading checks are written only by the `qc` function (`po_*` tasks, token-scoped); receiving runs as the signed-in buyer (`receipt_check`).
