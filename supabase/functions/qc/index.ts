@@ -9,7 +9,10 @@
 //                   factory, transit or unclear.
 //   factory_*     – used by factory staff through a factory link (no account). The link's
 //                   token is checked here and the service role acts only inside that
-//                   link's workspace, product and lot.
+//                   link's workspace, product and lot. Anti-cheat: the factory locks the
+//                   lot size, the server draws a random AQL sample of carton/unit positions,
+//                   reveals them one at a time with a short capture window, and only accepts
+//                   photos uploaded to that pick's folder inside the window.
 // For every other task the caller's JWT is forwarded, so row level security applies.
 
 import { createClient, SupabaseClient } from "npm:@supabase/supabase-js@2";
@@ -20,7 +23,8 @@ const MODEL_CAREFUL = Deno.env.get("QC_MODEL_CAREFUL") ?? "claude-opus-5-5";
 const MODEL_QUICK = Deno.env.get("QC_MODEL_QUICK") ?? "claude-haiku-4-5-20251001";
 const MAX_IMAGES = Number(Deno.env.get("QC_MAX_IMAGES_PER_CALL") ?? "16");
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const MAX_FACTORY_PHOTOS = 24;
+const MAX_FACTORY_PHOTOS = 12;
+const PICK_GRACE_S = 90; // upload and identify latency allowed past the window
 
 export const WATCH = ["Scratches", "Dents", "Cracks or chips", "Stains or marks", "Color mismatch", "Missing parts", "Loose or bent parts", "Logo or print errors", "Wrong label", "Packaging damage", "Rust or corrosion", "Burrs or sharp edges", "Loose threads", "Bubbles or warping"];
 export const VIEWS = ["Front", "Back", "Top", "Bottom", "Side", "Label", "Packaging", "Close-up"];
@@ -106,7 +110,7 @@ function describePrompt(n: number) {
 JSON: {"name":"short product name","material":"","colors":"","finish":"Matte|Satin|Glossy|Textured|Brushed|Mixed|","good_looks":"","must_have":[],"allowed_variation":[],"watch_for":["pick from: ${WATCH.join(", ")}"],"images":[{"index":1,"view":"","part":""}]}`;
 }
 
-export function inspectPrompt(p: any, refs: Photo[], units: Photo[], all: Photo[], before: Photo[] = [], ev: Before | null = null, zh = false) {
+export function inspectPrompt(p: any, refs: Photo[], units: Photo[], all: Photo[], before: Photo[] = [], ev: Before | null = null, zh = false, pick: { carton: number; unit_pos: number } | null = null) {
   const s = p.spec ?? {};
   const L: string[] = [];
   const arrival = !!ev;
@@ -158,7 +162,9 @@ export function inspectPrompt(p: any, refs: Photo[], units: Photo[], all: Photo[
   "factory" when the same problem is visible in the factory photos of this same unit, the factory check of this same unit lists it, or it is a manufacturing fault that shipping cannot cause (wrong or misprinted label, wrong color, wrong or missing part, molding or assembly fault).
   "transit" when factory photos of this same unit show that part clean, or it is typical shipping and handling damage (crush, dent, puncture, tear, water, breakage, leak, scuffs) and nothing in the factory record or factory photos shows it. A problem that the factory found on OTHER units of the lot is a hint, not proof, for this unit.
   "unclear" when you cannot tell. Factory photos of OTHER units only show how the lot looked; they cannot prove this unit was clean, so lean towards "unclear" unless the type of damage itself makes the origin obvious.
-- "origin_summary": one or two plain sentences on where the problems most likely happened and what the evidence is. If there are no defects, say the unit arrived in the same condition it left the factory.` : ""}
+- "origin_summary": one or two plain sentences on where the problems most likely happened and what the evidence is. If there are no defects, say the unit arrived in the same condition it left the factory.` : ""}${zh ? `
+- Photo authenticity: these photos were sent by the factory being inspected. Add a check "Photo authenticity": fail if any photo looks like a photo of a screen or of a printed picture, a product render or stock image, or digitally edited or composited; otherwise pass. If it fails, the verdict cannot be PASS (use REVIEW).` : ""}${pick ? `
+- Random sample: the system randomly chose carton ${pick.carton}, unit ${pick.unit_pos} for this check. Cartons are marked with their number. Add a check "Carton number": pass if a photo clearly shows carton number ${pick.carton}; fail if a photo shows a different carton number; unclear if no carton number is visible. If it is fail or unclear, the verdict cannot be PASS (use RETAKE if the number is simply not visible, REVIEW if it is a different number).` : ""}
 JSON:
 {"verdict":"PASS|FAIL|REVIEW|RETAKE","summary":"one or two plain sentences","photo_quality":{"ok":true,"issues":["..."]},"checks":[{"item":"...","result":"pass|fail|unclear","note":"short"}],"defects":[{"type":"short name","where":"plain location on the product","photo":1,"box":[x,y,w,h],"size_estimate_mm":null,"severity":"critical|major|minor","within_spec":false,"confidence":0.8${arrival ? ',"origin":"factory|transit|unclear","origin_reason":"short"' : ""}}],"more_photos":[{"part":"what to photograph","why":"what it would settle"}]${arrival ? ',"origin_summary":""' : ""}${zh ? ',"zh":{"summary":"","defects":[""],"more":[""]}' : ""}}
 ${zh ? `"zh" is for factory workers who read Chinese: zh.summary is the summary in simplified Chinese; zh.defects has one simplified-Chinese line per defect, same order, written as "问题 — 位置"; zh.more has one line per more_photos item, same order, written as "拍什么 — 原因".
@@ -280,6 +286,7 @@ async function taskInspect(sb: SupabaseClient, inspectionId: string) {
     if (!units.length) throw new Error("No photos to check");
     const arrival = ins.stage === "arrival";
     const ev = arrival ? await factoryEvidence(sb, ins) : null;
+    const pick = ins.pick_id ? (await sb.from("factory_picks").select("carton, unit_pos").eq("id", ins.pick_id).maybeSingle()).data : null;
     const pool = refPool(product?.photos ?? []);
     const beforeCap = ev ? Math.min(ev.photos.length, 4) : 0;
     const refCap = Math.min(pool.length, arrival ? 3 : 4, MAX_IMAGES - beforeCap - 1), per = Math.max(1, MAX_IMAGES - refCap - beforeCap);
@@ -292,7 +299,7 @@ async function taskInspect(sb: SupabaseClient, inspectionId: string) {
       const before = ev ? byView(ev.photos, want).slice(0, Math.min(beforeCap, MAX_IMAGES - batch.length)) : [];
       const refs = byView(pool, want).slice(0, Math.max(0, Math.min(refCap, MAX_IMAGES - batch.length - before.length)));
       const imgs = await loadImages(sb, [...refs, ...before, ...batch].map((x) => x.path));
-      const r = await askJson(inspectPrompt(p, refs, batch, units, before, ev, !!ins.factory_link_id), imgs, model, 6000);
+      const r = await askJson(inspectPrompt(p, refs, batch, units, before, ev, !!ins.factory_link_id, pick), imgs, model, 6000);
       parts.push({ ai: normalize(r, batch.length, arrival), offset: i });
     }
     const ai = merge(parts);
@@ -405,6 +412,76 @@ function publicUnit(r: any) {
     photos: (r.photos ?? []).map((p: Photo) => ({ path: p.path, view: p.view ?? "", part: p.part ?? "" })),
     ai: a ? { verdict: a.verdict, summary: a.summary, photoOk: a.photoOk, photoIssues: a.photoIssues ?? [], checks: a.checks ?? [], defects: a.defects ?? [], more: a.more ?? [], zh: a.zh ?? null } : null };
 }
+async function latestSession(admin: SupabaseClient, link: any) {
+  const { data } = await admin.from("factory_sessions").select("*").eq("link_id", link.id).neq("status", "cancelled").order("created_at", { ascending: false }).limit(1);
+  if (!data || !data.length) return null;
+  let ses = data[0];
+  if (ses.status === "sampling") {
+    const { count } = await admin.from("factory_picks").select("id", { count: "exact", head: true }).eq("session_id", ses.id).in("status", ["pending", "issued"]);
+    if (!count) return await finalize(admin, ses);
+  }
+  return await sessionState(admin, ses);
+}
+// ---------- sampling (ANSI/ASQ Z1.4 single sampling, general level II, AQL 2.5 for major defects) ----------
+const AQL: [number, number, number][] = [[50, 8, 0], [90, 13, 1], [150, 20, 1], [280, 32, 2], [500, 50, 3], [1200, 80, 5], [3200, 125, 7], [10000, 200, 10], [35000, 315, 14], [Infinity, 500, 21]];
+export function aqlPlan(lot: number) { const row = AQL.find((r) => lot <= r[0])!; return { n: Math.min(row[1], lot), ac: row[2] }; }
+function randInt(max: number) { const a = new Uint32Array(1); const lim = Math.floor(0x100000000 / max) * max; do crypto.getRandomValues(a); while (a[0] >= lim); return a[0] % max; }
+export function randomSample(total: number, n: number): number[] {
+  const out: number[] = [], seen = new Set<number>();
+  while (out.length < n) { const u = randInt(total) + 1; if (!seen.has(u)) { seen.add(u); out.push(u); } }
+  return out;
+}
+const newToken = () => [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
+async function activeSession(admin: SupabaseClient, link: any) {
+  const { data } = await admin.from("factory_sessions").select("*").eq("link_id", link.id).eq("status", "sampling").order("created_at", { ascending: false }).limit(1);
+  if (!data || !data.length) throw new HttpError(409, "Start the inspection first: enter the lot size.");
+  return data[0];
+}
+// The issued pick, or the next one. A pick whose window ran out is recorded as missed and replaced by a new random unit.
+async function currentPick(admin: SupabaseClient, ses: any): Promise<any> {
+  const { data: picks } = await admin.from("factory_picks").select("*").eq("session_id", ses.id).order("seq");
+  const all = picks ?? [];
+  const now = Date.now();
+  for (const pk of all.filter((x: any) => x.status === "issued")) {
+    if (now <= new Date(pk.expires_at).getTime() + PICK_GRACE_S * 1000) return pk;
+    await admin.from("factory_picks").update({ status: "missed", token: null }).eq("id", pk.id);
+    pk.status = "missed";
+    const used = new Set(all.map((x: any) => (x.carton - 1) * ses.units_per_carton + x.unit_pos));
+    if (used.size < ses.total_units) {
+      let u = 0; do u = randInt(ses.total_units) + 1; while (used.has(u));
+      const seq = Math.max(...all.map((x: any) => x.seq)) + 1;
+      const { data: added } = await admin.from("factory_picks").insert({ session_id: ses.id, workspace_id: ses.workspace_id, seq, carton: Math.floor((u - 1) / ses.units_per_carton) + 1, unit_pos: ((u - 1) % ses.units_per_carton) + 1 }).select().single();
+      if (added) all.push(added);
+    }
+  }
+  const next = all.filter((x: any) => x.status === "pending").sort((a: any, b: any) => a.seq - b.seq)[0];
+  if (!next) return null;
+  const { data: issued } = await admin.from("factory_picks").update({ status: "issued", token: newToken(), issued_at: new Date().toISOString(), expires_at: new Date(now + ses.window_seconds * 1000).toISOString() }).eq("id", next.id).eq("status", "pending").select().single();
+  return issued;
+}
+const publicPick = (pk: any, ses: any) => ({ seq: pk.seq, carton: pk.carton, unit_pos: pk.unit_pos, token: pk.token, expires_at: pk.expires_at, attempts: pk.attempts, of: ses.sample_size });
+async function sessionState(admin: SupabaseClient, ses: any) {
+  const { data: picks } = await admin.from("factory_picks").select("status, verdict").eq("session_id", ses.id);
+  const c = (f: (x: any) => boolean) => (picks ?? []).filter(f).length;
+  return { id: ses.id, total_units: ses.total_units, cartons: ses.cartons, units_per_carton: ses.units_per_carton, sample_size: ses.sample_size, window_seconds: ses.window_seconds,
+    status: ses.status, result: ses.result, done: c((x) => x.status === "done"), missed: c((x) => x.status === "missed"), failed: c((x) => x.status === "done" && x.verdict === "FAIL") };
+}
+async function finalize(admin: SupabaseClient, ses: any) {
+  if (ses.status === "sampling") {
+    const { data: picks } = await admin.from("factory_picks").select("status, verdict, inspection_id").eq("session_id", ses.id);
+    const done = (picks ?? []).filter((x: any) => x.status === "done");
+    const ids = done.map((x: any) => x.inspection_id).filter(Boolean);
+    const { data: ins } = ids.length ? await admin.from("inspections").select("ai").in("id", ids) : { data: [] as any[] };
+    const critical = (ins ?? []).some((r: any) => (r.ai?.defects ?? []).some((d: any) => !d.inSpec && d.severity === "critical"));
+    const fails = done.filter((x: any) => x.verdict === "FAIL").length;
+    const unsure = done.filter((x: any) => x.verdict !== "PASS" && x.verdict !== "FAIL").length + (picks ?? []).filter((x: any) => x.status === "missed").length;
+    const result = critical || fails > ses.accept_major ? "FAIL" : unsure ? "REVIEW" : "PASS";
+    const { data: upd } = await admin.from("factory_sessions").update({ status: "done", result, finished_at: new Date().toISOString() }).eq("id", ses.id).eq("status", "sampling").select().single();
+    if (upd) ses = upd;
+  }
+  return await sessionState(admin, ses);
+}
+
 async function factoryTask(task: string, body: any) {
   if (!SERVICE_KEY) throw new HttpError(500, "Server is missing SUPABASE_SERVICE_ROLE_KEY.");
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, SERVICE_KEY, { auth: { persistSession: false } });
@@ -420,40 +497,79 @@ async function factoryTask(task: string, body: any) {
       product: { name: product.name, sku: product.sku ?? "", version: product.version,
         spec: { material: s.material ?? "", colors: s.colors ?? "", finish: s.finish ?? "", dims: s.dims ?? {}, tol: s.tol ?? "", packaging: s.packaging ?? "", inBox: s.inBox ?? "", goodLooks: s.goodLooks ?? "", mustHave: s.mustHave ?? "", allowed: s.allowed ?? "", watch: s.watch ?? [], minDefectMm: s.minDefectMm ?? "", views: s.views ?? [] },
         photos: refs.map((r) => ({ path: r.path, view: r.view ?? "", part: r.part ?? "", origin: r.origin ?? "unit" })) },
-      units, urls,
+      units, urls, session: await latestSession(admin, link),
     };
   }
+  if (task === "factory_session_start") {
+    const total = Math.floor(+body.total_units), cartons = Math.floor(+body.cartons), per = Math.floor(+body.units_per_carton);
+    if (!(total >= 1 && total <= 500000 && cartons >= 1 && per >= 1)) throw new HttpError(400, "Enter the total units, number of cartons and units per carton.");
+    if (total > cartons * per || total <= (cartons - 1) * per) throw new HttpError(400, `${cartons} cartons of ${per} cannot hold ${total} units. Check the numbers.`);
+    const { data: existing } = await admin.from("factory_sessions").select("id, status").eq("link_id", link.id).in("status", ["sampling", "done"]).limit(1);
+    if (existing && existing.length) throw new HttpError(409, "This lot is already locked. Ask the buyer if it needs to be inspected again.");
+    const plan = aqlPlan(total);
+    const { data: ses, error } = await admin.from("factory_sessions").insert({ link_id: link.id, workspace_id: link.workspace_id, product_id: link.product_id, lot: link.lot,
+      total_units: total, cartons, units_per_carton: per, sample_size: plan.n, accept_major: plan.ac }).select().single();
+    if (error || !ses) throw new HttpError(500, "Could not lock the lot: " + (error?.message ?? ""));
+    const idx = randomSample(total, plan.n);
+    const rows = idx.map((u, k) => ({ session_id: ses.id, workspace_id: link.workspace_id, seq: k + 1, carton: Math.floor((u - 1) / per) + 1, unit_pos: ((u - 1) % per) + 1 }));
+    for (let i = 0; i < rows.length; i += 200) { const { error: e2 } = await admin.from("factory_picks").insert(rows.slice(i, i + 200)); if (e2) throw new HttpError(500, "Could not draw the sample: " + e2.message); }
+    return { session: await sessionState(admin, ses) };
+  }
+  if (task === "factory_pick_next") {
+    const ses = await activeSession(admin, link);
+    const cur = await currentPick(admin, ses);
+    return cur ? { session: await sessionState(admin, ses), pick: publicPick(cur, ses) } : { session: await finalize(admin, ses) };
+  }
+  const pickOf = async () => {
+    const ses = await activeSession(admin, link);
+    const { data: pk } = await admin.from("factory_picks").select("*").eq("session_id", ses.id).eq("token", String(body.pick_token ?? "")).eq("status", "issued").maybeSingle();
+    if (!pk) throw new HttpError(409, "This unit's photo window is closed. Tap Next unit.");
+    if (Date.now() > new Date(pk.expires_at).getTime() + PICK_GRACE_S * 1000) throw new HttpError(409, "Time ran out for this unit. It has been recorded as missed. Tap Next unit.");
+    return { ses, pk, folder: `${linkPrefix(link)}picks/${pk.id}/` };
+  };
   if (task === "factory_upload") {
-    const n = Math.min(Math.max(1, +body.n || 1), 12); const out: any[] = [];
-    for (let i = 0; i < n; i++) {
-      const path = `${linkPrefix(link)}${crypto.randomUUID()}.jpg`;
-      const { data, error } = await admin.storage.from("photos").createSignedUploadUrl(path);
-      if (error || !data) throw new HttpError(500, "Could not prepare the upload: " + (error?.message ?? ""));
-      out.push({ path, token: data.token });
-    }
-    return { uploads: out };
+    const { pk, folder } = await pickOf();
+    if (Date.now() > new Date(pk.expires_at).getTime()) throw new HttpError(409, "Time ran out for this unit. Tap Next unit.");
+    const path = `${folder}${crypto.randomUUID()}.jpg`;
+    const { data, error } = await admin.storage.from("photos").createSignedUploadUrl(path);
+    if (error || !data) throw new HttpError(500, "Could not prepare the upload: " + (error?.message ?? ""));
+    return { uploads: [{ path, token: data.token }] };
   }
   if (task === "factory_identify") {
-    const paths = ownPaths(link, body.paths).slice(0, MAX_FACTORY_PHOTOS);
+    const { folder } = await pickOf();
+    const paths = (Array.isArray(body.paths) ? body.paths : []).map(String).slice(0, MAX_FACTORY_PHOTOS);
+    if (paths.some((x: string) => !x.startsWith(folder) || x.includes(".."))) throw new HttpError(403, "Photo does not belong to this unit.");
     return { photos: await identifyPaths(admin, { name: product.name, colors: product.spec?.colors }, paths) };
   }
   if (task === "factory_submit") {
+    const { ses, pk, folder } = await pickOf();
     const photos = (Array.isArray(body.photos) ? body.photos : []).slice(0, MAX_FACTORY_PHOTOS)
       .map((p: any) => ({ path: String(p?.path ?? ""), view: String(p?.view ?? "").slice(0, 30), part: String(p?.part ?? "").slice(0, 40), quality: String(p?.quality ?? "").slice(0, 20) }));
-    ownPaths(link, photos.map((p: Photo) => p.path));
-    if (!photos.length) throw new HttpError(400, "Add at least one photo.");
-    const { count } = await admin.from("inspections").select("id", { count: "exact", head: true }).eq("factory_link_id", link.id);
-    if ((count ?? 0) >= link.max_units) throw new HttpError(429, "This link has reached its unit limit. Ask the buyer to raise it.");
+    if (!photos.length) throw new HttpError(400, "Take at least one photo.");
+    if (photos.some((p: Photo) => !p.path.startsWith(folder) || p.path.includes(".."))) throw new HttpError(403, "Photo does not belong to this unit.");
+    // Every photo must have been uploaded into this pick's folder after the pick was revealed.
+    const { data: listed } = await admin.storage.from("photos").list(folder.replace(/\/$/, ""), { limit: 100 });
+    const made = new Map((listed ?? []).map((o: any) => [folder + o.name, new Date(o.created_at).getTime()]));
+    const issued = new Date(pk.issued_at).getTime() - 5000;
+    if (photos.some((p: Photo) => !made.has(p.path) || (made.get(p.path) as number) < issued)) throw new HttpError(403, "Photos must be taken live for this unit.");
     const { data: row, error } = await admin.from("inspections").insert({
       workspace_id: link.workspace_id, product_id: product.id, product_name: product.name, product_version: product.version, spec_snapshot: product.spec,
-      lot: link.lot, unit: String(body.unit ?? "").slice(0, 40) || null, photos, status: "pending", stage: "factory",
-      factory_link_id: link.id, submitted_by: String(body.worker ?? "").slice(0, 60) || null,
+      lot: link.lot, unit: `C${pk.carton}-U${pk.unit_pos}`, photos, status: "pending", stage: "factory",
+      factory_link_id: link.id, submitted_by: String(body.worker ?? "").slice(0, 60) || null, session_id: ses.id, pick_id: pk.id,
     }).select().single();
     if (error || !row) throw new HttpError(500, "Could not save the check: " + (error?.message ?? ""));
+    await admin.from("factory_picks").update({ attempts: pk.attempts + 1, submitted_at: new Date().toISOString(), inspection_id: row.id }).eq("id", pk.id);
     let done: any = row;
     try { done = await taskInspect(admin, row.id); } catch { done = (await admin.from("inspections").select("*").eq("id", row.id).single()).data ?? row; }
     const u = publicUnit(done);
-    return { unit: u, urls: await signMap(admin, u.photos.map((p: any) => p.path)) };
+    let retake: any = null;
+    if (done.verdict === "RETAKE" && pk.attempts + 1 < 3) {
+      const { data: again } = await admin.from("factory_picks").update({ token: newToken(), issued_at: new Date().toISOString(), expires_at: new Date(Date.now() + ses.window_seconds * 1000).toISOString() }).eq("id", pk.id).select().single();
+      retake = again ? publicPick(again, ses) : null;
+    } else {
+      await admin.from("factory_picks").update({ status: "done", token: null, verdict: done.verdict ?? "ERROR" }).eq("id", pk.id);
+    }
+    return { unit: u, urls: await signMap(admin, u.photos.map((p: any) => p.path)), retake, session: await sessionState(admin, ses) };
   }
   if (task === "factory_retry") {
     const { data: r } = await admin.from("inspections").select("*").eq("id", String(body.id ?? "")).eq("factory_link_id", link.id).maybeSingle();
