@@ -44,7 +44,8 @@ table{width:100%;border-collapse:collapse;font-size:14px}td{padding:6px 8px;bord
 .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 details summary{cursor:pointer;font-weight:700}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:10px 16px;border-radius:10px;font-weight:600;z-index:9}
-</style></head><body>
+</style><script>/* Browsers keep pages for up to 10 minutes. If the server has a newer copy, reload once. */(function(){try{fetch(location.pathname,{method:'HEAD',cache:'no-store'}).then(function(r){var lm=r.headers.get('last-modified');if(!lm)return;var k='dc-fresh:'+location.pathname;if(new Date(lm).getTime()-new Date(document.lastModified).getTime()>1000&&sessionStorage.getItem(k)!==lm){sessionStorage.setItem(k,lm);location.reload();}}).catch(function(){});}catch(e){}})();</script>
+</head><body>
 <div class="top"><div class="brand"><i aria-hidden="true"></i>Defect Check</div><div class="who" id="who"></div></div>
 <main id="app"><p class="mut">Loading your portal…</p></main>
 <script>
@@ -54,7 +55,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const app = document.getElementById('app'); const $ = (id) => document.getElementById(id);
 const fmt = (n, d = 2) => n == null || isNaN(n) ? '—' : Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 const usd = (n, d = 2) => n == null ? '—' : '$' + fmt(n, d);
-const dt = (s) => s ? new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+const dt = (s) => s ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? s + 'T00:00' : s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
 const STATUSES = ['intake', 'sourcing', 'shortlisted', 'negotiating', 'quoted', 'approved', 'ordered', 'closed'];
 const SLABEL = { intake: 'Received', sourcing: 'Finding factories', shortlisted: 'Shortlist', negotiating: 'Negotiating', quoted: 'Quote ready', approved: 'Approved', ordered: 'In production', closed: 'Done' };
 const EXPLAIN = { intake: 'We received your request and are structuring the spec. We may send you a few questions.', sourcing: 'Our agents are searching 1688 and other sources for factories that can make this, and checking they are real manufacturers.', shortlisted: 'Factories are shortlisted. We are contacting the best fits.', negotiating: 'We are negotiating price, MOQ, lead time and payment terms with the factories.', quoted: 'Your landed-cost quote is ready below. Every cost line is shown.', approved: 'You approved the quote. We are placing the order.', ordered: 'In production. Before the balance is paid, randomly sampled units are photo-inspected against your spec.', closed: 'This request is complete.' };
