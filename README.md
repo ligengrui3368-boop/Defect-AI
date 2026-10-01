@@ -54,7 +54,7 @@ supabase functions deploy qc
 
 Without the CLI:
 1. Dashboard → SQL Editor → run each file in `supabase/migrations/`, one at a time, in filename order:
-   `20260930000000_init.sql`, `20260930000100_harden_functions.sql`, `20261001000000_arrival_checks.sql`, `20261001000100_factory_links.sql`.
+   `20260930000000_init.sql`, `20260930000100_harden_functions.sql`, `20261001000000_arrival_checks.sql`, `20261001000100_factory_links.sql`, `20261001000200_sampled_inspection.sql`.
 2. Dashboard → Edge Functions → Deploy a new function named `qc` → paste `supabase/functions/qc/index.ts`. Keep "Verify JWT" on (factory links still work: the page sends the public anon key, and the function checks the link token itself).
 3. Dashboard → Edge Functions → Secrets → add `ANTHROPIC_API_KEY`.
 
@@ -76,7 +76,7 @@ Dashboard → Authentication → URL Configuration. Set the Site URL to where th
 | --- | --- |
 | Code | https://github.com/ligengrui3368-boop/Defect-AI (branch `main`) |
 | Web app | https://ligengrui3368-boop.github.io/Defect-AI/ (GitHub Pages, deployed by `.github/workflows/pages.yml` on every push to `main` that touches `web/`) |
-| Backend | Supabase project `jkgevzgfacfqcjqxosnm`: all four migrations applied, `qc` Edge Function deployed with Verify JWT on |
+| Backend | Supabase project `jkgevzgfacfqcjqxosnm`: all five migrations applied, `qc` Edge Function deployed with Verify JWT on |
 
 To reproduce on a new Supabase project, follow Setup above, then change `web/config.js` to the new project's URL and anon key.
 
@@ -87,10 +87,10 @@ To reproduce on a new Supabase project, follow Setup above, then change `web/con
 **End to end (uses API credit, about 5–10 cents per unit):**
 1. Set up a product with a few good-unit photos. Views: Front, Back, Top.
 2. On the product page, **Send a link to a factory**, lot `TEST-1`. Open the link on a phone.
-3. Enter unit `1`, photograph a good unit, submit. Expect 合格 (PASS) with a Chinese summary.
-4. Make a visible mark on the same unit, submit as unit `2`. Expect 不合格 (FAIL) with the mark boxed and described in Chinese.
-5. Back in the buyer app, open **Lot TEST-1** on the product page. Both units are listed under *At the factory*, tagged *Factory*.
-6. Tap **Check a unit on arrival**, enter unit `1`, photograph it with a new dent or crushed box. Expect *Damaged in transit*, with factory and arrival photos side by side.
+3. Number a few cartons, enter the lot (for example 40 units in 4 cartons of 10) and lock it. The page shows the first random pick and a countdown.
+4. Open the camera, photograph the open carton with its number and the unit, submit. Expect 合格 (PASS) with a Chinese summary; a wrong or missing carton number gives 待复核 or 需重拍.
+5. Back in the buyer app, the product page shows the sampling progress live; open **Sampling log** to see every pick and its timing.
+6. On arrival, tap **Check a unit on arrival** on the lot report and enter the unit as `C<carton>-U<unit>` (for example `C2-U2`). Expect *Damaged in transit* if you added new damage, with factory and arrival photos side by side.
 7. Clean up: close the link on the product page and delete the test checks (or the test product).
 
 ## Costs and limitations
@@ -126,8 +126,22 @@ Each product page lists its **lots**. A lot report shows factory and arrival che
 
 Database: `inspections.stage` (`factory` | `arrival`), `origin_id` (the matched factory check), `damage_origin` (`none` | `factory` | `transit` | `both` | `unclear`). See `supabase/migrations/20261001000000_arrival_checks.sql`.
 
+### Anti-cheat sampling (factory links)
+Factories can't choose which units you see, and can't reuse or upload old photos.
+
+1. **Lock the lot.** The factory numbers every carton with a marker, then enters total units, cartons and units per carton. The numbers are locked; a second attempt is refused unless you press *Cancel and resample*.
+2. **Server-drawn random sample.** The server draws a random sample of carton/unit positions using ANSI/ASQ Z1.4 general level II, AQL 2.5 for major defects (for example 1,000 units → 80 checked, lot passes with ≤ 5 failed). Any critical defect fails the lot.
+3. **One unit at a time, against the clock.** Each pick ("carton 7, unit 3") is revealed only when the factory asks for the next unit, with 8 minutes to photograph it. Asking again returns the same pick, so there is no re-rolling. A pick that runs out of time is recorded as **missed** and replaced by a new random unit; any missed pick puts the lot in REVIEW.
+4. **Live camera only.** The factory page has no photo library, paste or drag-and-drop: photos come from the in-page camera. On the server, each pick has its own upload folder and token; a photo is accepted only if it was uploaded into that pick's folder after the pick was revealed. Old photos, other units' photos and forged paths are rejected.
+5. **AI checks the evidence.** Every factory photo is checked for authenticity (photo of a screen or print, render, edited image → REVIEW) and must show the picked carton's number (wrong number → REVIEW, not visible → RETAKE, up to 3 tries).
+6. **Lot result and audit trail.** When the sample is done the lot is PASS, FAIL or REVIEW. The buyer sees progress live on the product page and a **Sampling log** with every pick, when it was shown, when it was submitted, how long it took, and its verdict.
+
+Known limits: units within a carton are chosen by position ("unit 3, counting from the top layer"), which a worker could fudge; a determined attacker who bypasses the app could still upload a fresh image inside a pick's window. Next steps on the roadmap: per-carton QR labels, duplicate-photo detection, and a factory trust score from arrival checks.
+
+Database: `factory_sessions` (the locked lot and AQL plan) and `factory_picks` (every drawn unit with its window, attempts and verdict), plus `inspections.session_id` and `inspections.pick_id`. See `supabase/migrations/20261001000200_sampled_inspection.sql`.
+
 ### Factory links (factory staff, no account)
-On a product page, tap **Send a link to a factory**, enter the lot/PO number, and send the link (the app copies a ready-made Chinese/English message for WeChat or email). Factory staff open it on a phone. The page is in Chinese with an English switch. They see your standard, enter a unit number, photograph the unit, and get the result (合格 / 不合格 / 待复核 / 需重拍) with findings in Chinese. Each submission is saved as a factory check in your workspace and shows up live in your lot report, ready to be matched by arrival checks later.
+On a product page, tap **Send a link to a factory**, enter the lot/PO number, and send the link (the app copies a ready-made Chinese/English message for WeChat or email). Factory staff open it on a phone. The page is in Chinese with an English switch. They see your standard, lock the lot size, and photograph the units the system picks at random (see *Anti-cheat sampling* above). Each unit gets a result (合格 / 不合格 / 待复核 / 需重拍) with findings in Chinese. Each submission is saved as a factory check in your workspace and shows up live in your lot report, ready to be matched by arrival checks later.
 
 Links expire (60 days by default), cap at 500 units, and can be closed or reopened from the product page. Photos uploaded through a link can only land in that link's folder, and the link can only read its own product and checks. Every submitted unit uses your Anthropic API credit.
 
