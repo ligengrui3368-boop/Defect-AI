@@ -3,8 +3,14 @@
 //   describe      – draft a standard from photos of a good unit
 //   read_listing  – draft a standard from pasted listing text and screenshots
 //   import_url    – fetch an official product page, save its images, draft a standard
-//   inspect       – run a check on a saved inspection and write the result back
-// The caller's JWT is forwarded, so row level security applies to every read and write.
+//   inspect       – run a check on a saved inspection and write the result back.
+//                   Arrival checks (stage = arrival) are also compared with the factory
+//                   check of the same unit or lot, and each finding gets an origin:
+//                   factory, transit or unclear.
+//   factory_*     – used by factory staff through a factory link (no account). The link's
+//                   token is checked here and the service role acts only inside that
+//                   link's workspace, product and lot.
+// For every other task the caller's JWT is forwarded, so row level security applies.
 
 import { createClient, SupabaseClient } from "npm:@supabase/supabase-js@2";
 
@@ -13,6 +19,8 @@ const MODEL_INSPECT = Deno.env.get("QC_MODEL") ?? "claude-sonnet-5-5";
 const MODEL_CAREFUL = Deno.env.get("QC_MODEL_CAREFUL") ?? "claude-opus-5-5";
 const MODEL_QUICK = Deno.env.get("QC_MODEL_QUICK") ?? "claude-haiku-4-5-20251001";
 const MAX_IMAGES = Number(Deno.env.get("QC_MAX_IMAGES_PER_CALL") ?? "16");
+const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const MAX_FACTORY_PHOTOS = 24;
 
 export const WATCH = ["Scratches", "Dents", "Cracks or chips", "Stains or marks", "Color mismatch", "Missing parts", "Loose or bent parts", "Logo or print errors", "Wrong label", "Packaging damage", "Rust or corrosion", "Burrs or sharp edges", "Loose threads", "Bubbles or warping"];
 export const VIEWS = ["Front", "Back", "Top", "Bottom", "Side", "Label", "Packaging", "Close-up"];
@@ -26,6 +34,8 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 type Img = { data: string; media_type: string };
 type Photo = { path: string; view?: string; part?: string; origin?: string; kind?: string; quality?: string };
+type Before = { photos: Photo[]; sameUnit: boolean; origin: any; text: string[] };
+export const TRANSIT_WATCH = ["Crushed or torn carton", "Wet or stained packaging", "Punctures", "Dents", "Breakage", "Leaks", "Contents shifted or missing"];
 
 // ---------- Claude ----------
 async function askJson(prompt: string, images: Img[], model: string, maxTokens = 4000): Promise<any> {
@@ -96,16 +106,28 @@ function describePrompt(n: number) {
 JSON: {"name":"short product name","material":"","colors":"","finish":"Matte|Satin|Glossy|Textured|Brushed|Mixed|","good_looks":"","must_have":[],"allowed_variation":[],"watch_for":["pick from: ${WATCH.join(", ")}"],"images":[{"index":1,"view":"","part":""}]}`;
 }
 
-function inspectPrompt(p: any, refs: Photo[], units: Photo[], all: Photo[]) {
+export function inspectPrompt(p: any, refs: Photo[], units: Photo[], all: Photo[], before: Photo[] = [], ev: Before | null = null, zh = false) {
   const s = p.spec ?? {};
   const L: string[] = [];
+  const arrival = !!ev;
   L.push("You are a strict but fair quality-control inspector working for an online seller who buys from a factory. Decide whether the unit in the photos matches the seller's approved standard and is free of defects.");
+  if (arrival) L.push("This is an ARRIVAL CHECK: the unit was made and shipped by the factory and has just been received at the buyer's warehouse. Besides checking it against the standard, you must decide WHERE each problem most likely happened: at the FACTORY (before shipping) or in TRANSIT (shipping, handling, storage). The result is used as evidence in claims against the factory or the freight carrier, so be careful and honest about uncertainty.");
   const label = (u: Photo) => u.part || u.view || "unspecified";
+  let n = 0;
   if (refs.length) {
     L.push("REFERENCE images (what a good unit looks like):");
-    refs.forEach((r, k) => L.push(`- Image ${k + 1}: ${r.origin === "official" ? "OFFICIAL listing image from the brand. It may be a studio render or retouched: use it for shape, color, parts, logo and layout, and ignore its lighting, background, props and perfect surfaces" : "photo of a real APPROVED unit"} (shows: ${label(r)}).`));
-    L.push(`${units.length > 1 ? `Images ${refs.length + 1}–${refs.length + units.length} show` : `Image ${refs.length + 1} shows`} the UNIT UNDER INSPECTION (in order: ${units.map(label).join("; ")}).`);
-  } else L.push(`There are no reference images. All ${units.length} images show the UNIT UNDER INSPECTION (in order: ${units.map(label).join("; ")}).`);
+    refs.forEach((r) => L.push(`- Image ${++n}: ${r.origin === "official" ? "OFFICIAL listing image from the brand. It may be a studio render or retouched: use it for shape, color, parts, logo and layout, and ignore its lighting, background, props and perfect surfaces" : "photo of a real APPROVED unit"} (shows: ${label(r)}).`));
+  }
+  if (before.length) {
+    L.push(`FACTORY images, taken at the factory BEFORE shipping, of ${ev?.sameUnit ? "THIS SAME UNIT" : "OTHER units from the same lot (not this exact unit; they only show how the lot looked when it left the factory)"}:`);
+    before.forEach((b) => L.push(`- Image ${++n}: factory photo (shows: ${label(b)}).`));
+  }
+  if (n) L.push(`${units.length > 1 ? `Images ${n + 1}–${n + units.length} show` : `Image ${n + 1} shows`} the UNIT UNDER INSPECTION${arrival ? " as received" : ""} (in order: ${units.map(label).join("; ")}).`);
+  else L.push(`There are no reference images. All ${units.length} images show the UNIT UNDER INSPECTION${arrival ? " as received" : ""} (in order: ${units.map(label).join("; ")}).`);
+  if (arrival && ev) {
+    L.push("FACTORY RECORD:");
+    (ev.text.length ? ev.text : ["No factory check was found for this unit or lot."]).forEach((t) => L.push("- " + t));
+  }
   if (all.length > units.length) {
     const others = [...new Set(all.filter((u) => !units.includes(u)).map(label))];
     L.push(`These are ${units.length} of ${all.length} photos of this unit; the rest are checked separately${others.length ? ` and show: ${others.join("; ")}` : ""}. Judge only what these photos show, mark items they don't show as "unclear", and never ask for more photos of parts the other photos already show.`);
@@ -120,7 +142,7 @@ function inspectPrompt(p: any, refs: Photo[], units: Photo[], all: Photo[]) {
   add("Official listing URL", p.source_url); add("A good unit", s.goodLooks);
   add("Must have (missing or wrong = fail)", lines(s.mustHave).join("; "));
   add("Allowed variation (do NOT flag these)", lines(s.allowed).join("; "));
-  add("Watch especially for", (s.watch ?? []).join(", "));
+  add("Watch especially for", [...new Set([...(s.watch ?? []), ...(arrival ? TRANSIT_WATCH : [])])].join(", "));
   add("Smallest rejectable defect", s.minDefectMm ? s.minDefectMm + " mm (smaller marks are acceptable; estimate size using the known product size)" : "");
   const views: string[] = s.views ?? [];
   L.push(`RULES:
@@ -130,15 +152,22 @@ function inspectPrompt(p: any, refs: Photo[], units: Photo[], all: Photo[]) {
 - FAIL if any defect is at or above the rejectable size, or a must-have feature is missing or wrong.
 - Photos cannot measure size precisely: mark size checks "unclear" unless something in the photo gives a scale.
 - Include one check for each must-have line, each in-the-box item and each watch-for item, plus color and finish.
-- Extra photos: ${views.length ? `the seller has decided that ${views.join(", ")} views are enough for this product. ` : ""}Only ask for another photo when a must-have item or a possible defect genuinely cannot be judged from the photos given, and say exactly what to photograph and why. Never ask just for completeness. If you ask, the verdict cannot be PASS.
+- Extra photos: ${views.length ? `the seller has decided that ${views.join(", ")} views are enough for this product. ` : ""}Only ask for another photo when a must-have item or a possible defect genuinely cannot be judged from the photos given, and say exactly what to photograph and why. Never ask just for completeness. If you ask, the verdict cannot be PASS.${arrival ? `
+- Shipping condition counts: damaged packaging that the seller sells to customers (retail box, label, seal) is a defect. A crushed or wet outer shipping carton is a defect of severity minor unless the product inside is affected.
+- For every defect set "origin":
+  "factory" when the same problem is visible in the factory photos of this same unit, the factory check of this same unit lists it, or it is a manufacturing fault that shipping cannot cause (wrong or misprinted label, wrong color, wrong or missing part, molding or assembly fault).
+  "transit" when factory photos of this same unit show that part clean, or it is typical shipping and handling damage (crush, dent, puncture, tear, water, breakage, leak, scuffs) and nothing in the factory record or factory photos shows it. A problem that the factory found on OTHER units of the lot is a hint, not proof, for this unit.
+  "unclear" when you cannot tell. Factory photos of OTHER units only show how the lot looked; they cannot prove this unit was clean, so lean towards "unclear" unless the type of damage itself makes the origin obvious.
+- "origin_summary": one or two plain sentences on where the problems most likely happened and what the evidence is. If there are no defects, say the unit arrived in the same condition it left the factory.` : ""}
 JSON:
-{"verdict":"PASS|FAIL|REVIEW|RETAKE","summary":"one or two plain sentences","photo_quality":{"ok":true,"issues":["..."]},"checks":[{"item":"...","result":"pass|fail|unclear","note":"short"}],"defects":[{"type":"short name","where":"plain location on the product","photo":1,"box":[x,y,w,h],"size_estimate_mm":null,"severity":"critical|major|minor","within_spec":false,"confidence":0.8}],"more_photos":[{"part":"what to photograph","why":"what it would settle"}]}
-"photo" is the 1-based index among the UNIT photos only. "box" is the approximate region in that photo as fractions 0–1 (x, y = top-left), or null. Use [] when there are no defects and [] for more_photos when the photos are enough.`);
+{"verdict":"PASS|FAIL|REVIEW|RETAKE","summary":"one or two plain sentences","photo_quality":{"ok":true,"issues":["..."]},"checks":[{"item":"...","result":"pass|fail|unclear","note":"short"}],"defects":[{"type":"short name","where":"plain location on the product","photo":1,"box":[x,y,w,h],"size_estimate_mm":null,"severity":"critical|major|minor","within_spec":false,"confidence":0.8${arrival ? ',"origin":"factory|transit|unclear","origin_reason":"short"' : ""}}],"more_photos":[{"part":"what to photograph","why":"what it would settle"}]${arrival ? ',"origin_summary":""' : ""}${zh ? ',"zh":{"summary":"","defects":[""],"more":[""]}' : ""}}
+${zh ? `"zh" is for factory workers who read Chinese: zh.summary is the summary in simplified Chinese; zh.defects has one simplified-Chinese line per defect, same order, written as "问题 — 位置"; zh.more has one line per more_photos item, same order, written as "拍什么 — 原因".
+` : ""}"photo" is the 1-based index among the UNIT photos only (never the reference or factory photos). "box" is the approximate region in that photo as fractions 0–1 (x, y = top-left), or null. Use [] when there are no defects and [] for more_photos when the photos are enough.`);
   return L.join("\n");
 }
 
 // ---------- result handling ----------
-export function normalize(r: any, nUnits: number) {
+export function normalize(r: any, nUnits: number, arrival = false) {
   const V = ["PASS", "FAIL", "REVIEW", "RETAKE"]; let v = String(r?.verdict ?? "").toUpperCase(); if (!V.includes(v)) v = "REVIEW";
   const clamp = (n: number) => Math.min(1, Math.max(0, n));
   const defects = (Array.isArray(r?.defects) ? r.defects : []).slice(0, 12).map((d: any) => ({
@@ -146,12 +175,28 @@ export function normalize(r: any, nUnits: number) {
     box: Array.isArray(d.box) && d.box.length === 4 && d.box.every((n: any) => isFinite(n)) ? d.box.map((n: any) => clamp(+n)) : null,
     size: d.size_estimate_mm == null ? null : +d.size_estimate_mm, severity: ["critical", "major", "minor"].includes(d.severity) ? d.severity : "major",
     inSpec: !!d.within_spec, conf: clamp(+d.confidence || 0),
+    ...(arrival ? { origin: ["factory", "transit", "unclear"].includes(d.origin) ? d.origin : "unclear", originWhy: String(d.origin_reason || "").slice(0, 200) } : {}),
   }));
   const checks = (Array.isArray(r?.checks) ? r.checks : []).slice(0, 30).map((c: any) => ({ item: String(c.item || ""), result: ["pass", "fail", "unclear"].includes(c.result) ? c.result : "unclear", note: String(c.note || "") }));
   const more = (Array.isArray(r?.more_photos) ? r.more_photos : []).filter((m: any) => m?.part).slice(0, 5).map((m: any) => ({ part: String(m.part).slice(0, 80), why: String(m.why || "").slice(0, 140) }));
   if (v === "PASS" && (defects.some((d: any) => !d.inSpec) || checks.some((c: any) => c.result === "fail") || more.length)) v = "REVIEW";
   const pq = r?.photo_quality ?? {};
-  return { verdict: v, summary: String(r?.summary || ""), photoOk: pq.ok !== false, photoIssues: (Array.isArray(pq.issues) ? pq.issues : []).map(String).slice(0, 6), checks, defects, more };
+  const out: any = { verdict: v, summary: String(r?.summary || ""), photoOk: pq.ok !== false, photoIssues: (Array.isArray(pq.issues) ? pq.issues : []).map(String).slice(0, 6), checks, defects, more };
+  if (arrival) out.originSummary = String(r?.origin_summary || "").slice(0, 600);
+  if (r?.zh && typeof r.zh === "object") {
+    const arr = (x: any, n: number) => (Array.isArray(x) ? x : []).slice(0, n).map((t: any) => String(t ?? "").slice(0, 200));
+    out.zh = { summary: String(r.zh.summary ?? "").slice(0, 400), defects: arr(r.zh.defects, defects.length), more: arr(r.zh.more, more.length) };
+  }
+  return out;
+}
+// Where the problems found on arrival most likely happened, from the out-of-spec findings.
+export function damageOrigin(ai: any): string {
+  const o = new Set((ai.defects ?? []).filter((d: any) => !d.inSpec).map((d: any) => d.origin || "unclear"));
+  if (!o.size) return ai.verdict === "PASS" ? "none" : "unclear";
+  if (o.has("factory") && o.has("transit")) return "both";
+  if (o.has("factory")) return "factory";
+  if (o.has("transit")) return "transit";
+  return "unclear";
 }
 const RANK: Record<string, number> = { FAIL: 4, REVIEW: 3, RETAKE: 2, PASS: 1 };
 export function merge(parts: { ai: any; offset: number }[]) {
@@ -164,12 +209,63 @@ export function merge(parts: { ai: any; offset: number }[]) {
     ai.defects.forEach((d: any) => out.defects.push({ ...d, photo: d.photo + offset }));
     ai.checks.forEach((c: any) => { const k = c.item.toLowerCase().trim(), o = ck.get(k); if (!o || RES[c.result] > RES[o.result]) ck.set(k, c); });
     (ai.more ?? []).forEach((m: any) => { if (!out.more.some((x: any) => x.part.toLowerCase() === m.part.toLowerCase())) out.more.push(m); });
+    if (ai.originSummary !== undefined) out.originSummary = (out.originSummary ? out.originSummary + " " : "") + ai.originSummary;
+    if (ai.zh) {
+      out.zh ??= { summary: "", defects: [], more: [] };
+      out.zh.summary += ai.zh.summary;
+      ai.defects.forEach((_: any, k: number) => out.zh.defects.push(ai.zh.defects[k] ?? ""));
+      (ai.more ?? []).forEach((m: any, k: number) => { if (out.more.includes(m)) out.zh.more[out.more.indexOf(m)] = ai.zh.more[k] ?? ""; });
+    }
   }
   out.checks = [...ck.values()];
   return out;
 }
 function refPool(photos: Photo[]) {
   return [...photos.filter((x) => x.origin !== "official"), ...photos.filter((x) => x.origin === "official" && !["spec_or_text", "document", "other"].includes(x.kind ?? ""))];
+}
+
+// ---------- factory evidence for arrival checks ----------
+const finalOf = (r: any) => r?.decision?.final ?? r?.verdict ?? "unchecked";
+function findingLine(r: any) {
+  const d = (r?.ai?.defects ?? []).filter((x: any) => !x.inSpec).map((x: any) => `${x.type}${x.where ? ` (${x.where})` : ""}`);
+  return d.length ? d.join("; ") : "no defects found";
+}
+export async function factoryEvidence(sb: SupabaseClient, ins: any): Promise<Before> {
+  const ev: Before = { photos: [], sameUnit: false, origin: null, text: [] };
+  if (ins.origin_id) {
+    const { data } = await sb.from("inspections").select("*").eq("id", ins.origin_id).maybeSingle();
+    if (data) ev.origin = data;
+  }
+  let lot: any[] = [];
+  if (ins.product_id && ins.lot) {
+    const { data } = await sb.from("inspections").select("*").eq("workspace_id", ins.workspace_id).eq("product_id", ins.product_id)
+      .eq("lot", ins.lot).eq("stage", "factory").eq("status", "done").order("created_at", { ascending: false }).limit(100);
+    lot = data ?? [];
+    if (!ev.origin && ins.unit) ev.origin = lot.find((r) => (r.unit ?? "").trim().toLowerCase() === String(ins.unit).trim().toLowerCase()) ?? null;
+  }
+  const usable = (r: any) => (r.photos ?? []).filter((x: Photo) => x.quality !== "wrong_product");
+  if (ev.origin) {
+    ev.sameUnit = true;
+    ev.photos = usable(ev.origin);
+    ev.text.push(`This same unit${ev.origin.unit ? ` (unit ${ev.origin.unit})` : ""} was checked at the factory on ${String(ev.origin.created_at).slice(0, 10)}. Result: ${finalOf(ev.origin)}. Factory findings: ${findingLine(ev.origin)}.`);
+  }
+  if (lot.length) {
+    const count: Record<string, number> = {};
+    lot.forEach((r) => { const f = finalOf(r); count[f] = (count[f] ?? 0) + 1; });
+    const types: Record<string, number> = {};
+    lot.forEach((r) => (r.ai?.defects ?? []).filter((x: any) => !x.inSpec).forEach((x: any) => { types[x.type] = (types[x.type] ?? 0) + 1; }));
+    const top = Object.entries(types).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([t, k]) => `${t} ×${k}`);
+    ev.text.push(`The factory checked ${lot.length} unit${lot.length > 1 ? "s" : ""} of lot ${ins.lot}: ${Object.entries(count).map(([k, v]) => `${v} ${k}`).join(", ")}.${top.length ? ` Factory findings in this lot: ${top.join(", ")}.` : " No defects were found at the factory in this lot."}`);
+    if (!ev.origin) {
+      // Photos of units from the same lot that passed at the factory: how the lot looked when it left.
+      const passed = lot.filter((r) => finalOf(r) === "PASS");
+      const seen = new Set<string>();
+      for (const r of passed) for (const ph of usable(r)) { const k = ph.view || ph.part || ph.path; if (!seen.has(k) && ev.photos.length < 6) { seen.add(k); ev.photos.push(ph); } }
+    }
+  } else if (!ev.origin) {
+    ev.text.push(ins.lot ? `No factory check was found for lot ${ins.lot}.` : "No lot number was given, so no factory check could be matched.");
+  }
+  return ev;
 }
 
 // ---------- tasks ----------
@@ -182,20 +278,31 @@ async function taskInspect(sb: SupabaseClient, inspectionId: string) {
   try {
     const units: Photo[] = (ins.photos ?? []).filter((x: Photo) => x.quality !== "wrong_product");
     if (!units.length) throw new Error("No photos to check");
+    const arrival = ins.stage === "arrival";
+    const ev = arrival ? await factoryEvidence(sb, ins) : null;
     const pool = refPool(product?.photos ?? []);
-    const refCap = Math.min(pool.length, 4, MAX_IMAGES - 1), per = Math.max(1, MAX_IMAGES - refCap);
+    const beforeCap = ev ? Math.min(ev.photos.length, 4) : 0;
+    const refCap = Math.min(pool.length, arrival ? 3 : 4, MAX_IMAGES - beforeCap - 1), per = Math.max(1, MAX_IMAGES - refCap - beforeCap);
     const parts: { ai: any; offset: number }[] = [];
     const model = ins.careful ? MODEL_CAREFUL : MODEL_INSPECT;
+    const byView = (list: Photo[], want: Set<string | undefined>) => [...list.filter((r) => want.has(r.view)), ...list.filter((r) => !want.has(r.view))];
     for (let i = 0; i < units.length; i += per) {
       const batch = units.slice(i, i + per);
       const want = new Set(batch.map((u) => u.view).filter(Boolean));
-      const refs = [...pool.filter((r) => want.has(r.view)), ...pool.filter((r) => !want.has(r.view))].slice(0, Math.min(refCap, MAX_IMAGES - batch.length));
-      const imgs = await loadImages(sb, [...refs, ...batch].map((x) => x.path));
-      const r = await askJson(inspectPrompt(p, refs, batch, units), imgs, model, 6000);
-      parts.push({ ai: normalize(r, batch.length), offset: i });
+      const before = ev ? byView(ev.photos, want).slice(0, Math.min(beforeCap, MAX_IMAGES - batch.length)) : [];
+      const refs = byView(pool, want).slice(0, Math.max(0, Math.min(refCap, MAX_IMAGES - batch.length - before.length)));
+      const imgs = await loadImages(sb, [...refs, ...before, ...batch].map((x) => x.path));
+      const r = await askJson(inspectPrompt(p, refs, batch, units, before, ev, !!ins.factory_link_id), imgs, model, 6000);
+      parts.push({ ai: normalize(r, batch.length, arrival), offset: i });
     }
     const ai = merge(parts);
-    const { data: done } = await sb.from("inspections").update({ status: "done", ai, verdict: ai.verdict, model, checked_at: new Date().toISOString() }).eq("id", inspectionId).select().single();
+    const extra: Record<string, unknown> = {};
+    if (arrival) {
+      extra.damage_origin = damageOrigin(ai);
+      if (ev?.origin && !ins.origin_id) extra.origin_id = ev.origin.id;
+      ai.factory = { matched: !!ev?.origin, sameUnit: !!ev?.sameUnit, photos: ev?.photos.length ?? 0, record: ev?.text ?? [] };
+    }
+    const { data: done } = await sb.from("inspections").update({ status: "done", ai, verdict: ai.verdict, model, checked_at: new Date().toISOString(), ...extra }).eq("id", inspectionId).select().single();
     return done;
   } catch (e) {
     await sb.from("inspections").update({ status: "error", error: String((e as Error).message ?? e).slice(0, 500) }).eq("id", inspectionId);
@@ -253,27 +360,128 @@ async function taskImportUrl(sb: SupabaseClient, workspaceId: string, url: strin
   return { fields, photos: saved, listing_text: text.slice(0, 20000), final_url: res.url };
 }
 
+// ---------- identify (shared) ----------
+async function identifyPaths(sb: SupabaseClient, product: any, pathsIn: string[]) {
+  const paths = pathsIn.slice(0, 40); const out: any[] = [];
+  for (let i = 0; i < paths.length; i += MAX_IMAGES) {
+    const chunk = paths.slice(i, i + MAX_IMAGES);
+    const r = await askJson(identifyPrompt(product, chunk.length), await loadImages(sb, chunk), MODEL_QUICK, 2000);
+    (r.photos ?? []).forEach((x: any) => out.push({ ...x, index: (+x.index || 0) + i }));
+  }
+  return out;
+}
+
+// ---------- factory links (no account; token-scoped) ----------
+class HttpError extends Error { status: number; constructor(status: number, msg: string) { super(msg); this.status = status; } }
+async function openLink(admin: SupabaseClient, token: string) {
+  if (!/^[a-f0-9]{48,80}$/.test(token)) throw new HttpError(404, "This link is not valid.");
+  const { data: link } = await admin.from("factory_links").select("*").eq("token", token).maybeSingle();
+  if (!link) throw new HttpError(404, "This link is not valid.");
+  if (!link.active) throw new HttpError(410, "The buyer has closed this link.");
+  if (new Date(link.expires_at).getTime() < Date.now()) throw new HttpError(410, "This link has expired. Ask the buyer for a new one.");
+  const { data: product } = await admin.from("products").select("*").eq("id", link.product_id).maybeSingle();
+  if (!product) throw new HttpError(410, "The buyer removed this product.");
+  return { link, product };
+}
+const linkPrefix = (link: any) => `${link.workspace_id}/factory/${link.id}/`;
+function ownPaths(link: any, paths: unknown): string[] {
+  const pre = linkPrefix(link);
+  const list = (Array.isArray(paths) ? paths : []).map(String);
+  if (list.some((x) => !x.startsWith(pre) || x.includes(".."))) throw new HttpError(403, "Photo does not belong to this link.");
+  return list;
+}
+async function signMap(admin: SupabaseClient, paths: string[]) {
+  const m: Record<string, string> = {};
+  const uniq = [...new Set(paths.filter(Boolean))];
+  for (let i = 0; i < uniq.length; i += 100) {
+    const { data } = await admin.storage.from("photos").createSignedUrls(uniq.slice(i, i + 100), 60 * 60 * 6);
+    (data ?? []).forEach((x: any) => { if (x.signedUrl && x.path) m[x.path] = x.signedUrl; });
+  }
+  return m;
+}
+function publicUnit(r: any) {
+  const a = r.ai ?? null;
+  return { id: r.id, unit: r.unit ?? "", status: r.status, verdict: r.verdict, error: r.status === "error" ? r.error : null, created_at: r.created_at, submitted_by: r.submitted_by ?? "",
+    photos: (r.photos ?? []).map((p: Photo) => ({ path: p.path, view: p.view ?? "", part: p.part ?? "" })),
+    ai: a ? { verdict: a.verdict, summary: a.summary, photoOk: a.photoOk, photoIssues: a.photoIssues ?? [], checks: a.checks ?? [], defects: a.defects ?? [], more: a.more ?? [], zh: a.zh ?? null } : null };
+}
+async function factoryTask(task: string, body: any) {
+  if (!SERVICE_KEY) throw new HttpError(500, "Server is missing SUPABASE_SERVICE_ROLE_KEY.");
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, SERVICE_KEY, { auth: { persistSession: false } });
+  const { link, product } = await openLink(admin, String(body?.token ?? ""));
+  if (task === "factory_open") {
+    const { data: rows } = await admin.from("inspections").select("*").eq("factory_link_id", link.id).order("created_at", { ascending: false }).limit(300);
+    const s = product.spec ?? {};
+    const refs = refPool(product.photos ?? []).slice(0, 8);
+    const units = (rows ?? []).map(publicUnit);
+    const urls = await signMap(admin, [...refs.map((r) => r.path), ...units.flatMap((u: any) => u.photos.map((p: any) => p.path))]);
+    return {
+      link: { lot: link.lot, factory_name: link.factory_name ?? "", expires_at: link.expires_at, max_units: link.max_units, prefix: linkPrefix(link) },
+      product: { name: product.name, sku: product.sku ?? "", version: product.version,
+        spec: { material: s.material ?? "", colors: s.colors ?? "", finish: s.finish ?? "", dims: s.dims ?? {}, tol: s.tol ?? "", packaging: s.packaging ?? "", inBox: s.inBox ?? "", goodLooks: s.goodLooks ?? "", mustHave: s.mustHave ?? "", allowed: s.allowed ?? "", watch: s.watch ?? [], minDefectMm: s.minDefectMm ?? "", views: s.views ?? [] },
+        photos: refs.map((r) => ({ path: r.path, view: r.view ?? "", part: r.part ?? "", origin: r.origin ?? "unit" })) },
+      units, urls,
+    };
+  }
+  if (task === "factory_upload") {
+    const n = Math.min(Math.max(1, +body.n || 1), 12); const out: any[] = [];
+    for (let i = 0; i < n; i++) {
+      const path = `${linkPrefix(link)}${crypto.randomUUID()}.jpg`;
+      const { data, error } = await admin.storage.from("photos").createSignedUploadUrl(path);
+      if (error || !data) throw new HttpError(500, "Could not prepare the upload: " + (error?.message ?? ""));
+      out.push({ path, token: data.token });
+    }
+    return { uploads: out };
+  }
+  if (task === "factory_identify") {
+    const paths = ownPaths(link, body.paths).slice(0, MAX_FACTORY_PHOTOS);
+    return { photos: await identifyPaths(admin, { name: product.name, colors: product.spec?.colors }, paths) };
+  }
+  if (task === "factory_submit") {
+    const photos = (Array.isArray(body.photos) ? body.photos : []).slice(0, MAX_FACTORY_PHOTOS)
+      .map((p: any) => ({ path: String(p?.path ?? ""), view: String(p?.view ?? "").slice(0, 30), part: String(p?.part ?? "").slice(0, 40), quality: String(p?.quality ?? "").slice(0, 20) }));
+    ownPaths(link, photos.map((p: Photo) => p.path));
+    if (!photos.length) throw new HttpError(400, "Add at least one photo.");
+    const { count } = await admin.from("inspections").select("id", { count: "exact", head: true }).eq("factory_link_id", link.id);
+    if ((count ?? 0) >= link.max_units) throw new HttpError(429, "This link has reached its unit limit. Ask the buyer to raise it.");
+    const { data: row, error } = await admin.from("inspections").insert({
+      workspace_id: link.workspace_id, product_id: product.id, product_name: product.name, product_version: product.version, spec_snapshot: product.spec,
+      lot: link.lot, unit: String(body.unit ?? "").slice(0, 40) || null, photos, status: "pending", stage: "factory",
+      factory_link_id: link.id, submitted_by: String(body.worker ?? "").slice(0, 60) || null,
+    }).select().single();
+    if (error || !row) throw new HttpError(500, "Could not save the check: " + (error?.message ?? ""));
+    let done: any = row;
+    try { done = await taskInspect(admin, row.id); } catch { done = (await admin.from("inspections").select("*").eq("id", row.id).single()).data ?? row; }
+    const u = publicUnit(done);
+    return { unit: u, urls: await signMap(admin, u.photos.map((p: any) => p.path)) };
+  }
+  if (task === "factory_retry") {
+    const { data: r } = await admin.from("inspections").select("*").eq("id", String(body.id ?? "")).eq("factory_link_id", link.id).maybeSingle();
+    if (!r) throw new HttpError(404, "Check not found.");
+    let done: any = r;
+    try { done = await taskInspect(admin, r.id); } catch { done = (await admin.from("inspections").select("*").eq("id", r.id).single()).data ?? r; }
+    return { unit: publicUnit(done) };
+  }
+  throw new HttpError(400, "Unknown task");
+}
+
 // ---------- handler ----------
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
+  let body: any; try { body = await req.json(); } catch { return json({ error: "Body must be JSON" }, 400); }
+  const task = String(body?.task ?? "");
+  if (task.startsWith("factory_")) {
+    try { return json(await factoryTask(task, body)); }
+    catch (e) { return json({ error: String((e as Error).message ?? e) }, e instanceof HttpError ? e.status : 500); }
+  }
   const auth = req.headers.get("Authorization") ?? "";
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: auth } } });
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return json({ error: "Sign in first" }, 401);
-  let body: any; try { body = await req.json(); } catch { return json({ error: "Body must be JSON" }, 400); }
-  const task = body?.task;
   try {
     if (task === "inspect") return json({ inspection: await taskInspect(sb, String(body.inspection_id)) });
-    if (task === "identify") {
-      const paths: string[] = (body.paths ?? []).slice(0, 40); const out: any[] = [];
-      for (let i = 0; i < paths.length; i += MAX_IMAGES) {
-        const chunk = paths.slice(i, i + MAX_IMAGES);
-        const r = await askJson(identifyPrompt(body.product, chunk.length), await loadImages(sb, chunk), MODEL_QUICK, 2000);
-        (r.photos ?? []).forEach((x: any) => out.push({ ...x, index: (+x.index || 0) + i }));
-      }
-      return json({ photos: out });
-    }
+    if (task === "identify") return json({ photos: await identifyPaths(sb, body.product, (body.paths ?? []).map(String)) });
     if (task === "describe") {
       const paths: string[] = (body.paths ?? []).slice(0, MAX_IMAGES);
       return json({ fields: await askJson(describePrompt(paths.length), await loadImages(sb, paths), MODEL_INSPECT) });
