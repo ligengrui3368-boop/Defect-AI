@@ -1,6 +1,8 @@
 # Defect Check
 
-AI-verified production QC for cross-border sourcing. A buyer sets up the approved standard for a product, either from the brand's official listing or from photos of a good unit. Factory or warehouse staff then photograph units on a phone, and Claude checks each unit against the standard. A person makes the final pass or fail call, and every check is stored with its photos and the exact version of the standard it was judged against.
+End-to-end sourcing platform for US brands buying from Chinese factories: a client submits what they want made, agents find and verify factories on 1688, Gary negotiates, the system computes landed cost and margin (duties, tariffs, freight, fees), and a client portal tracks everything. The quality module below checks the goods before the balance is paid.
+
+QC module: AI-verified production QC for cross-border sourcing. A buyer sets up the approved standard for a product, either from the brand's official listing or from photos of a good unit. Factory or warehouse staff then photograph units on a phone, and Claude checks each unit against the standard. A person makes the final pass or fail call, and every check is stored with its photos and the exact version of the standard it was judged against.
 
 ## What's in this repo
 
@@ -9,8 +11,11 @@ AI-verified production QC for cross-border sourcing. A buyer sets up the approve
 | `web/` | The phone-first web app (plain HTML/JS, no build step). Products, checks, review. |
 | `web/ops.html` | Operations console for buyers: purchase orders, container loading, dock receiving, defects, suppliers. |
 | `web/po.html` | Factory page for one purchase order (Chinese first): each product's inspection and the container loading check. |
+| `web/sourcing.html` | Sourcing CRM: client requests, intake agent, 1688 candidates and ranking, negotiations with RFQ drafting, landed-cost quotes, orders. |
+| `web/portal.html` | Client portal (token link, no login): submit requests, add requirements and mistakes to watch for, see released shortlists, quotes and order status. |
 | `web/config.js` | Your Supabase URL and anon key go here. |
 | `supabase/migrations/` | Database schema, row level security, photo storage bucket, realtime. |
+| `supabase/functions/sourcing/` | Edge Function for the sourcing agents: `intake` (brief → structured spec, Chinese search terms, HTS guess), `search_1688` (via an Apify scraper actor, needs `APIFY_TOKEN`), `rank`, `draft_rfq` (Chinese first-contact message), `verify` (factory checks). |
 | `supabase/functions/qc/` | Edge Function that talks to the Claude API: identify photo parts, import a product page from a link, read listings, draft a standard from photos, run inspections. |
 | `.github/workflows/pages.yml` | Publishes `web/` to GitHub Pages on every push to `main`. |
 
@@ -112,6 +117,13 @@ To reproduce on a new Supabase project, follow Setup above, then change `web/con
 - `workspaces`, `workspace_members`: one workspace per company; roles `owner`, `member`, `inspector`.
 - `products`: name, SKU, source URL, `spec` (JSON: materials, colors, sizes, official specs, in the box, must-haves, allowed variation, watch-for list, smallest rejectable defect, views that are enough), `photos` (JSON list of storage paths with view, part, origin and kind), `version` (bumped automatically on edit).
 - `inspections`: product, `spec_snapshot` (the standard as it was at check time), photos, `status` (pending, running, done, error), `verdict`, `ai` (full result), `decision` (the person's final call), `final_result` (generated: decision if made, else verdict).
+
+- Sourcing CRM (`20261002000100_sourcing_crm.sql`): `clients` (with `portal_token`), `sourcing_requests` (brief, `spec` JSON from the intake agent, status intake → sourcing → shortlisted → negotiating → quoted → approved → ordered → closed), `client_requirements`, `factories` (source, city, contacts, `is_verified_factory`, `verification` JSON), `request_candidates` (listings with rank and match score), `negotiations` (offers, agreed price, log), `cost_assumptions` (dated rate cards: FX, HTS duty, Section 301, other tariffs, MPF, HMF, broker, insurance, payment fees, VAT rebate, commission), `quotes` (inputs, full breakdown, landed unit cost, margin), `sourcing_orders` (links to a `purchase_orders` row for QC).
+- `calc_landed_cost(inputs, rates)` computes the breakdown in SQL so the app and reports agree. `portal_view`, `portal_new_request` and `portal_add_requirement` are security-definer functions keyed by the client's portal token.
+
+## Sourcing secrets
+
+Set in Supabase → Edge Functions → Secrets, never in code: `APIFY_TOKEN` for 1688 search (optional `APIFY_1688_ACTOR`, default `viralanalyzer~wholesale-1688-scraper-pro`). Registry and customs lookups are manual until `QICHACHA_KEY`/`TIANYANCHA_TOKEN` and `IMPORT_DATA_KEY` are set. Rate cards hold placeholder duty and fee values; confirm them before quoting.
 
 ## Limits and next steps
 - AI screening assists a person; it doesn't replace final sign-off, and photo checks can't measure millimetre dimensions without a scale in the frame.
