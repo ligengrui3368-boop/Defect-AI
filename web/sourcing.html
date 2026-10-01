@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sourcing · Defect Check</title>
+<meta name="theme-color" content="#17222B">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil+Display:wght@800&display=swap" rel="stylesheet">
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+:root{--paper:#EDF0F0;--panel:#FFFFFF;--sunk:#E4E9EA;--ink:#17222B;--muted:#5B6870;--line:#DCE2E4;--line2:#C7D0D4;--harbor:#1F5F7A;--harbor-bg:#E1EEF3;--hivis:#F3C33A;--pass:#16794F;--fail:#B4271C;--review:#3F4FB0;--pass-bg:#E3F2EA;--fail-bg:#FBE7E4;--review-bg:#E8EAF8;--focus:#2457C5;--stencil:"Big Shoulders Stencil Display","Archivo",Impact,sans-serif;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--paper:#121A20;--panel:#1A242C;--sunk:#162027;--ink:#E6ECEF;--muted:#97A4AD;--line:#2A363E;--line2:#3A4751;--harbor:#6FB3D2;--harbor-bg:#17323F;--pass:#43BE8D;--fail:#F2695A;--review:#8E97F2;--pass-bg:#1D3A2F;--fail-bg:#40211E;--review-bg:#262B4D;--focus:#7AA7FF;color-scheme:dark}}
+:root[data-theme="dark"]{--paper:#121A20;--panel:#1A242C;--sunk:#162027;--ink:#E6ECEF;--muted:#97A4AD;--line:#2A363E;--line2:#3A4751;--harbor:#6FB3D2;--harbor-bg:#17323F;--pass:#43BE8D;--fail:#F2695A;--review:#8E97F2;--pass-bg:#1D3A2F;--fail-bg:#40211E;--review-bg:#262B4D;--focus:#7AA7FF;color-scheme:dark}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Archivo",system-ui,-apple-system,"Segoe UI","PingFang SC","Noto Sans SC",Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+a{color:var(--harbor)}
+.shell{display:grid;grid-template-columns:216px 1fr;min-height:100vh}
+.rail{position:sticky;top:0;height:100vh;padding:20px 14px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:4px}
+.brand{font-weight:800;font-stretch:118%;font-size:17px;padding:4px 10px 18px;display:flex;align-items:center;gap:8px}
+.brand i{width:12px;height:12px;border-radius:2px;background:var(--hivis);box-shadow:0 0 0 2px var(--ink)}
+.rail a{display:flex;justify-content:space-between;align-items:center;text-decoration:none;color:var(--ink);padding:9px 10px;border-radius:8px;font-weight:600}
+.rail a:hover{background:var(--sunk)}
+.rail a[aria-current="page"]{background:var(--panel);box-shadow:inset 3px 0 0 var(--harbor)}
+.rail .grow{flex:1}.rail .meta{font-size:12.5px;color:var(--muted);padding:0 10px}.rail a.quiet{font-weight:500;color:var(--muted);font-size:14px}
+.rail .sect{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:12px 10px 4px;font-weight:700}
+main{padding:30px 32px 80px;max-width:1240px;width:100%}
+.hello{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.hello h1{margin:0;font-size:28px;font-weight:800;font-stretch:112%;letter-spacing:-.01em}
+.hello p{margin:4px 0 0;color:var(--muted)}
+h2{font-size:17px;font-weight:800;font-stretch:108%;margin:0 0 10px}
+h3{font-size:15px;font-weight:800;margin:18px 0 8px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-top:16px}
+.cols{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:18px;align-items:start}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line2);background:var(--panel);border-radius:9px;padding:8px 14px;font-weight:700;font-size:14px;cursor:pointer;text-decoration:none;color:var(--ink)}
+.btn.primary{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.btn.sm{padding:5px 10px;font-size:13px}
+.btn:disabled{opacity:.45;cursor:default}
+.badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12.5px;font-weight:700;background:var(--sunk);color:var(--muted);white-space:nowrap}
+.b-pass{background:var(--pass-bg);color:var(--pass)}.b-fail{background:var(--fail-bg);color:var(--fail)}.b-rev{background:var(--review-bg);color:var(--review)}.b-harbor{background:var(--harbor-bg);color:var(--harbor)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr.row{cursor:pointer}tr.row:hover td{background:var(--sunk)}
+.wrap{overflow-x:auto}
+label{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin:10px 0 4px}
+input,select,textarea{width:100%;border:1px solid var(--line2);background:var(--paper);border-radius:8px;padding:8px 10px}
+textarea{min-height:90px;resize:vertical}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 14px}
+.mut{color:var(--muted)}.sm{font-size:13px}.right{text-align:right}
+.steps{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin:14px 0 4px}
+.steps div{font-size:11.5px;font-weight:700;text-align:center;padding:7px 4px;border-radius:6px;background:var(--sunk);color:var(--muted)}
+.steps div.on{background:var(--ink);color:var(--panel)}.steps div.done{background:var(--harbor-bg);color:var(--harbor)}
+.chip{display:inline-block;background:var(--sunk);border-radius:6px;padding:2px 8px;margin:2px 4px 2px 0;font-size:13px}
+.kv{display:grid;grid-template-columns:150px 1fr;gap:4px 12px;font-size:14px}.kv b{color:var(--muted);font-weight:600}
+.card{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:10px}
+.score{font-family:var(--stencil);font-size:28px;line-height:1;font-weight:800}
+.num{font-family:var(--stencil);font-size:40px;line-height:1;font-weight:800}
+.msg{white-space:pre-wrap;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:14px}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:10px 16px;border-radius:10px;font-weight:600;z-index:9;max-width:90vw}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.empty{color:var(--muted);padding:18px 0;text-align:center}
+@media (max-width:900px){.shell{grid-template-columns:1fr}.rail{position:static;height:auto;flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line);padding:10px}.rail .brand{padding:6px 10px;width:100%}.rail .grow,.rail .meta,.rail .sect{display:none}.cols,.grid2,.grid3{grid-template-columns:1fr}main{padding:18px 14px 80px}.steps{grid-template-columns:repeat(4,1fr)}}
+</style></head><body>
+<div class="shell">
+  <nav class="rail" aria-label="Main">
+    <div class="brand"><i aria-hidden="true"></i>Defect Check</div>
+    <a href="./">Home</a>
+    <div class="sect">Sourcing</div>
+    <a href="#/requests" data-nav="requests">Requests <small id="navReq"></small></a>
+    <a href="#/factories" data-nav="factories">Factories</a>
+    <a href="#/clients" data-nav="clients">Clients</a>
+    <a href="#/rates" data-nav="rates">Rate cards</a>
+    <div class="sect">Quality</div>
+    <a href="ops.html#/orders">Orders</a>
+    <a href="app.html">Products</a>
+    <div class="grow"></div>
+    <a class="quiet" href="site/">Website</a>
+    <div class="meta" id="sync">Connecting…</div>
+  </nav>
+  <main id="app"><p class="mut">Loading…</p></main>
+</div>
+<script>
+(() => {
+const CFG = window.DEFECT_CHECK_CONFIG || {};
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const app = document.getElementById('app');
+const $ = (id) => document.getElementById(id);
+const fmt = (n, d = 2) => n === null || n === undefined || isNaN(n) ? '—' : Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+const usd = (n, d = 2) => n === null || n === undefined ? '—' : '$' + fmt(n, d);
+const cny = (n) => n === null || n === undefined ? '—' : '¥' + fmt(n, 2);
+const dt = (s) => s ? new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—';
+const STATUSES = ['intake', 'sourcing', 'shortlisted', 'negotiating', 'quoted', 'approved', 'ordered', 'closed'];
+const SLABEL = { intake: 'Intake', sourcing: 'Sourcing', shortlisted: 'Shortlist', negotiating: 'Negotiating', quoted: 'Quoted', approved: 'Approved', ordered: 'Ordered', closed: 'Closed' };
+let sb, ws, D = { requests: [], clients: [], factories: [], rates: [] };
+let toastT; const toast = (m) => { let t = document.querySelector('.toast'); if (!t) { t = document.createElement('div'); t.className = 'toast'; document.body.appendChild(t); } t.textContent = m; clearTimeout(toastT); toastT = setTimeout(() => t.remove(), 3500); };
+const busy = (btn, on) => { if (!btn) return; btn.disabled = on; btn.dataset.t ??= btn.textContent; btn.textContent = on ? 'Working…' : btn.dataset.t; };
+
+async function call(task, body) {
+  const { data, error } = await sb.functions.invoke('sourcing', { body: { task, ...body } });
+  if (error) { let m = error.message; try { const j = await error.context?.json(); if (j?.error) m = j.error; } catch {} throw new Error(m); }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+async function load() {
+  const [r, c, f, a] = await Promise.all([
+    sb.from('sourcing_requests').select('*, clients(name, company)').eq('workspace_id', ws).order('updated_at', { ascending: false }),
+    sb.from('clients').select('*').eq('workspace_id', ws).order('created_at', { ascending: false }),
+    sb.from('factories').select('*').eq('workspace_id', ws).order('updated_at', { ascending: false }),
+    sb.from('cost_assumptions').select('*').eq('workspace_id', ws).order('effective_date', { ascending: false }),
+  ]);
+  D.requests = r.data || []; D.clients = c.data || []; D.factories = f.data || []; D.rates = a.data || [];
+  $('navReq').textContent = D.requests.filter(x => !['closed', 'ordered'].includes(x.status)).length || '';
+}
+
+// ---------- views ----------
+function viewRequests() {
+  const open = D.requests.filter(r => r.status !== 'closed');
+  const counts = STATUSES.map(s => [s, D.requests.filter(r => r.status === s).length]);
+  return `<div class="hello"><div><h1>Sourcing requests</h1><p>What clients want made, where it stands, and who's doing it.</p></div>
+    <div class="bar"><a class="btn" href="#/clients">Clients</a><a class="btn primary" href="#/new">New request</a></div></div>
+  <div class="steps">${counts.map(([s, n]) => `<div class="${n ? 'on' : ''}">${SLABEL[s]} · ${n}</div>`).join('')}</div>
+  <div class="panel wrap">${open.length ? `<table><thead><tr><th>Request</th><th>Client</th><th>Stage</th><th class="right">Qty</th><th class="right">Target $</th><th>Deadline</th><th>Updated</th></tr></thead><tbody>
+    ${open.map(r => `<tr class="row" onclick="location.hash='#/request/${r.id}'"><td><b>${esc(r.title)}</b><div class="sm mut">${esc(r.spec?.category || r.spec?.product_name || '')}</div></td><td>${esc(r.clients?.company || r.clients?.name || '—')}</td><td><span class="badge ${['approved','ordered'].includes(r.status) ? 'b-pass' : r.status === 'intake' ? 'b-rev' : 'b-harbor'}">${SLABEL[r.status]}</span></td><td class="right">${fmt(r.quantity, 0)}</td><td class="right">${usd(r.target_unit_price)}</td><td>${dt(r.deadline)}</td><td>${dt(r.updated_at)}</td></tr>`).join('')}
+  </tbody></table>` : `<div class="empty">No requests yet. <a href="#/new">Create the first one</a>, or send a client their portal link and they can submit one.</div>`}</div>
+  ${D.requests.some(r => r.status === 'closed') ? `<p class="sm mut">${D.requests.filter(r => r.status === 'closed').length} closed.</p>` : ''}`;
+}
+
+function viewNew() {
+  return `<div class="hello"><div><h1>New request</h1><p>Paste the client's brief as they wrote it. The intake agent structures it.</p></div></div>
+  <div class="panel" style="max-width:760px">
+    <label>Client</label><select id="nClient"><option value="">— no client yet —</option>${D.clients.map(c => `<option value="${c.id}">${esc(c.company || c.name)}</option>`).join('')}</select>
+    <label>Title</label><input id="nTitle" placeholder="e.g. Foldable camping chair, 600D oxford, 150 kg">
+    <label>Brief (anything the client sent — specs, links, photos described, price, deadline)</label><textarea id="nBrief" style="min-height:160px"></textarea>
+    <div class="grid3"><div><label>Quantity</label><input id="nQty" type="number" min="1"></div><div><label>Client's target unit price (USD)</label><input id="nTarget" type="number" step="0.01"></div><div><label>Deadline</label><input id="nDead" type="date"></div></div>
+    <div class="bar" style="margin-top:16px"><button class="btn primary" id="nSave">Create and run intake</button><a class="btn" href="#/requests">Cancel</a></div>
+  </div>`;
+}
+
+function stepsBar(status) { const i = STATUSES.indexOf(status); return `<div class="steps">${STATUSES.map((s, k) => `<div class="${k < i ? 'done' : k === i ? 'on' : ''}">${SLABEL[s]}</div>`).join('')}</div>`; }
+
+async function viewRequest(id) {
+  const r = D.requests.find(x => x.id === id); if (!r) return `<p>Request not found.</p>`;
+  const [c, n, q, req, o] = await Promise.all([
+    sb.from('request_candidates').select('*, factories(*)').eq('request_id', id).order('rank', { ascending: true, nullsFirst: false }),
+    sb.from('negotiations').select('*, factories(name, city, wechat, contact_name)').eq('request_id', id).order('updated_at', { ascending: false }),
+    sb.from('quotes').select('*, factories(name)').eq('request_id', id).order('created_at', { ascending: false }),
+    sb.from('client_requirements').select('*').eq('request_id', id).order('created_at'),
+    sb.from('sourcing_orders').select('*').eq('request_id', id),
+  ]);
+  const cands = c.data || [], negs = n.data || [], quotes = q.data || [], reqs = req.data || [], orders = o.data || [];
+  const s = r.spec || {}; const client = D.clients.find(x => x.id === r.client_id);
+  const list = (a) => (a && a.length) ? a.map(x => `<span class="chip">${esc(x)}</span>`).join('') : '<span class="mut">—</span>';
+  const rate = D.rates.find(x => x.is_default) || D.rates[0];
+  return `<div class="hello"><div><a class="sm" href="#/requests">← Requests</a><h1>${esc(r.title)}</h1><p>${esc(client ? (client.company || client.name) : 'No client')} · created ${dt(r.created_at)}${r.hts_code ? ` · HTS ${esc(r.hts_code)}` : ''}</p></div>
+    <div class="bar"><select id="stSel" class="btn" style="width:auto">${STATUSES.map(x => `<option value="${x}" ${x === r.status ? 'selected' : ''}>${SLABEL[x]}</option>`).join('')}</select>${client ? `<a class="btn" target="_blank" href="portal.html?c=${esc(client.portal_token)}">Client portal ↗</a>` : ''}</div></div>
+  ${stepsBar(r.status)}
+  <div class="cols">
+  <div>
+    <div class="panel"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">1 · Spec</h2><div class="bar"><button class="btn sm" id="editBrief">Edit brief</button><button class="btn sm primary" id="runIntake">${s.intake_at ? 'Re-run intake' : 'Run intake agent'}</button></div></div>
+      ${s.summary ? `<p>${esc(s.summary)}</p>` : `<p class="mut">${r.raw_brief ? 'Intake not run yet.' : 'No brief yet.'}</p>`}
+      <div id="briefBox" style="display:none"><textarea id="briefTa">${esc(r.raw_brief || '')}</textarea><div class="bar" style="margin-top:8px"><button class="btn sm primary" id="saveBrief">Save brief</button></div></div>
+      <div class="kv"><b>Quantity</b><span>${fmt(r.quantity, 0)}</span><b>Client target</b><span>${usd(r.target_unit_price)} / unit</span><b>Deadline</b><span>${dt(r.deadline)}</span>
+        ${s.product_name ? `<b>Product</b><span>${esc(s.product_name)} <span class="mut">· ${esc(s.category || '')}</span></span>` : ''}
+        ${s.materials ? `<b>Materials</b><span>${list(s.materials)}</span>` : ''}${s.dimensions ? `<b>Dimensions</b><span>${esc(s.dimensions)}${s.weight ? ' · ' + esc(s.weight) : ''}</span>` : ''}
+        ${s.colors ? `<b>Colors</b><span>${list(s.colors)}</span>` : ''}${s.features ? `<b>Features</b><span>${list(s.features)}</span>` : ''}
+        ${s.packaging ? `<b>Packaging</b><span>${esc(s.packaging)}</span>` : ''}${s.certifications ? `<b>Certifications</b><span>${list(s.certifications)}</span>` : ''}
+        ${s.must_haves ? `<b>Must-haves</b><span>${list(s.must_haves)}</span>` : ''}${s.defects_to_watch ? `<b>QC watch list</b><span>${list(s.defects_to_watch)}</span>` : ''}
+        ${s.hts_guess ? `<b>HTS guess</b><span>${esc(s.hts_guess)} <span class="sm mut">${esc(s.hts_note || '')}</span></span>` : ''}
+        ${s.industrial_clusters ? `<b>Clusters</b><span>${list(s.industrial_clusters)}</span>` : ''}${s.estimated_factory_price_cny ? `<b>Est. factory price</b><span>${cny(s.estimated_factory_price_cny)} / unit</span>` : ''}
+        ${s.search_terms_zh ? `<b>1688 search terms</b><span>${list(s.search_terms_zh)}</span>` : ''}</div>
+      ${s.questions?.length ? `<h3>Open questions for the client</h3><ol>${s.questions.map(x => `<li>${esc(x)}</li>`).join('')}</ol><label>Answers (then re-run intake)</label><textarea id="answers" placeholder="Paste the client's answers here"></textarea>` : ''}
+    </div>
+
+    <div class="panel"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">2 · Factory candidates <span class="mut sm">${cands.length}</span></h2>
+      <div class="bar"><input id="term" placeholder="Chinese search term (optional)" style="width:220px"><button class="btn sm primary" id="search1688">Search 1688</button>${cands.length ? `<button class="btn sm" id="rerank">Re-rank</button>` : ''}<button class="btn sm" id="addCand">Add manually</button></div></div>
+      <p class="sm mut">Agent searches 1688 with the Chinese terms from the spec, saves each supplier as a factory, and scores listings against the spec. Release the ones you want the client to see.</p>
+      ${cands.length ? `<div class="wrap"><table><thead><tr><th>#</th><th>Listing</th><th>Supplier</th><th class="right">¥</th><th class="right">MOQ</th><th>Fit</th><th></th></tr></thead><tbody>
+      ${cands.map(k => `<tr><td><span class="score">${k.rank ?? '·'}</span></td><td><a href="${esc(k.listing_url || '#')}" target="_blank">${esc(k.listing_title || 'Listing')}</a><div class="sm mut">${esc(k.notes || '')}</div></td><td>${k.factories ? `<a href="#/factory/${k.factory_id}">${esc(k.factories.name)}</a><div class="sm mut">${esc(k.factories.city || '')}${k.factories.is_verified_factory === true ? ' · <span class="badge b-pass">verified</span>' : k.factories.is_verified_factory === false ? ' · <span class="badge b-fail">trader</span>' : ''}</div>` : '—'}</td><td class="right">${cny(k.price_cny)}</td><td class="right">${fmt(k.moq, 0)}</td><td>${k.match_score != null ? `<b>${fmt(k.match_score, 0)}</b>` : '—'} <span class="badge">${esc(k.status)}</span></td>
+        <td class="right"><div class="bar" style="justify-content:flex-end"><button class="btn sm" data-neg="${k.id}" data-fac="${k.factory_id || ''}">Negotiate</button><button class="btn sm" data-rel="${k.id}" data-on="${k.released_to_client ? 0 : 1}">${k.released_to_client ? 'Hide' : 'Release'}</button><button class="btn sm" data-rej="${k.id}">✕</button></div></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">No candidates yet.</div>`}
+    </div>
+
+    <div class="panel"><h2>3 · Negotiations <span class="mut sm">${negs.length}</span></h2>
+      <p class="sm mut">You negotiate. Log each offer here so the quote uses the agreed price. "Draft RFQ" writes the first Chinese message.</p>
+      ${negs.length ? negs.map(g => `<div class="card"><div class="bar" style="justify-content:space-between"><b>${esc(g.factories?.name || 'Factory')}</b> <span class="badge ${g.status === 'agreed' ? 'b-pass' : g.status === 'dropped' ? 'b-fail' : 'b-harbor'}">${esc(g.status.replace('_', ' '))}</span></div>
+        <div class="kv" style="margin-top:6px"><b>Current offer</b><span>${cny(g.current_offer_cny)}</span><b>Target</b><span>${cny(g.target_cny)}</span><b>Agreed</b><span>${g.agreed_cny ? '<b>' + cny(g.agreed_cny) + '</b>' : '—'}</span><b>MOQ / lead time</b><span>${fmt(g.moq, 0)} / ${g.lead_time_days ?? '—'} days</span><b>Terms</b><span>${esc(g.incoterm || '')} ${esc(g.payment_terms || '')}</span>${g.next_action ? `<b>Next</b><span>${esc(g.next_action)}</span>` : ''}</div>
+        ${(g.log || []).length ? `<details class="sm" style="margin-top:6px"><summary>${g.log.length} log entries</summary>${g.log.slice().reverse().map(l => `<div style="padding:4px 0;border-top:1px solid var(--line)"><span class="mut">${dt(l.at)}</span> ${esc(l.note)}${l.offer_cny ? ` · <b>${cny(l.offer_cny)}</b>` : ''}</div>`).join('')}</details>` : ''}
+        <div class="bar" style="margin-top:10px"><input data-lognote="${g.id}" placeholder="Log note (e.g. 他们报¥26，说MOQ 500)" style="flex:1;min-width:160px"><input data-logoffer="${g.id}" type="number" step="0.01" placeholder="¥ offer" style="width:100px"><button class="btn sm" data-log="${g.id}">Log</button>
+          <select data-negst="${g.id}" class="btn sm" style="width:auto">${['open', 'waiting_factory', 'waiting_us', 'sample', 'agreed', 'dropped'].map(x => `<option value="${x}" ${x === g.status ? 'selected' : ''}>${x.replace('_', ' ')}</option>`).join('')}</select>
+          <button class="btn sm" data-agree="${g.id}">Set agreed ¥</button><button class="btn sm" data-rfq="${g.id}" data-fac="${g.factory_id || ''}">Draft RFQ</button><button class="btn sm primary" data-quote="${g.id}" data-fac="${g.factory_id || ''}" data-price="${g.agreed_cny || g.current_offer_cny || ''}">Quote →</button></div>
+        <div id="rfq-${g.id}"></div></div>`).join('') : `<div class="empty">No negotiations yet. Pick a candidate above and press Negotiate.</div>`}
+    </div>
+  </div>
+  <div>
+    <div class="panel"><h2>4 · Landed cost &amp; margin</h2>
+      ${rate ? `<p class="sm mut">Rate card: <b>${esc(rate.name)}</b> (${dt(rate.effective_date)}) · <a href="#/rates">edit rates</a></p>` : `<p class="sm mut">No rate card. <a href="#/rates">Create one</a>.</p>`}
+      <div class="grid2"><div><label>Factory price (¥/unit)</label><input id="qPrice" type="number" step="0.01" value="${quotes[0]?.inputs?.factory_price_cny ?? s.estimated_factory_price_cny ?? ''}"></div><div><label>Quantity</label><input id="qQty" type="number" value="${r.quantity || 1000}"></div>
+        <div><label>Domestic freight to port (¥ total)</label><input id="qDom" type="number" step="1" value="${quotes[0]?.inputs?.domestic_freight_cny ?? 0}"></div><div><label>Intl freight (USD total)</label><input id="qIntl" type="number" step="1" value="${quotes[0]?.inputs?.intl_freight_usd ?? 0}"></div>
+        <div><label>Mode</label><select id="qMode"><option value="ocean">Ocean</option><option value="air">Air</option></select></div><div><label>Client price (USD/unit)</label><input id="qClient" type="number" step="0.01" value="${r.client_unit_price ?? r.target_unit_price ?? ''}"></div>
+        <div><label>Commission %</label><input id="qComm" type="number" step="0.1" value="${rate?.rates?.commission_pct ?? 6}"></div><div><label>Factory for this quote</label><select id="qFac"><option value="">—</option>${D.factories.map(f => `<option value="${f.id}">${esc(f.name)}</option>`).join('')}</select></div></div>
+      <div class="bar" style="margin-top:12px"><button class="btn primary" id="calc">Calculate</button><button class="btn" id="saveQuote" disabled>Save quote</button></div>
+      <div id="calcOut"></div>
+      ${quotes.length ? `<h3>Saved quotes</h3>${quotes.map(qt => `<div class="card"><div class="bar" style="justify-content:space-between"><div><b>${usd(qt.landed_unit_cost, 2)} landed</b> → ${usd(qt.client_unit_price)} <span class="mut">· margin ${fmt(qt.margin_pct, 1)}%</span><div class="sm mut">${esc(qt.factories?.name || '')} · ${dt(qt.created_at)} · ${esc(qt.status)}${qt.released_to_client ? ' · <span class="badge b-pass">released</span>' : ''}</div></div><div class="bar"><button class="btn sm" data-qrel="${qt.id}" data-on="${qt.released_to_client ? 0 : 1}">${qt.released_to_client ? 'Hide from client' : 'Release to client'}</button><button class="btn sm" data-order="${qt.id}" data-fac="${qt.factory_id || ''}" data-qty="${qt.inputs?.qty || r.quantity || ''}" data-price="${qt.inputs?.factory_price_cny || ''}" data-cp="${qt.client_unit_price || ''}">Create order</button></div></div></div>`).join('')}` : ''}
+    </div>
+    <div class="panel"><h2>Client requirements &amp; notes <span class="mut sm">${reqs.length}</span></h2>
+      ${reqs.length ? reqs.map(x => `<div class="card" style="padding:8px 12px"><span class="badge ${x.kind === 'defect_to_watch' ? 'b-fail' : x.kind === 'question' ? 'b-rev' : x.kind === 'approval' ? 'b-pass' : ''}">${esc(x.kind.replace('_', ' '))}</span> <span class="sm mut">${esc(x.author)} · ${dt(x.created_at)}</span><div>${esc(x.body)}</div></div>`).join('') : `<p class="sm mut">Nothing yet. Clients add these in their portal; they feed the QC standard.</p>`}
+      <div class="bar" style="margin-top:10px"><select id="rqKind" class="btn sm" style="width:auto"><option value="requirement">requirement</option><option value="defect_to_watch">defect to watch</option><option value="question">question</option></select><input id="rqBody" placeholder="Add a note as the team" style="flex:1"><button class="btn sm" id="rqAdd">Add</button></div>
+    </div>
+    <div class="panel"><h2>5 · Order &amp; QC</h2>
+      ${orders.length ? orders.map(od => `<div class="card"><b>${esc(od.status)}</b> · ${fmt(od.qty, 0)} units · ${cny(od.unit_price_cny)} → ${usd(od.client_unit_price)}<div class="bar sm" style="margin-top:8px"><label style="margin:0"><input type="checkbox" ${od.deposit_paid ? 'checked' : ''} data-dep="${od.id}" style="width:auto"> deposit paid</label><label style="margin:0"><input type="checkbox" ${od.balance_paid ? 'checked' : ''} data-bal="${od.id}" style="width:auto"> balance paid</label>
+        <select data-odst="${od.id}" class="btn sm" style="width:auto">${['deposit', 'production', 'qc', 'balance', 'shipped', 'arrived', 'closed'].map(x => `<option ${x === od.status ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+        <div class="sm" style="margin-top:8px">${od.po_id ? `<a href="ops.html#/po/${od.po_id}">Open purchase order &amp; QC →</a>` : `<a href="ops.html#/new">Create the purchase order in Orders</a>, then its factory link runs the sampled inspection.`}${r.product_id ? ` · <a href="app.html">QC standard</a>` : ` · <a href="app.html?go=new">Set up the QC standard</a> from the spec's watch list`}</div></div>`).join('') : `<p class="sm mut">No order yet. Save a quote and press "Create order".</p>`}
+    </div>
+  </div></div>`;
+}
+
+function viewFactories() {
+  return `<div class="hello"><div><h1>Factories</h1><p>Every supplier the agents or you have found, with verification.</p></div><button class="btn primary" id="addFac">Add factory</button></div>
+  <div class="panel wrap">${D.factories.length ? `<table><thead><tr><th>Factory</th><th>Source</th><th>City</th><th>Contact</th><th>Verified</th><th>Updated</th></tr></thead><tbody>
+  ${D.factories.map(f => `<tr class="row" onclick="location.hash='#/factory/${f.id}'"><td><b>${esc(f.name)}</b>${f.name_zh ? `<div class="sm mut">${esc(f.name_zh)}</div>` : ''}</td><td>${esc(f.source)}</td><td>${esc(f.city || '—')}</td><td>${esc(f.contact_name || '')} ${f.wechat ? `<span class="sm mut">WeChat ${esc(f.wechat)}</span>` : ''}</td><td>${f.is_verified_factory === true ? '<span class="badge b-pass">factory</span>' : f.is_verified_factory === false ? '<span class="badge b-fail">trader</span>' : '<span class="badge">unchecked</span>'}</td><td>${dt(f.updated_at)}</td></tr>`).join('')}</tbody></table>` : `<div class="empty">No factories yet. They appear here when you search 1688 from a request.</div>`}</div>`;
+}
+
+async function viewFactory(id) {
+  const f = D.factories.find(x => x.id === id); if (!f) return '<p>Not found.</p>';
+  const { data: cands } = await sb.from('request_candidates').select('id, request_id, listing_title, price_cny, moq, match_score, sourcing_requests(title)').eq('factory_id', id);
+  const v = f.verification || {};
+  return `<div class="hello"><div><a class="sm" href="#/factories">← Factories</a><h1>${esc(f.name)}</h1><p>${esc(f.city || '')} ${f.source_url ? `· <a href="${esc(f.source_url)}" target="_blank">${esc(f.source)} page ↗</a>` : '· ' + esc(f.source)}</p></div></div>
+  <div class="cols"><div class="panel"><h2>Details</h2>
+    <div class="grid2"><div><label>Name</label><input id="fName" value="${esc(f.name)}"></div><div><label>Chinese name (for registry lookup)</label><input id="fZh" value="${esc(f.name_zh || '')}"></div>
+    <div><label>City</label><input id="fCity" value="${esc(f.city || '')}"></div><div><label>Province</label><input id="fProv" value="${esc(f.province || '')}"></div>
+    <div><label>Contact</label><input id="fContact" value="${esc(f.contact_name || '')}"></div><div><label>WeChat</label><input id="fWechat" value="${esc(f.wechat || '')}"></div>
+    <div><label>Phone</label><input id="fPhone" value="${esc(f.phone || '')}"></div><div><label>Email</label><input id="fEmail" value="${esc(f.email || '')}"></div></div>
+    <label>Notes</label><textarea id="fNotes">${esc(f.notes || '')}</textarea>
+    <div class="bar" style="margin-top:12px"><button class="btn primary" id="fSave">Save</button></div>
+    <h3>Listings for requests</h3>${(cands || []).length ? cands.map(k => `<div class="sm"><a href="#/request/${k.request_id}">${esc(k.sourcing_requests?.title)}</a> · ${esc(k.listing_title || '')} · ${cny(k.price_cny)} · MOQ ${fmt(k.moq, 0)} · fit ${fmt(k.match_score, 0)}</div>`).join('') : '<p class="sm mut">None.</p>'}
+  </div>
+  <div class="panel"><h2>Verification</h2>
+    <p class="sm mut">Is this a real factory or a trader? Record what you find; the client portal shows the badge.</p>
+    <div class="bar"><button class="btn ${f.is_verified_factory === true ? 'primary' : ''}" data-ver="true">Verified factory</button><button class="btn ${f.is_verified_factory === false ? 'primary' : ''}" data-ver="false">Trader / unverified</button><button class="btn ${f.is_verified_factory === null ? 'primary' : ''}" data-ver="null">Unchecked</button></div>
+    <div class="kv" style="margin-top:12px"><b>Listing claims factory</b><span>${v.listing_claims_factory === true ? 'yes' : v.listing_claims_factory === false ? 'no' : '—'}</span><b>Years on platform</b><span>${f.platform_years ?? '—'}</span><b>Sales (listing)</b><span>${v.sales ?? '—'}</span>
+      <b>Business scope</b><span><input id="vScope" value="${esc(v.business_scope || '')}" placeholder="经营范围 (from 企查查)"></span><b>Registered capital</b><span><input id="vCap" value="${esc(v.registered_capital || '')}" placeholder="注册资本"></span><b>Insured staff</b><span><input id="vStaff" type="number" value="${esc(v.insured_staff ?? '')}" placeholder="参保人数"></span><b>US shipments</b><span><input id="vCustoms" type="number" value="${esc(f.customs_shipments ?? '')}" placeholder="ImportYeti count"></span></div>
+    <div class="bar" style="margin-top:10px"><button class="btn" id="vSave">Save verification</button><button class="btn" id="vRun">Run checks</button></div><div id="vOut"></div>
+  </div></div>`;
+}
+
+function viewClients() {
+  return `<div class="hello"><div><h1>Clients</h1><p>Each client gets a portal link: they submit requests, add requirements and see released shortlists, quotes and orders.</p></div><button class="btn primary" id="addClient">Add client</button></div>
+  <div class="panel wrap">${D.clients.length ? `<table><thead><tr><th>Client</th><th>Email</th><th>Requests</th><th>Portal</th></tr></thead><tbody>
+  ${D.clients.map(c => `<tr><td><b>${esc(c.company || c.name)}</b><div class="sm mut">${esc(c.company ? c.name : '')}</div></td><td>${esc(c.email || '—')}</td><td>${D.requests.filter(r => r.client_id === c.id).length}</td><td class="bar"><a class="btn sm" target="_blank" href="portal.html?c=${esc(c.portal_token)}">Open ↗</a><button class="btn sm" data-copy="${esc(c.portal_token)}">Copy link</button><button class="btn sm" data-ptog="${c.id}" data-on="${c.portal_active ? 0 : 1}">${c.portal_active ? 'Disable' : 'Enable'}</button></td></tr>`).join('')}</tbody></table>` : `<div class="empty">No clients yet.</div>`}</div>`;
+}
+
+const RATE_KEYS = [['fx_cny_per_usd', 'FX (CNY per USD)'], ['hts_duty_pct', 'HTS duty %'], ['section_301_pct', 'Section 301 %'], ['other_tariff_pct', 'Other China tariffs %'], ['mpf_pct', 'MPF %'], ['mpf_min_usd', 'MPF min $'], ['mpf_max_usd', 'MPF max $'], ['hmf_pct', 'HMF % (ocean)'], ['broker_fee_usd', 'Customs broker $ / entry'], ['insurance_pct', 'Insurance %'], ['payment_fee_pct', 'Payment / FX fee %'], ['vat_rebate_pct', 'VAT rebate %'], ['commission_pct', 'Our commission %']];
+function viewRates() {
+  return `<div class="hello"><div><h1>Rate cards</h1><p>Duties, tariffs and fees live here, dated. Never in code. Every saved quote records which card it used.</p></div><button class="btn primary" id="addRate">New rate card</button></div>
+  ${D.rates.map(a => `<div class="panel"><div class="bar" style="justify-content:space-between"><div><b>${esc(a.name)}</b> ${a.is_default ? '<span class="badge b-pass">default</span>' : ''}<div class="sm mut">Effective ${dt(a.effective_date)}${a.notes ? ' · ' + esc(a.notes) : ''}</div></div><div class="bar">${a.is_default ? '' : `<button class="btn sm" data-def="${a.id}">Make default</button>`}<button class="btn sm primary" data-rsave="${a.id}">Save</button></div></div>
+    <div class="grid3">${RATE_KEYS.map(([k, l]) => `<div><label>${l}</label><input data-rk="${a.id}:${k}" type="number" step="0.0001" value="${a.rates?.[k] ?? ''}"></div>`).join('')}<div><label>Apply VAT rebate</label><select data-rk="${a.id}:apply_vat_rebate"><option value="false" ${a.rates?.apply_vat_rebate ? '' : 'selected'}>No (client's importer)</option><option value="true" ${a.rates?.apply_vat_rebate ? 'selected' : ''}>Yes (we export)</option></select></div><div><label>Effective date</label><input data-rk="${a.id}:effective_date" type="date" value="${a.effective_date}"></div></div>
+    <p class="sm mut">Check the HTS duty for each product, current Section 301 and other China tariff rates, and the MPF min/max for this fiscal year before quoting. HTS lookups: hts.usitc.gov.</p></div>`).join('')}`;
+}
+
+// ---------- render + wiring ----------
+function calcRows(c) {
+  const row = (l, v, b) => `<tr><td>${l}</td><td class="right">${b ? '<b>' + v + '</b>' : v}</td></tr>`;
+  return `<div class="wrap" style="margin-top:12px"><table><tbody>
+    ${row('Goods (ex-works)', usd(c.goods_usd))}${row('Domestic freight', usd(c.domestic_freight_usd))}${c.vat_rebate_usd ? row('VAT rebate', '−' + usd(c.vat_rebate_usd)) : ''}${row('FOB value', usd(c.fob_usd), true)}
+    ${row('International freight', usd(c.intl_freight_usd))}${row(`Duties &amp; tariffs (${fmt(c.duty_pct_total, 2)}%)`, usd(c.duty_usd))}${row('MPF', usd(c.mpf_usd))}${row('HMF', usd(c.hmf_usd))}${row('Broker', usd(c.broker_fee_usd))}${row('Insurance', usd(c.insurance_usd))}${row('Payment fees', usd(c.payment_fee_usd))}
+    ${row('Landed total', usd(c.landed_total_usd), true)}${row('Landed per unit', usd(c.landed_unit_usd, 4), true)}
+    ${c.client_unit_price != null ? row(`Our commission (${fmt(c.commission_pct, 1)}%)`, usd(c.commission_usd)) + row('Client price per unit', usd(c.client_unit_price)) + row('Client profit per unit', usd(c.profit_unit_usd, 4), true) + row('Client margin', `<span class="num" style="font-size:30px;color:${c.margin_pct < 0 ? 'var(--fail)' : c.margin_pct < 15 ? 'var(--review)' : 'var(--pass)'}">${fmt(c.margin_pct, 1)}%</span>`) : ''}
+  </tbody></table></div>`;
+}
+
+async function render() {
+  const h = location.hash || '#/requests'; const [, page, id] = h.split('/');
+  document.querySelectorAll('.rail a[data-nav]').forEach(a => { const on = a.dataset.nav === page || (page === 'request' && a.dataset.nav === 'requests') || (page === 'factory' && a.dataset.nav === 'factories') || (page === 'new' && a.dataset.nav === 'requests'); if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+  app.innerHTML = page === 'new' ? viewNew() : page === 'request' ? await viewRequest(id) : page === 'factories' ? viewFactories() : page === 'factory' ? await viewFactory(id) : page === 'clients' ? viewClients() : page === 'rates' ? viewRates() : viewRequests();
+  wire(page, id);
+}
+const refresh = async () => { await load(); await render(); };
+
+function wire(page, id) {
+  const on = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(ev, fn));
+  const upd = async (t, patch, eq) => { const { error } = await sb.from(t).update(patch).eq('id', eq); if (error) toast(error.message); else await refresh(); };
+  if (page === 'new') $('nSave').onclick = async (e) => {
+    const title = $('nTitle').value.trim(); if (!title) return toast('Give it a title');
+    busy(e.target, true);
+    const { data, error } = await sb.from('sourcing_requests').insert({ workspace_id: ws, client_id: $('nClient').value || null, title, raw_brief: $('nBrief').value, quantity: +$('nQty').value || null, target_unit_price: +$('nTarget').value || null, deadline: $('nDead').value || null }).select('id').single();
+    if (error) { busy(e.target, false); return toast(error.message); }
+    try { if ($('nBrief').value.trim()) await call('intake', { request_id: data.id }); } catch (err) { toast('Saved. Intake failed: ' + err.message); }
+    await load(); location.hash = '#/request/' + data.id;
+  };
+  if (page === 'request') {
+    const r = D.requests.find(x => x.id === id);
+    $('stSel').onchange = (e) => upd('sourcing_requests', { status: e.target.value }, id);
+    $('editBrief').onclick = () => { $('briefBox').style.display = 'block'; };
+    $('saveBrief').onclick = () => upd('sourcing_requests', { raw_brief: $('briefTa').value }, id);
+    $('runIntake').onclick = async (e) => { busy(e.target, true); try { await call('intake', { request_id: id, answers: $('answers')?.value || '' }); toast('Spec updated'); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
+    $('search1688').onclick = async (e) => { busy(e.target, true); try { const t = $('term').value.trim(); const out = await call('search_1688', { request_id: id, terms: t ? [t] : undefined }); toast(`${out.listings} listings, ${out.new_candidates} new, ranked ${out.ranked}`); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
+    if ($('rerank')) $('rerank').onclick = async (e) => { busy(e.target, true); try { await call('rank', { request_id: id }); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
+    $('addCand').onclick = async () => { const name = prompt('Supplier / factory name'); if (!name) return; const url = prompt('Listing or shop URL (optional)') || null; const price = parseFloat(prompt('Unit price ¥ (optional)') || '') || null;
+      const { data: f, error } = await sb.from('factories').insert({ workspace_id: ws, name, source: 'manual', source_url: url }).select('id').single(); if (error) return toast(error.message);
+      const { error: e2 } = await sb.from('request_candidates').insert({ workspace_id: ws, request_id: id, factory_id: f.id, listing_title: name, listing_url: url, price_cny: price }); if (e2) return toast(e2.message); await refresh(); };
+    on('[data-neg]', 'click', async (e) => { const b = e.currentTarget; const { error } = await sb.from('negotiations').insert({ workspace_id: ws, request_id: id, factory_id: b.dataset.fac || null, candidate_id: b.dataset.neg, target_cny: r.spec?.estimated_factory_price_cny || null, current_offer_cny: (await sb.from('request_candidates').select('price_cny').eq('id', b.dataset.neg).single()).data?.price_cny || null }); if (error) return toast(error.message); await sb.from('request_candidates').update({ status: 'contacted' }).eq('id', b.dataset.neg); if (['intake', 'sourcing', 'shortlisted'].includes(r.status)) await sb.from('sourcing_requests').update({ status: 'negotiating' }).eq('id', id); await refresh(); });
+    on('[data-rel]', 'click', (e) => upd('request_candidates', { released_to_client: e.currentTarget.dataset.on === '1' }, e.currentTarget.dataset.rel));
+    on('[data-rej]', 'click', (e) => upd('request_candidates', { status: 'rejected', released_to_client: false }, e.currentTarget.dataset.rej));
+    on('[data-log]', 'click', async (e) => { const g = e.currentTarget.dataset.log; const note = document.querySelector(`[data-lognote="${g}"]`).value.trim(); const offer = parseFloat(document.querySelector(`[data-logoffer="${g}"]`).value) || null; if (!note && !offer) return;
+      const { data: cur } = await sb.from('negotiations').select('log').eq('id', g).single(); const patch = { log: [...(cur?.log || []), { at: new Date().toISOString(), note, offer_cny: offer }], last_contact_at: new Date().toISOString() }; if (offer) patch.current_offer_cny = offer; await upd('negotiations', patch, g); });
+    on('[data-negst]', 'change', (e) => upd('negotiations', { status: e.currentTarget.value }, e.currentTarget.dataset.negst));
+    on('[data-agree]', 'click', (e) => { const v = parseFloat(prompt('Agreed unit price ¥') || ''); if (!v) return; upd('negotiations', { agreed_cny: v, status: 'agreed' }, e.currentTarget.dataset.agree); });
+    on('[data-rfq]', 'click', async (e) => { const b = e.currentTarget; busy(b, true); try { const out = await call('draft_rfq', { request_id: id, factory_id: b.dataset.fac || undefined }); $('rfq-' + b.dataset.rfq).innerHTML = `<h3>${esc(out.subject_zh || 'RFQ')}</h3><div class="msg">${esc(out.message_zh)}\n\n${esc(out.spec_list_zh || '')}</div><button class="btn sm" style="margin-top:6px" onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(()=>this.textContent='Copied')">Copy Chinese</button><details class="sm" style="margin-top:8px"><summary>English translation &amp; tips</summary><div class="msg" style="margin-top:6px">${esc(out.message_en || '')}</div><ul>${(out.negotiation_tips || []).map(t => `<li>${esc(t)}</li>`).join('')}</ul></details>`; } catch (err) { toast(err.message); } busy(b, false); });
+    on('[data-quote]', 'click', (e) => { const b = e.currentTarget; if (b.dataset.price) $('qPrice').value = b.dataset.price; if (b.dataset.fac) $('qFac').value = b.dataset.fac; $('qFac').dataset.neg = b.dataset.quote; $('calc').click(); $('qPrice').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+    let lastCalc = null;
+    const rate = D.rates.find(x => x.is_default) || D.rates[0];
+    $('calc').onclick = async () => { if (!rate) return toast('Create a rate card first'); const inputs = { factory_price_cny: +$('qPrice').value || 0, qty: +$('qQty').value || 1, domestic_freight_cny: +$('qDom').value || 0, intl_freight_usd: +$('qIntl').value || 0, mode: $('qMode').value, client_unit_price: $('qClient').value ? +$('qClient').value : null, commission_pct: +$('qComm').value };
+      const { data, error } = await sb.rpc('calc_landed_cost', { inputs, rates: rate.rates }); if (error) return toast(error.message); lastCalc = { inputs, breakdown: data }; $('calcOut').innerHTML = calcRows(data); $('saveQuote').disabled = false; };
+    $('saveQuote').onclick = async () => { if (!lastCalc) return; const c = lastCalc.breakdown; const { error } = await sb.from('quotes').insert({ workspace_id: ws, request_id: id, factory_id: $('qFac').value || null, negotiation_id: $('qFac').dataset.neg || null, assumption_id: rate.id, inputs: lastCalc.inputs, breakdown: c, landed_unit_cost: c.landed_unit_usd, client_unit_price: c.client_unit_price, margin_pct: c.margin_pct }); if (error) return toast(error.message); if (['negotiating', 'shortlisted'].includes(r.status)) await sb.from('sourcing_requests').update({ status: 'quoted', client_unit_price: c.client_unit_price }).eq('id', id); await refresh(); };
+    on('[data-qrel]', 'click', (e) => upd('quotes', { released_to_client: e.currentTarget.dataset.on === '1', status: e.currentTarget.dataset.on === '1' ? 'sent' : 'draft' }, e.currentTarget.dataset.qrel));
+    on('[data-order]', 'click', async (e) => { const b = e.currentTarget; const { error } = await sb.from('sourcing_orders').insert({ workspace_id: ws, request_id: id, quote_id: b.dataset.order, factory_id: b.dataset.fac || null, client_id: r.client_id, qty: +b.dataset.qty || null, unit_price_cny: +b.dataset.price || null, client_unit_price: +b.dataset.cp || null }); if (error) return toast(error.message); await sb.from('quotes').update({ status: 'accepted' }).eq('id', b.dataset.order); await sb.from('sourcing_requests').update({ status: 'ordered' }).eq('id', id); await refresh(); });
+    on('[data-dep]', 'change', (e) => upd('sourcing_orders', { deposit_paid: e.currentTarget.checked }, e.currentTarget.dataset.dep));
+    on('[data-bal]', 'change', (e) => upd('sourcing_orders', { balance_paid: e.currentTarget.checked }, e.currentTarget.dataset.bal));
+    on('[data-odst]', 'change', (e) => upd('sourcing_orders', { status: e.currentTarget.value }, e.currentTarget.dataset.odst));
+    $('rqAdd').onclick = async () => { const body = $('rqBody').value.trim(); if (!body) return; const { error } = await sb.from('client_requirements').insert({ workspace_id: ws, request_id: id, kind: $('rqKind').value, body, author: 'team' }); if (error) return toast(error.message); await refresh(); };
+  }
+  if (page === 'factories') $('addFac').onclick = async () => { const name = prompt('Factory name'); if (!name) return; const { data, error } = await sb.from('factories').insert({ workspace_id: ws, name, source: 'manual' }).select('id').single(); if (error) return toast(error.message); await load(); location.hash = '#/factory/' + data.id; };
+  if (page === 'factory') {
+    $('fSave').onclick = () => upd('factories', { name: $('fName').value, name_zh: $('fZh').value || null, city: $('fCity').value || null, province: $('fProv').value || null, contact_name: $('fContact').value || null, wechat: $('fWechat').value || null, phone: $('fPhone').value || null, email: $('fEmail').value || null, notes: $('fNotes').value || null }, id);
+    on('[data-ver]', 'click', (e) => { const v = e.currentTarget.dataset.ver; upd('factories', { is_verified_factory: v === 'null' ? null : v === 'true' }, id); });
+    $('vSave').onclick = async () => { const f = D.factories.find(x => x.id === id); await upd('factories', { verification: { ...(f.verification || {}), business_scope: $('vScope').value || null, registered_capital: $('vCap').value || null, insured_staff: $('vStaff').value ? +$('vStaff').value : null, checked_at: new Date().toISOString() }, customs_shipments: $('vCustoms').value ? +$('vCustoms').value : null }, id); };
+    $('vRun').onclick = async (e) => { busy(e.target, true); try { const out = await call('verify', { factory_id: id }); $('vOut').innerHTML = `<p class="sm mut" style="margin-top:10px">${esc(out.note)}</p>` + out.checks.map(c => `<div class="card" style="padding:8px 12px"><b>${esc(c.name)}</b> <span class="badge ${c.status === 'done' ? 'b-pass' : c.status === 'manual' ? 'b-rev' : ''}">${esc(c.status)}</span><div class="sm">${esc(c.how || '')}${c.result ? ' ' + esc(JSON.stringify(c.result)) : ''}</div></div>`).join(''); } catch (err) { toast(err.message); } busy(e.target, false); };
+  }
+  if (page === 'clients') {
+    $('addClient').onclick = async () => { const name = prompt('Contact name'); if (!name) return; const company = prompt('Company (optional)') || null; const email = prompt('Email (optional)') || null; const { error } = await sb.from('clients').insert({ workspace_id: ws, name, company, email }); if (error) return toast(error.message); await refresh(); };
+    on('[data-copy]', 'click', (e) => { const u = new URL('portal.html?c=' + e.currentTarget.dataset.copy, location.href).href; navigator.clipboard.writeText(u).then(() => toast('Portal link copied')); });
+    on('[data-ptog]', 'click', (e) => upd('clients', { portal_active: e.currentTarget.dataset.on === '1' }, e.currentTarget.dataset.ptog));
+  }
+  if (page === 'rates') {
+    $('addRate').onclick = async () => { const name = prompt('Rate card name (e.g. "Camping chairs, Oct 2026")'); if (!name) return; const base = D.rates.find(x => x.is_default)?.rates || {}; const { error } = await sb.from('cost_assumptions').insert({ workspace_id: ws, name, rates: base, is_default: !D.rates.length }); if (error) return toast(error.message); await refresh(); };
+    on('[data-def]', 'click', async (e) => { await sb.from('cost_assumptions').update({ is_default: false }).eq('workspace_id', ws); await upd('cost_assumptions', { is_default: true }, e.currentTarget.dataset.def); });
+    on('[data-rsave]', 'click', async (e) => { const aid = e.currentTarget.dataset.rsave; const a = D.rates.find(x => x.id === aid); const rates = { ...(a.rates || {}) }; let eff = a.effective_date;
+      document.querySelectorAll(`[data-rk^="${aid}:"]`).forEach(el => { const k = el.dataset.rk.split(':')[1]; if (k === 'effective_date') eff = el.value || eff; else if (k === 'apply_vat_rebate') rates[k] = el.value === 'true'; else if (el.value !== '') rates[k] = parseFloat(el.value); });
+      await upd('cost_assumptions', { rates, effective_date: eff }, aid); toast('Rates saved'); });
+  }
+}
+
+// ---------- boot ----------
+(async () => {
+  if (!CFG.supabaseUrl || !window.supabase) { app.innerHTML = '<p>Setup needed: add your Supabase URL and anon key to config.js.</p>'; return; }
+  sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
+  let { data: { session } } = await sb.auth.getSession();
+  if (!session) { const { data, error } = await sb.auth.signInAnonymously(); if (error) { app.innerHTML = `<p>Could not open your workspace: ${esc(error.message)}</p>`; return; } session = data.session; }
+  const { data: m } = await sb.from('workspace_members').select('workspace_id, workspaces(name)').eq('user_id', session.user.id).order('created_at').limit(1);
+  if (!m || !m.length) { app.innerHTML = '<p>No workspace found for this account. Open the <a href="./">home page</a> once first.</p>'; return; }
+  ws = m[0].workspace_id; $('sync').textContent = m[0].workspaces?.name || 'My workspace';
+  await load(); await render();
+  window.addEventListener('hashchange', render);
+  let t; const ch = sb.channel('sourcing');
+  ['sourcing_requests', 'request_candidates', 'negotiations', 'quotes', 'client_requirements', 'sourcing_orders', 'factories', 'clients'].forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb, filter: 'workspace_id=eq.' + ws }, () => { clearTimeout(t); t = setTimeout(refresh, 600); }));
+  ch.subscribe();
+})();
+})();
+</script>
+</body></html>
