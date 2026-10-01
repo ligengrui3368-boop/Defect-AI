@@ -130,6 +130,21 @@ a.src{color:var(--focus);word-break:break-all}
 .cov.miss{background:var(--panel);border:1.5px dashed var(--retake);color:var(--ink);cursor:pointer}
 .badlist{margin:6px 0 0;padding-left:18px;font-size:14px;color:var(--retake);flex-basis:100%}
 .decide{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.og{display:inline-block;padding:2px 8px;border-radius:5px;font-weight:700;font-size:12.5px;background:var(--sunk);color:var(--muted)}
+.og.none{background:var(--pass-bg);color:var(--pass)}.og.transit{background:var(--retake-bg);color:var(--retake)}.og.factory{background:var(--fail-bg);color:var(--fail)}.og.both{background:var(--fail-bg);color:var(--fail)}.og.unclear{background:var(--review-bg);color:var(--review)}
+.where{font-size:22px;font-weight:800;font-stretch:112%;margin:4px 0 6px}
+.where.none{color:var(--pass)}.where.transit{color:var(--retake)}.where.factory,.where.both{color:var(--fail)}.where.unclear{color:var(--review)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.pair figure{margin:0}.pair img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;background:var(--sunk);display:block}
+.pair figcaption{font-size:12.5px;color:var(--muted);margin-top:3px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:6px}
+.stats div{background:var(--sunk);border-radius:10px;padding:10px 12px}.stats b{display:block;font-size:22px;font-stretch:112%}.stats span{font-size:13px;color:var(--muted)}
+.lotrow{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;cursor:pointer;text-align:left}
+.lotrow small{color:var(--muted);font-size:13px;display:block}
+.linkbox{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13.5px;word-break:break-all;margin-top:8px}
+.lang{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:4px 9px;font-weight:700;font-size:13px;cursor:pointer}
+.tag{display:inline-block;padding:1px 7px;border-radius:5px;font-size:12px;font-weight:700;background:var(--sunk);color:var(--muted)}
+.mh{margin:6px 0 0;padding-left:18px;font-size:14.5px}.mh li{margin:3px 0}
 </style></head><body>
 <header class="top"><button class="back" id="back" hidden>‹ Back</button><h1 id="ttl">Defect Check</h1><span class="sync" id="sync">Connecting…</span></header>
 <main id="app"></main>
@@ -153,7 +168,8 @@ const S = { user: null, ws: null, wsName: '', products: [], inspections: [], rou
 const CFG = window.DEFECT_CHECK_CONFIG || {};
 let sb = null;
 const URLS = new Map();
-const canAI = () => !!S.user;
+const canAI = () => !!S.user || !!S.factory;
+const lines = v => String(v || '').split('\n').map(x => x.trim()).filter(Boolean);
 const SPEC_KEYS = ['material', 'colors', 'finish', 'dims', 'tol', 'packaging', 'inBox', 'officialSpecs', 'listingText', 'goodLooks', 'mustHave', 'allowed', 'watch', 'minDefectMm', 'views'];
 const specDefault = k => (k === 'watch' || k === 'views') ? [] : k === 'dims' ? { l: '', w: '', h: '' } : '';
 function prodFromRow(r) {
@@ -168,7 +184,8 @@ function prodToRow(d) {
 function inspFromRow(r) {
   return { id: r.id, productId: r.product_id, productName: r.product_name, productVersion: r.product_version, lot: r.lot || '', unit: r.unit || '',
     photos: (r.photos || []).map(p => ({ ...p, id: p.path })), ai: r.status === 'done' ? r.ai : null, status: r.status, error: r.error, decision: r.decision,
-    recheckOf: r.recheck_of, checkedBy: r.model ? 'Claude (' + r.model + ')' : '', createdAt: r.created_at };
+    recheckOf: r.recheck_of, checkedBy: r.model ? 'Claude (' + r.model + ')' : '', createdAt: r.created_at,
+    stage: r.stage || 'factory', originId: r.origin_id || null, damageOrigin: r.damage_origin || null, factoryLinkId: r.factory_link_id || null, submittedBy: r.submitted_by || '' };
 }
 function upsertLocal(col, row) {
   const arr = col === 'products' ? S.products : S.inspections, obj = col === 'products' ? prodFromRow(row) : inspFromRow(row), i = arr.findIndex(x => x.id === obj.id);
@@ -186,6 +203,7 @@ async function signAll() {
   return true;
 }
 async function callQC(body) {
+  if (S.factory) { body = { ...body, token: S.factory.token }; if (body.task === 'identify') body.task = 'factory_identify'; }
   const { data, error } = await sb.functions.invoke('qc', { body });
   if (error) { let msg = error.message; try { const j = await error.context.json(); if (j && j.error) msg = j.error; } catch { } throw new Error(msg); }
   if (data && data.error) throw new Error(data.error);
@@ -196,8 +214,24 @@ let toastT; function toast(t, ms = 3200) { const el = $('#toast'); el.textConten
 const srcOf = p => p.src || (p.id ? URLS.get(p.id) || '' : '');
 const ago = iso => { const d = new Date(iso), s = (Date.now() - d) / 1000; if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s / 60) + ' min ago'; if (s < 86400) return Math.floor(s / 3600) + ' h ago'; return d.toLocaleDateString(); };
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-const prodById = id => S.products.find(p => p.id === id);
+const prodById = id => (S.factory && id === 'factory') ? S.factory.product : S.products.find(p => p.id === id);
 const decOf = i => i.decision ? i.decision.final : i.ai ? i.ai.verdict : i.status === 'error' ? 'ERROR' : 'CHECKING';
+const ORIGIN = { none: 'Arrived as shipped', transit: 'Damaged in transit', factory: 'Factory fault', both: 'Factory fault and transit damage', unclear: 'Origin unclear' };
+const DEF_ORIGIN = { factory: 'From the factory', transit: 'In transit', unclear: 'Origin unclear' };
+const normLot = l => String(l || '').trim().toLowerCase();
+const lotChecks = (productId, lot, stage) => S.inspections.filter(i => i.productId === productId && normLot(i.lot) && normLot(i.lot) === normLot(lot) && (!stage || i.stage === stage));
+const lotKey = (productId, lot) => productId + '|' + lot;
+/* ---------- factory mode language ---------- */
+const ZH = {
+  'Take photo': '拍照', 'From library': '从相册选', 'Uploading': '上传中', 'Not saved': '未保存', 'Identifying…': '识别中…', 'What part?': '哪个部位？',
+  'Blurry': '模糊', 'Too dark': '太暗', 'Glare': '反光', 'Cropped': '不完整', 'Wrong product': '不是该产品', 'Check photo': '检查照片',
+  'Front': '正面', 'Back': '背面', 'Top': '顶部', 'Bottom': '底部', 'Side': '侧面', 'Label': '标签', 'Packaging': '包装', 'Close-up': '特写',
+  'Identifying photos…': '正在识别照片…', 'Enough to check.': '照片足够，可以检验。', 'Check this unit': '检验这件', 'Uploading photos…': '照片上传中…', 'Check anyway': '仍然检验',
+  'Retake it or remove it.': '请重拍或删除。', 'Still needed': '还需要', 'Tap to take it, or set the part on a photo if it was misread.': '点击补拍；如识别错了，可在照片上改部位。',
+  'Paste photos here: click and press ⌘V or Ctrl+V, or tap and hold, then Paste. You can also drag photos in.': '在这里粘贴照片：点击后按 Ctrl+V，或长按选择“粘贴”。也可以把照片拖进来。',
+};
+const T = en => (S.factory && S.lang === 'zh' && ZH[en]) || en;
+const L2 = (en, zh) => (S.factory && S.lang === 'zh') ? zh : en;
 function readDataURL(f) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); }); }
 function loadImg(src) { return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; }); }
 async function prepImage(file) {
@@ -209,9 +243,12 @@ async function prepImage(file) {
 }
 async function uploadPhoto(p, rerender) {
   p.state = 'up'; rerender && rerender();
-  const path = `${S.ws}/${crypto.randomUUID()}.jpg`;
-  const { error } = await sb.storage.from('photos').upload(path, p.blob, { contentType: 'image/jpeg' });
-  if (error) { p.state = 'err'; toast('A photo did not upload: ' + error.message); }
+  let path, error;
+  if (S.factory) {
+    try { const r = await callQC({ task: 'factory_upload', n: 1 }), u = r.uploads[0]; path = u.path; ({ error } = await sb.storage.from('photos').uploadToSignedUrl(u.path, u.token, p.blob, { contentType: 'image/jpeg' })); }
+    catch (e) { error = e; }
+  } else { path = `${S.ws}/${crypto.randomUUID()}.jpg`; ({ error } = await sb.storage.from('photos').upload(path, p.blob, { contentType: 'image/jpeg' })); }
+  if (error) { p.state = 'err'; toast(L2('A photo did not upload: ', '照片上传失败：') + (error.message || '')); }
   else { p.id = path; URLS.set(path, p.src); p.state = 'ok'; }
   rerender && rerender();
 }
@@ -289,8 +326,9 @@ function go(name, id, push = true) { if (push) S.stack.push(S.route); S.route = 
 function back() { if (S.check && S.check.ctl) S.check.ctl.abort(); S.route = S.stack.pop() || { name: 'home' }; render(); window.scrollTo(0, 0); }
 $('#back').onclick = back;
 function render() {
-  const r = S.route; $('#back').hidden = ['home', 'login', 'loading'].includes(r.name); bottom.innerHTML = '';
-  ({ home, product: viewProduct, edit: editProduct, pick: pickProduct, check: checkUnit, insp: viewInspection, login: loginView, loading: loadingView })[r.name](r.id);
+  const r = S.route; $('#back').hidden = ['home', 'login', 'loading', 'factory'].includes(r.name); bottom.innerHTML = '';
+  $('#back').textContent = L2('‹ Back', '‹ 返回'); $('#sync').innerHTML = S.factory ? `<button class="lang" data-a="lang">${S.lang === 'zh' ? 'EN' : '中文'}</button>` : $('#sync').innerHTML;
+  ({ home, product: viewProduct, edit: editProduct, pick: pickProduct, check: checkUnit, insp: viewInspection, lot: viewLot, newlink: newLinkView, factory: factoryHome, fres: factoryResult, login: loginView, loading: loadingView })[r.name](r.id);
 }
 function bar(html) { bottom.innerHTML = `<div class="in">${html}</div>`; }
 
@@ -307,7 +345,7 @@ function home() {
 function prodRow(p) { const n = S.inspections.filter(i => i.productId === p.id).length; const ph = p.photos && p.photos[0];
   return `<button class="row" data-a="openProd" data-id="${esc(p.id)}">${ph ? `<img src="${esc(srcOf(ph))}" alt="">` : '<span class="ph"></span>'}<span><b>${esc(p.name)}</b><small>${esc([p.sku, `${(p.photos || []).length} reference photo${(p.photos || []).length === 1 ? '' : 's'}`, `${n} check${n === 1 ? '' : 's'}`].filter(Boolean).join(', '))}</small></span><span>›</span></button>`; }
 function inspRow(i) { const ph = i.photos && i.photos[0], d = decOf(i);
-  return `<button class="row" data-a="openInsp" data-id="${esc(i.id)}">${ph ? `<img src="${esc(srcOf(ph))}" alt="">` : '<span class="ph"></span>'}<span><b>${esc(i.productName)}</b><small>${esc([i.lot && 'Lot ' + i.lot, i.unit && 'Unit ' + i.unit, ago(i.createdAt)].filter(Boolean).join(', '))}</small></span><span class="chip ${esc(d)}">${esc(d)}</span></button>`; }
+  return `<button class="row" data-a="openInsp" data-id="${esc(i.id)}">${ph ? `<img src="${esc(srcOf(ph))}" alt="">` : '<span class="ph"></span>'}<span><b>${esc(i.productName)}</b><small>${i.factoryLinkId ? `<span class="tag">Factory${i.submittedBy ? ': ' + esc(i.submittedBy) : ''}</span> ` : ''}${i.stage === 'arrival' ? `<span class="og ${esc(i.damageOrigin || '')}">${esc(i.damageOrigin ? ORIGIN[i.damageOrigin] : 'Arrival')}</span> ` : ''}${esc([i.lot && 'Lot ' + i.lot, i.unit && 'Unit ' + i.unit, ago(i.createdAt)].filter(Boolean).join(', '))}</small></span><span class="chip ${esc(d)}">${esc(d)}</span></button>`; }
 
 /* ---------- product view ---------- */
 function viewProduct(id) {
@@ -320,9 +358,165 @@ function viewProduct(id) {
   app.innerHTML = `${safeUrl ? `<div class="sec"><h3>Official listing</h3><p style="margin:4px 0 0"><a class="src" href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">${esc(safeUrl)}</a></p></div>` : ''}<div class="sec"><h3>Approved reference photos</h3><p>${(p.photos || []).length ? 'Tap to enlarge.' : 'No photos yet. Edit the product to add some.'}</p>
     <div class="strip">${(p.photos || []).map(ph => `<img src="${esc(srcOf(ph))}" alt="${esc(ph.view || 'Reference')}" data-zoom="${esc(srcOf(ph))}">`).join('')}</div></div>
   <div class="sec"><h3>Standard, version ${esc(p.version || 1)}</h3><p>Updated ${esc(ago(p.updatedAt))}</p><dl class="spec">${rows.map(r => `<dt>${esc(r[0])}</dt><dd>${esc(r[1])}</dd>`).join('')}</dl></div>
+  ${linksHtml(p)}
+  ${lotsHtml(p)}
   <h2>Checks of this product</h2><div class="list">${ins.length ? ins.map(inspRow).join('') : '<div class="empty">No units checked yet.</div>'}</div>
   <div style="margin-top:22px;display:flex;gap:8px"><button class="btn small danger" data-a="delProd" data-id="${esc(p.id)}">Delete product</button></div>`;
   bar(`<button class="btn" data-a="edit" data-id="${esc(p.id)}">Edit standard</button><button class="btn primary grow" data-a="check" data-id="${esc(p.id)}">Check a unit</button>`);
+}
+
+function lotsHtml(p) {
+  const lots = new Map();
+  S.inspections.filter(i => i.productId === p.id && normLot(i.lot)).forEach(i => { const k = normLot(i.lot); if (!lots.has(k)) lots.set(k, { lot: i.lot, f: 0, a: 0, bad: 0 }); const o = lots.get(k); if (i.stage === 'arrival') { o.a++; if (['transit', 'factory', 'both'].includes(i.damageOrigin)) o.bad++; } else o.f++; });
+  if (!lots.size) return '';
+  return `<h2>Lots</h2><div class="list">${[...lots.values()].map(o => `<button class="lotrow" data-a="openLot" data-id="${esc(lotKey(p.id, o.lot))}"><span><b>Lot ${esc(o.lot)}</b><small>${o.f} checked at factory, ${o.a} on arrival${o.bad ? `, ${o.bad} with damage traced` : ''}</small></span><span>›</span></button>`).join('')}</div>`;
+}
+
+/* ---------- factory links (buyer side) ---------- */
+const linkUrl = l => location.origin + location.pathname + '?f=' + l.token;
+const linkOpen = l => l.active && new Date(l.expires_at) > new Date();
+function linkMsg(l, p) {
+  return `您好！请用手机打开下面的链接，为订单 ${l.lot}（${p ? p.name : ''}）的产品逐件拍照质检。每件产品请填写件号，按页面提示拍照，系统会自动检验并显示结果。\n${linkUrl(l)}\n\nHi! Please open this link on a phone and photograph each unit of order ${l.lot}${p ? ' (' + p.name + ')' : ''}. Enter a unit number for each one; every unit is checked automatically.`;
+}
+function linksHtml(p) {
+  const ls = (S.links || []).filter(l => l.product_id === p.id);
+  const rows = ls.map(l => { const n = S.inspections.filter(i => i.factoryLinkId === l.id).length, open = linkOpen(l);
+    return `<div class="sec" style="margin-bottom:8px;padding:12px 14px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><div><b>Lot ${esc(l.lot)}</b>${l.factory_name ? ` · ${esc(l.factory_name)}` : ''}<div class="who">${n} unit${n === 1 ? '' : 's'} submitted · ${open ? `open until ${esc(new Date(l.expires_at).toLocaleDateString())}` : 'closed'}</div></div>
+      <span class="tag">${open ? 'Open' : 'Closed'}</span></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="btn small" data-a="copyLink" data-id="${esc(l.id)}">Copy link</button><button class="btn small" data-a="copyMsg" data-id="${esc(l.id)}">Copy message (中文/EN)</button><button class="btn small" data-a="openLot" data-id="${esc(lotKey(p.id, l.lot))}">Lot report</button><button class="btn small ${open ? 'danger' : ''}" data-a="toggleLink" data-id="${esc(l.id)}">${open ? 'Close link' : 'Reopen'}</button></div></div>`; }).join('');
+  return `<h2>Factory links</h2>${rows || '<p class="note" style="margin:0 0 8px">Send the factory a link: their staff photograph each unit on a phone, with no account, and every unit is checked against this standard.</p>'}<button class="btn" data-a="newLink" data-id="${esc(p.id)}" style="width:100%">Send a link to a factory</button>`;
+}
+function newLinkView(pid) {
+  const p = prodById(pid); if (!p) { S.route = { name: 'home' }; return render(); }
+  $('#ttl').textContent = 'Send to factory';
+  const d = S.linkDraft && S.linkDraft.pid === pid ? S.linkDraft : (S.linkDraft = { pid, lot: '', factory: '', days: '60' });
+  app.innerHTML = `<div class="sec"><h3>${esc(p.name)}</h3><p>The factory sees this product's standard (reference photos, must-haves, what to watch for) and photographs each unit. Results appear in your lot report as they come in. The page opens in Chinese, with an English switch.</p>
+    <label class="f">Lot or PO number<span>Use the number you'll also use when the shipment arrives</span><input class="i" data-l="lot" value="${esc(d.lot)}" placeholder="e.g. PO-2026-031"></label>
+    <label class="f">Factory name<span>Optional, for your own reference</span><input class="i" data-l="factory" value="${esc(d.factory)}" placeholder="e.g. Shanghai Chifang"></label>
+    <label class="f">Link stays open for (days)<input class="i" inputmode="numeric" data-l="days" value="${esc(d.days)}"></label>
+    <p class="note" style="margin-top:12px">Anyone with the link can submit photos for this lot until you close it, and each check uses your Claude API credit. Close it from the product page when production is done.</p></div>`;
+  bar(`<button class="btn" data-a="cancelLink">Cancel</button><button class="btn primary grow" data-a="createLink">Create link</button>`);
+}
+async function createLink() {
+  const d = S.linkDraft; if (!d || !d.lot.trim()) { toast('Enter the lot or PO number.'); return; }
+  const days = Math.min(365, Math.max(1, parseInt(d.days, 10) || 60));
+  const { data, error } = await sb.from('factory_links').insert({ workspace_id: S.ws, product_id: d.pid, lot: d.lot.trim(), factory_name: d.factory.trim() || null, expires_at: new Date(Date.now() + days * 864e5).toISOString(), created_by: S.user.id }).select().single();
+  if (error) { toast('Could not create the link: ' + error.message); return; }
+  S.links.unshift(data); S.linkDraft = null; S.stack.pop(); S.route = { name: 'product', id: d.pid }; render();
+  try { await navigator.clipboard.writeText(linkMsg(data, prodById(d.pid))); toast('Link created and copied with a message for the factory.'); } catch { toast('Link created. Use Copy message to send it.'); }
+}
+async function copyText(t, ok) { try { await navigator.clipboard.writeText(t); toast(ok); } catch { prompt('Copy:', t); } }
+
+/* ---------- factory page (no account) ---------- */
+function fProduct(raw, urls) {
+  const s = raw.spec || {};
+  return { id: 'factory', name: raw.name, sku: raw.sku, version: raw.version, ...s, views: s.views || [], watch: s.watch || [],
+    photos: (raw.photos || []).map(ph => { if (urls[ph.path]) URLS.set(ph.path, urls[ph.path]); return { ...ph, id: ph.path }; }) };
+}
+function fUnit(u, urls) { (u.photos || []).forEach(ph => { if (urls && urls[ph.path]) URLS.set(ph.path, urls[ph.path]); ph.id = ph.path; }); return u; }
+function factoryHome() {
+  const F = S.factory, p = F.product, us = F.units;
+  $('#ttl').textContent = L2('Quality check', '质检') + ': ' + p.name;
+  if (!S.check || S.check.productId !== 'factory') S.check = { productId: 'factory', photos: [], unit: F.nextUnit || '', worker: F.worker || '', hints: [] };
+  const c = S.check, n = k => us.filter(u => (u.verdict || '') === k).length;
+  const mh = lines(p.mustHave), dims = p.dims && (p.dims.l || p.dims.w || p.dims.h) ? `${p.dims.l || '?'} × ${p.dims.w || '?'} × ${p.dims.h || '?'} mm` : '';
+  app.innerHTML = `<div class="sec"><h3>${esc(p.name)}${p.sku ? ` <span class="who">${esc(p.sku)}</span>` : ''}</h3><p>${L2('Order / lot', '订单 / 批次')}: <b>${esc(F.link.lot)}</b>${F.link.factory_name ? ` · ${esc(F.link.factory_name)}` : ''}</p>
+    <div class="stats"><div><b>${us.length}</b><span>${L2('units checked', '已检验')}</span></div><div><b>${n('PASS')}</b><span>${L2('passed', '合格')}</span></div><div><b>${n('FAIL')}</b><span>${L2('failed', '不合格')}</span></div></div></div>
+  <div class="sec"><h3>${L2('The buyer\'s standard', '买家标准')}</h3><p>${L2('Every unit is compared with these photos and requirements.', '每件产品都会与以下照片和要求对比。')}</p>
+    <div class="strip">${(p.photos || []).map(ph => `<img src="${esc(srcOf(ph))}" alt="" data-zoom="${esc(srcOf(ph))}">`).join('') || `<span class="note">${L2('No reference photos.', '无参考照片。')}</span>`}</div>
+    ${p.goodLooks ? `<p style="margin:10px 0 0;font-size:14.5px">${esc(p.goodLooks)}</p>` : ''}
+    ${mh.length ? `<label class="f">${L2('Must have', '必须具备')}</label><ul class="mh">${mh.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    ${(p.watch || []).length ? `<label class="f">${L2('Watch for', '重点检查')}</label><p class="note" style="margin-top:2px">${esc(p.watch.join(', '))}</p>` : ''}
+    ${dims || p.minDefectMm ? `<p class="note">${esc([dims && L2('Size ', '尺寸 ') + dims, p.minDefectMm && L2('Reject marks from ', '瑕疵超过 ') + p.minDefectMm + ' mm' + L2('', ' 判不合格')].filter(Boolean).join(' · '))}</p>` : ''}</div>
+  ${c.hints && c.hints.length ? `<div class="warn"><b>${L2('More photos needed for this unit:', '这件还需要补拍：')}</b><ul style="margin:6px 0 0;padding-left:18px">${c.hints.map(h => `<li>${esc(h.part)}${h.why ? ` <span class="who">(${esc(h.why)})</span>` : ''}</li>`).join('')}</ul></div>` : ''}
+  <div class="sec"><h3>${L2('Check a unit', '检验一件产品')}</h3><p>${L2('Enter the unit number, then photograph the unit. Each photo is identified automatically; you are only asked for more if something cannot be judged.', '先填写件号，再给这件产品拍照。系统会自动识别每张照片，只有无法判断时才会要求补拍。')}${(p.views || []).length ? ' ' + L2('Needed views: ', '需要的角度：') + esc(p.views.map(T).join(', ')) + '.' : ''}</p>
+    <div class="dims" style="grid-template-columns:1fr 1fr"><label class="f" style="margin:0">${L2('Unit number', '件号')}<input class="i" data-c="unit" value="${esc(c.unit)}" placeholder="1" inputmode="numeric"></label><label class="f" style="margin:0">${L2('Your name', '检验员')}<input class="i" data-c="worker" value="${esc(c.worker)}" placeholder="${L2('Optional', '可选')}"></label></div>
+    <div class="photos" id="cPhotos" style="margin-top:12px"></div><div id="cover"></div></div>
+  <h2>${L2('Submitted units', '已提交')}</h2><div class="list">${us.length ? us.map(fRow).join('') : `<div class="empty">${L2('Nothing submitted yet.', '还没有提交。')}</div>`}</div>
+  <p class="note" style="margin-top:24px">${L2('Link open until', '链接有效期至')} ${esc(new Date(F.link.expires_at).toLocaleDateString())}.</p>`;
+  drawCheckPhotos(); scheduleIdentify('check');
+}
+const VZH = { PASS: '合格', FAIL: '不合格', REVIEW: '待复核', RETAKE: '需重拍', CHECKING: '检验中', ERROR: '出错' };
+const fV = v => L2(v, VZH[v] || v);
+function fRow(u) { const d = u.status === 'error' ? 'ERROR' : u.verdict || 'CHECKING', ph = u.photos[0];
+  return `<button class="row" data-a="fOpen" data-id="${esc(u.id)}">${ph ? `<img src="${esc(srcOf(ph))}" alt="">` : '<span class="ph"></span>'}<span><b>${L2('Unit', '件号')} ${esc(u.unit || '—')}</b><small>${esc([u.submitted_by, ago(u.created_at)].filter(Boolean).join(', '))}</small></span><span class="chip ${esc(d)}">${esc(fV(d))}</span></button>`; }
+async function factorySubmit() {
+  const c = S.check, F = S.factory;
+  if (!c.photos.length) { toast(L2('Take at least one photo.', '请至少拍一张照片。')); return; }
+  if (c.photos.some(x => x.idState === 'busy' || x.state === 'up' || x.state === 'new')) { toast(L2('One moment, photos are still processing.', '请稍等，照片还在处理。')); return; }
+  if (c.photos.some(x => !x.id)) { toast(L2('Some photos did not upload. Remove them and add again.', '有照片没上传成功，请删除后重新添加。')); return; }
+  const units = c.photos.filter(x => x.quality !== 'wrong_product'); if (!units.length) { toast(L2('None of the photos show this product.', '照片里没有这个产品。')); return; }
+  F.worker = c.worker; try { localStorage.setItem('dc_worker', c.worker || ''); } catch { }
+  const tmp = { id: 'tmp' + uid(), unit: c.unit, status: 'pending', verdict: null, created_at: new Date().toISOString(), submitted_by: c.worker, photos: units.map(u => ({ path: u.id, view: u.view, part: u.part, id: u.id })), ai: null };
+  F.units.unshift(tmp); F.nextUnit = c.unit && /^\d+$/.test(c.unit) ? String(+c.unit + 1) : '';
+  S.check = null; go('fres', tmp.id);
+  try {
+    const r = await callQC({ task: 'factory_submit', unit: c.unit, worker: c.worker, photos: units.map(u => ({ path: u.id, view: u.view || '', part: u.part || '', quality: u.quality || '' })) });
+    const i = F.units.indexOf(tmp); F.units[i] = fUnit(r.unit, r.urls); if (S.route.name === 'fres' && S.route.id === tmp.id) S.route.id = r.unit.id;
+  } catch (e) { tmp.status = 'error'; tmp.error = sampleErr(e); }
+  if (S.route.name === 'fres') render();
+}
+function factoryResult(id) {
+  const F = S.factory, u = F.units.find(x => x.id === id); if (!u) { S.route = { name: 'factory' }; return render(); }
+  const a = u.ai, pending = !a && u.status !== 'error', d = u.status === 'error' ? 'ERROR' : a ? a.verdict : 'CHECKING';
+  $('#ttl').textContent = L2('Unit ', '件号 ') + (u.unit || '—');
+  const photos = u.photos.map((ph, k) => `<div class="shot"><img src="${esc(srcOf(ph))}" alt="" data-zoom="${esc(srcOf(ph))}">${a ? a.defects.filter(x => x.photo === k + 1 && x.box && !x.inSpec).map(x => `<div class="box" style="left:${x.box[0] * 100}%;top:${x.box[1] * 100}%;width:${Math.max(4, x.box[2] * 100)}%;height:${Math.max(4, x.box[3] * 100)}%"><span>${esc(x.type)}</span></div>`).join('') : ''}<span class="cap">${esc(ph.part || T(ph.view || '') || L2('Photo ', '照片 ') + (k + 1))}</span></div>`).join('');
+  const G = { pass: '✓', fail: '✕', unclear: '?' }, Z = a && S.lang === 'zh' && a.zh ? a.zh : null;
+  app.innerHTML = `<div class="sec"><div class="stamp pop ${esc(pending ? 'CHECKING' : d)}">${esc(fV(pending ? 'CHECKING' : d))}</div>
+    ${pending ? `<p class="note">${L2('Checking against the buyer\'s standard. Usually 20 to 90 seconds. Keep this page open.', '正在按买家标准检验，通常需要20到90秒，请不要关闭页面。')}</p>` : ''}
+    ${u.status === 'error' ? `<div class="warn">${esc(u.error || '')}<br>${u.id.startsWith('tmp') ? '' : `<button class="btn small" data-a="fRetry" data-id="${esc(u.id)}" style="margin-top:8px">${L2('Try again', '重试')}</button>`}</div>` : ''}
+    ${a ? `<div class="sum">${esc(Z && Z.summary || a.summary)}</div>` : ''}
+    ${a && (!a.photoOk || a.verdict === 'RETAKE') ? `<div class="warn" style="margin-top:10px"><b>${L2('Photo problems:', '照片问题：')}</b> ${esc((a.photoIssues || []).join('; '))}</div>` : ''}</div>
+  ${a && (a.more || []).length ? `<div class="sec"><h3>${L2('More photos needed', '需要补拍')}</h3><ul class="badlist" style="color:var(--ink)">${a.more.map((m, k) => Z && Z.more[k] ? `<li>${esc(Z.more[k])}</li>` : `<li><b>${esc(m.part)}</b>${m.why ? `: ${esc(m.why)}` : ''}</li>`).join('')}</ul><button class="btn primary" style="width:100%;margin-top:10px" data-a="fRecheck" data-id="${esc(u.id)}">${L2('Add photos and check again', '补拍并重新检验')}</button></div>` : ''}
+  ${photos}
+  ${a ? `<div class="sec"><h3>${L2('Findings', '发现的问题')}</h3>${a.defects.length ? a.defects.map((x, k) => `<div class="def ${x.inSpec ? '' : esc(x.severity)}"><b>${esc(Z && Z.defects[k] || x.type)}</b>${x.size != null ? ` <span class="who">~${esc(x.size)} mm</span>` : ''}<small>${Z && Z.defects[k] ? '' : esc(x.where)}${x.inSpec ? L2('. Within the standard.', '在标准允许范围内。') : ''}</small></div>`).join('') : `<p class="note">${L2('No defects found.', '未发现问题。')}</p>`}</div>
+  ${a.checks.length ? `<div class="sec"><h3>${L2('Against the standard', '对照标准')}</h3><ul class="ck">${a.checks.map(c => `<li><span class="g ${c.result}">${G[c.result]}</span><span>${esc(c.item)}</span><small>${esc(c.note)}</small></li>`).join('')}</ul></div>` : ''}` : ''}
+  <p class="note">${L2('This is an automatic screening. The buyer makes the final decision.', '这是自动初检结果，最终由买家决定。')}</p>`;
+  bar(`<button class="btn primary grow" data-a="fNext">${L2('Check the next unit', '检验下一件')}</button>`);
+}
+async function factoryRefresh() {
+  const F = S.factory, r = await callQC({ task: 'factory_open' });
+  F.link = r.link; F.product = fProduct(r.product, r.urls); F.units = r.units.map(u => fUnit(u, r.urls));
+}
+async function startFactory(token) {
+  S.factory = { token, units: [], worker: '' }; S.lang = 'zh';
+  try { S.lang = localStorage.getItem('dc_lang') || S.lang; S.factory.worker = localStorage.getItem('dc_worker') || ''; } catch { }
+  S.route = { name: 'loading' }; S.setupMsg = L2('Opening…', '正在打开…'); render();
+  try { await factoryRefresh(); S.ready = true; S.route = { name: 'factory' }; S.stack = []; render(); }
+  catch (e) { S.setupMsg = esc(sampleErr(e)); S.route = { name: 'loading' }; render(); }
+}
+
+/* ---------- lot report: factory vs arrival ---------- */
+function viewLot(key) {
+  const [pid, ...rest] = String(key).split('|'), lot = rest.join('|'), p = prodById(pid);
+  const fac = lotChecks(pid, lot, 'factory'), arr = lotChecks(pid, lot, 'arrival');
+  $('#ttl').textContent = 'Lot ' + lot;
+  const cnt = (list, f) => list.filter(f).length;
+  const oc = k => cnt(arr, i => i.damageOrigin === k);
+  app.innerHTML = `<div class="sec"><h3>${esc(p ? p.name : (fac[0] || arr[0] || {}).productName || '')}</h3><p>Every check of lot ${esc(lot)}, before shipping and after arrival.</p>
+    <div class="stats"><div><b>${fac.length}</b><span>checked at factory</span></div><div><b>${cnt(fac, i => decOf(i) === 'PASS')}</b><span>passed at factory</span></div><div><b>${arr.length}</b><span>checked on arrival</span></div></div></div>
+  ${arr.length ? `<div class="sec"><h3>Where the arrival problems happened</h3><div class="stats">
+    <div><b>${oc('none')}</b><span class="og none">${ORIGIN.none}</span></div><div><b>${oc('transit')}</b><span class="og transit">${ORIGIN.transit}</span></div>
+    <div><b>${oc('factory') + oc('both')}</b><span class="og factory">Factory fault</span></div><div><b>${oc('unclear') + cnt(arr, i => !i.damageOrigin)}</b><span class="og unclear">Unclear or not checked</span></div></div>
+    <p class="note" style="margin-top:10px">Claims are strongest for units where the factory check of the same unit was clean. Give each unit the same unit number at the factory and on arrival.</p>
+    <button class="btn" data-a="copyClaim" data-id="${esc(key)}" style="width:100%;margin-top:10px">Copy claim summary</button></div>` : ''}
+  ${(S.links || []).filter(l => l.product_id === pid && normLot(l.lot) === normLot(lot)).map(l => `<div class="sec" style="padding:12px 14px"><b>Factory link</b>${l.factory_name ? ` · ${esc(l.factory_name)}` : ''} <span class="tag">${linkOpen(l) ? 'Open' : 'Closed'}</span><div class="who">${S.inspections.filter(i => i.factoryLinkId === l.id).length} units submitted by the factory</div><div style="display:flex;gap:6px;margin-top:8px"><button class="btn small" data-a="copyLink" data-id="${esc(l.id)}">Copy link</button><button class="btn small" data-a="copyMsg" data-id="${esc(l.id)}">Copy message</button></div></div>`).join('')}
+  <h2>On arrival</h2><div class="list">${arr.length ? arr.map(inspRow).join('') : '<div class="empty">No arrival checks yet. When the shipment lands, choose <b>On arrival</b> on the check screen and enter this lot number.</div>'}</div>
+  <h2>At the factory</h2><div class="list">${fac.length ? fac.map(inspRow).join('') : '<div class="empty">No factory checks for this lot.</div>'}</div>`;
+  if (p) bar(`<button class="btn primary grow" data-a="arrivalFor" data-id="${esc(key)}">Check a unit on arrival</button>`);
+}
+function claimText(key) {
+  const [pid, ...rest] = String(key).split('|'), lot = rest.join('|'), p = prodById(pid);
+  const fac = lotChecks(pid, lot, 'factory'), arr = lotChecks(pid, lot, 'arrival');
+  const name = p ? p.name : (arr[0] || {}).productName || '';
+  const line = i => { const ds = ((i.ai && i.ai.defects) || []).filter(d => !d.inSpec); const f = fac.find(x => x.id === i.originId);
+    return `- Unit ${i.unit || '(no number)'}, checked on arrival ${new Date(i.createdAt).toLocaleString()}: ${ds.map(d => `${d.type}${d.where ? ' (' + d.where + ')' : ''}${d.origin ? ' [' + (DEF_ORIGIN[d.origin] || d.origin) + ']' : ''}`).join('; ') || 'see photos'}.${f ? ` Same unit was checked at the factory on ${new Date(f.createdAt).toLocaleDateString()}: ${decOf(f)}.` : ''}${i.ai && i.ai.originSummary ? ' ' + i.ai.originSummary : ''}`; };
+  const T = arr.filter(i => i.damageOrigin === 'transit' || i.damageOrigin === 'both'), F = arr.filter(i => i.damageOrigin === 'factory' || i.damageOrigin === 'both');
+  const L = [`Damage summary: ${name}, lot ${lot}`, `Factory checks: ${fac.length} units, ${fac.filter(i => decOf(i) === 'PASS').length} passed before shipping.`, `Arrival checks: ${arr.length} units. Arrived as shipped: ${arr.filter(i => i.damageOrigin === 'none').length}. Damaged in transit: ${T.length}. Factory faults: ${F.length}. Unclear: ${arr.filter(i => i.damageOrigin === 'unclear' || !i.damageOrigin).length}.`];
+  if (T.length) L.push('', 'Damage that happened in transit (for the carrier):', ...T.map(line));
+  if (F.length) L.push('', 'Faults from the factory (for the supplier):', ...F.map(line));
+  L.push('', 'Each check is stored with timestamped photos taken at the factory and on arrival, AI findings, and the reviewer\'s decision.');
+  return L.join('\n');
 }
 
 /* ---------- product editor ---------- */
@@ -377,12 +571,13 @@ function editProduct(id) {
 function urlHint() { const el = $('#urlHint'); if (el) el.innerHTML = ''; }
 function kindLabel(p) { return p.kind === 'product_photo' ? 'Official photo' : (p.kind === 'spec_or_text' || p.kind === 'document') ? 'Spec' : p.kind === 'lifestyle' ? 'Lifestyle' : 'Official'; }
 const QLBL = { blurry: 'Blurry', dark: 'Too dark', glare: 'Glare', cropped: 'Cropped', wrong_product: 'Wrong product' };
+const QL = q => T(QLBL[q] || 'Check photo');
 function tileHtml(p, i, kind) {
   const bad = p.quality && p.quality !== 'ok';
-  const st = p.state === 'up' ? 'Uploading' : p.state === 'err' ? 'Not saved' : p.idState === 'busy' ? 'Identifying…' : bad ? QLBL[p.quality] || 'Check photo' : p.origin === 'official' ? kindLabel(p) : p.state === 'local' ? 'Local' : '';
+  const st = p.state === 'up' ? T('Uploading') : p.state === 'err' ? T('Not saved') : p.idState === 'busy' ? T('Identifying…') : bad ? QL(p.quality) : p.origin === 'official' ? kindLabel(p) : p.state === 'local' ? 'Local' : '';
   const custom = p.part && p.part !== p.view;
   return `<div class="ptile${bad ? ' bad' : ''}"><img src="${esc(srcOf(p))}" alt="${esc(p.part || p.view || 'Photo')}" data-zoom="${esc(srcOf(p))}">${st ? `<span class="st">${esc(st)}</span>` : ''}<button class="x" aria-label="Remove photo" data-a="rm" data-kind="${kind}" data-i="${i}">×</button>
-    <select aria-label="What part this photo shows" data-view="${kind}" data-i="${i}"><option value="" ${!p.view && !custom ? 'selected' : ''}>${p.idState === 'busy' ? 'Identifying…' : 'What part?'}</option>${custom ? `<option value="__part" selected>${esc(p.part)}</option>` : ''}${VIEWS.map(v => `<option value="${v}" ${!custom && p.view === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div>`;
+    <select aria-label="What part this photo shows" data-view="${kind}" data-i="${i}"><option value="" ${!p.view && !custom ? 'selected' : ''}>${p.idState === 'busy' ? T('Identifying…') : T('What part?')}</option>${custom ? `<option value="__part" selected>${esc(p.part)}</option>` : ''}${VIEWS.map(v => `<option value="${v}" ${!custom && p.view === v ? 'selected' : ''}>${T(v)}</option>`).join('')}</select></div>`;
 }
 /* identify what each photo shows, then decide coverage locally */
 const idTimers = {};
@@ -411,8 +606,8 @@ function coverage(p, photos) {
   const have = new Set(usable.map(x => x.view).filter(Boolean));
   return { need, have, missing: need.filter(v => !have.has(v)), busy: photos.some(x => x.idState === 'busy'), bad: photos.map((x, i) => ({ x, i })).filter(o => o.x.quality && o.x.quality !== 'ok') };
 }
-const PASTE = kind => `<div class="pastebox" contenteditable="true" role="textbox" aria-label="Paste photos here" data-paste="${kind}" inputmode="none">Paste photos here: click and press ⌘V or Ctrl+V, or tap and hold, then Paste. You can also drag photos in.</div>`;
-function addTiles(kind, view) { return PASTE(kind) + `<button class="addtile" data-a="cam" data-kind="${kind}" data-view="${esc(view || '')}"><i>＋</i>Take photo${view ? `<small>${esc(view)}</small>` : ''}</button><button class="addtile" data-a="lib" data-kind="${kind}"><i>⌗</i>From library</button>`; }
+const PASTE = kind => `<div class="pastebox" contenteditable="true" role="textbox" aria-label="Paste photos here" data-paste="${kind}" inputmode="none">${T('Paste photos here: click and press ⌘V or Ctrl+V, or tap and hold, then Paste. You can also drag photos in.')}</div>`;
+function addTiles(kind, view) { return PASTE(kind) + `<button class="addtile" data-a="cam" data-kind="${kind}" data-view="${esc(view || '')}"><i>＋</i>${T('Take photo')}${view ? `<small>${esc(T(view))}</small>` : ''}</button><button class="addtile" data-a="lib" data-kind="${kind}"><i>⌗</i>${T('From library')}</button>`; }
 function drawDraftPhotos() {
   if (!S.draft) return; const el = $('#dPhotos'), ol = $('#oPhotos'), ph = S.draft.photos;
   if (el) el.innerHTML = ph.map((p, i) => p.origin === 'official' ? '' : tileHtml(p, i, 'draft')).join('') + addTiles('draft');
@@ -491,19 +686,39 @@ function pickProduct() {
 }
 function checkUnit(id) {
   const p = prodById(id); if (!p) { S.route = { name: 'home' }; return render(); }
-  if (!S.check || S.check.productId !== id) S.check = { productId: id, photos: [], lot: '', unit: '', careful: false, hints: [] };
-  const c = S.check; $('#ttl').textContent = 'Check: ' + p.name;
+  if (!S.check || S.check.productId !== id) S.check = { productId: id, photos: [], lot: '', unit: '', careful: false, hints: [], stage: S.lastStage || 'factory', originId: '' };
+  const c = S.check; $('#ttl').textContent = (c.stage === 'arrival' ? 'Arrival: ' : 'Check: ') + p.name;
+  const idFields = `<label class="f">Lot or PO number${c.stage === 'arrival' ? '<span>Finds the factory checks of this shipment</span>' : ''}<input class="i" data-c="lot" value="${esc(c.lot)}" placeholder="${c.stage === 'arrival' ? 'e.g. PO-2026-031' : 'Optional'}"></label>
+    <label class="f">Unit number${c.stage === 'arrival' ? '<span>The same number as at the factory links this unit to its own factory photos</span>' : ''}<input class="i" data-c="unit" value="${esc(c.unit)}" placeholder="Optional"></label>`;
   app.innerHTML = `
+  <div class="seg" role="group" aria-label="Where is this unit being checked?"><button data-a="stage" data-v="factory" aria-pressed="${c.stage !== 'arrival'}">At the factory</button><button data-a="stage" data-v="arrival" aria-pressed="${c.stage === 'arrival'}">On arrival</button></div>
+  ${c.stage === 'arrival' ? `<div class="sec"><h3>Match it to the factory check</h3><p>Enter the same lot number and unit number used at the factory. Problems found now are traced back to whether they were already there before shipping.</p>${idFields}<div id="facMatch" style="margin-top:12px"></div></div>` : ''}
   <div class="sec"><h3>Approved standard</h3><p>Version ${esc(p.version || 1)}${p.minDefectMm ? `, reject marks from ${esc(p.minDefectMm)} mm` : ''}</p><div class="strip">${refPool(p).map(ph => `<img src="${esc(srcOf(ph))}" alt="" data-zoom="${esc(srcOf(ph))}">`).join('') || '<span class="note">No reference images. The check will rely on the written standard only.</span>'}</div>${p.sourceUrl ? '<p class="note">Standard taken from the official listing.</p>' : ''}</div>
   ${c.hints && c.hints.length ? `<div class="warn"><b>Claude asked for more photos:</b><ul style="margin:6px 0 0;padding-left:18px">${c.hints.map(h => `<li>${esc(h.part)}${h.why ? ` <span class="who">(${esc(h.why)})</span>` : ''}</li>`).join('')}</ul></div>` : ''}
-  <div class="sec"><h3>Photograph this unit</h3><p>Add as many photos as you like. Each one is identified automatically, and you're only asked for more if something can't be judged.</p>
+  <div class="sec"><h3>Photograph this unit</h3><p>Add as many photos as you like. Each one is identified automatically, and you're only asked for more if something can't be judged.${c.stage === 'arrival' ? ' On arrival, also photograph the outer carton and retail packaging, especially any crushed, torn or wet spots.' : ''}</p>
     <div class="photos" id="cPhotos"></div><div id="cover"></div>
-    <label class="f">Lot or PO number<input class="i" data-c="lot" value="${esc(c.lot)}" placeholder="Optional"></label>
-    <label class="f">Unit number<input class="i" data-c="unit" value="${esc(c.unit)}" placeholder="Optional"></label>
+    ${c.stage === 'arrival' ? '' : idFields}
     <label class="toggle"><input type="checkbox" data-c="careful" ${c.careful ? 'checked' : ''}>Careful check (slower, looks harder)</label></div>
   <div id="runArea"></div>`;
-  drawCheckPhotos();
+  drawCheckPhotos(); drawMatch();
   scheduleIdentify('check');
+}
+function matchFor(c) {
+  const fac = lotChecks(c.productId, c.lot, 'factory');
+  const chosen = c.originId ? S.inspections.find(i => i.id === c.originId) : null;
+  const auto = !chosen && c.unit ? fac.find(i => normLot(i.unit) === normLot(c.unit)) : null;
+  return { fac, unit: chosen || auto || null, auto: !!auto };
+}
+function drawMatch() {
+  const el = $('#facMatch'), c = S.check; if (!el || !c || c.stage !== 'arrival') return;
+  if (!String(c.lot || '').trim()) { el.innerHTML = '<p class="note">Enter the lot or PO number to find the factory checks.</p>'; return; }
+  const m = matchFor(c), passed = m.fac.filter(i => decOf(i) === 'PASS').length;
+  if (!m.fac.length) { el.innerHTML = `<p class="note">No factory checks found for lot ${esc(c.lot)}. The check still runs, but it can only judge where damage happened from the kind of damage.</p>`; return; }
+  el.innerHTML = `<p class="note" style="margin:0 0 8px">Found ${m.fac.length} factory check${m.fac.length > 1 ? 's' : ''} for lot ${esc(c.lot)} (${passed} passed).</p>
+    ${m.unit ? `<div class="pair">${(m.unit.photos || []).slice(0, 2).map(ph => `<figure><img src="${esc(srcOf(ph))}" alt="" data-zoom="${esc(srcOf(ph))}"><figcaption>Factory: ${esc(ph.part || ph.view || 'photo')}</figcaption></figure>`).join('')}</div>
+      <p class="note">${m.auto ? 'Matched by unit number to' : 'Comparing with'} the factory check of unit ${esc(m.unit.unit || '?')} (${esc(decOf(m.unit))}, ${esc(new Date(m.unit.createdAt).toLocaleDateString())}).</p>`
+      : `<p class="note">No factory check of this exact unit${c.unit ? ` (unit ${esc(c.unit)})` : ''}. The lot's factory photos are used instead, which is weaker evidence.</p>`}
+    <label class="f">Factory unit to compare with<select class="i" data-c="originId"><option value="">${c.unit ? 'Match by unit number' : 'Whole lot'}</option>${m.fac.map(i => `<option value="${esc(i.id)}" ${c.originId === i.id ? 'selected' : ''}>Unit ${esc(i.unit || '(no number)')}: ${esc(decOf(i))}, ${esc(new Date(i.createdAt).toLocaleDateString())}</option>`).join('')}</select></label>`;
 }
 function drawCheckPhotos() {
   const el = $('#cPhotos'); if (!el || !S.check) return; const p = prodById(S.check.productId), ph = S.check.photos;
@@ -512,14 +727,14 @@ function drawCheckPhotos() {
   let msg = '';
   if (ph.length && q) msg = `<p class="note" style="margin-top:10px">${ph.length} photo${ph.length > 1 ? 's' : ''} ready. Claude identifies each part when it checks them, and only asks for more if something can't be judged.</p>`;
   else if (ph.length) {
-    const chips = cv.need.map(v => cv.have.has(v) ? `<span class="cov ok">✓ ${esc(v)}</span>` : `<button class="cov miss" data-a="cam" data-kind="check" data-view="${esc(v)}">＋ ${esc(v)}</button>`).join('');
-    const extra = [...cv.have].filter(v => !cv.need.includes(v)).map(v => `<span class="cov ok">✓ ${esc(v)}</span>`).join('');
-    const status = cv.busy ? 'Identifying photos…' : cv.missing.length ? `Still needed: <b>${esc(cv.missing.join(', '))}</b>. Tap to take it, or set the part on a photo if it was misread.` : cv.need.length ? 'Enough to check.' : '';
-    const bad = cv.bad.map(o => `<li>Photo ${o.i + 1}: ${esc(QLBL[o.x.quality])}${o.x.qnote ? `, ${esc(o.x.qnote)}` : ''}. Retake it or remove it.</li>`).join('');
+    const chips = cv.need.map(v => cv.have.has(v) ? `<span class="cov ok">✓ ${esc(T(v))}</span>` : `<button class="cov miss" data-a="cam" data-kind="check" data-view="${esc(v)}">＋ ${esc(T(v))}</button>`).join('');
+    const extra = [...cv.have].filter(v => !cv.need.includes(v)).map(v => `<span class="cov ok">✓ ${esc(T(v))}</span>`).join('');
+    const status = cv.busy ? T('Identifying photos…') : cv.missing.length ? `${T('Still needed')}: <b>${esc(cv.missing.map(T).join(', '))}</b>. ${T('Tap to take it, or set the part on a photo if it was misread.')}` : cv.need.length ? T('Enough to check.') : '';
+    const bad = cv.bad.map(o => `<li>${L2('Photo', '照片')} ${o.i + 1}: ${esc(QL(o.x.quality))}${o.x.qnote ? `, ${esc(o.x.qnote)}` : ''}. ${T('Retake it or remove it.')}</li>`).join('');
     msg = `<div class="covbox">${chips}${extra}<p class="note" style="margin:8px 0 0">${status}</p>${bad ? `<ul class="badlist">${bad}</ul>` : ''}</div>`;
   }
   if (box) box.innerHTML = msg;
-  const label = !ph.length ? (q ? 'Send to Claude' : 'Check this unit') : uploading ? 'Uploading photos…' : cv.busy ? 'Identifying photos…' : q ? 'Send to Claude' : cv.missing.length ? 'Check anyway' : 'Check this unit';
+  const label = !ph.length ? T('Check this unit') : uploading ? T('Uploading photos…') : cv.busy ? T('Identifying photos…') : cv.missing.length ? T('Check anyway') : T('Check this unit');
   bar(`<button class="btn primary grow" id="runBtn" data-a="run" ${(ai || q) && ph.length && !cv.busy && !uploading ? '' : 'disabled'}>${label}</button>`);
 }
 function pickRefs(pool, units, cap) {
@@ -540,16 +755,18 @@ function mergeResults(parts) {
   out.checks = [...ck.values()]; return out;
 }
 async function runCheck() {
+  if (S.factory) return factorySubmit();
   const c = S.check, p = prodById(c.productId); if (!c.photos.length) { toast('Take at least one photo of the unit.'); return; }
   if (c.photos.some(x => x.idState === 'busy')) { toast('Still identifying photos. One moment.'); return; }
   if (c.photos.some(x => !x.id)) { toast('Some photos did not upload. Remove them and add them again.'); return; }
   const units = c.photos.filter(x => x.quality !== 'wrong_product'); if (!units.length) { toast('None of the photos show this product.'); return; }
   $('#runBtn').disabled = true;
   const row = { product_id: p.id, product_name: p.name, product_version: p.version || 1, spec_snapshot: prodToRow(p).spec, lot: c.lot || null, unit: c.unit || null,
-    photos: units.map(u => ({ path: u.id, view: u.view || '', part: u.part || '', quality: u.quality || '' })), careful: !!c.careful, status: 'pending', recheck_of: c.recheckOf || null };
+    photos: units.map(u => ({ path: u.id, view: u.view || '', part: u.part || '', quality: u.quality || '' })), careful: !!c.careful, status: 'pending', recheck_of: c.recheckOf || null,
+    stage: c.stage === 'arrival' ? 'arrival' : 'factory', origin_id: c.stage === 'arrival' ? ((matchFor(c).unit || {}).id || null) : null };
   try {
     const id = await saveDoc('inspections', null, row);
-    S.check = { productId: p.id, photos: [], lot: c.lot, unit: c.unit ? String((+c.unit || 0) + 1 || '') : '', careful: c.careful, hints: [] };
+    S.check = { productId: p.id, photos: [], lot: c.lot, unit: c.unit ? String((+c.unit || 0) + 1 || '') : '', careful: c.careful, hints: [], stage: c.stage, originId: '' };
     S.route = { name: 'check', id: p.id }; go('insp', id); runInspect(id);
   } catch (e) { toast('Could not start the check: ' + (e.message || '')); drawCheckPhotos(); }
 }
@@ -572,14 +789,26 @@ function viewInspection(id) {
     ${failed ? `<div class="warn" style="margin:12px 0 0">${esc(i.error || 'Something went wrong.')}<br><button class="btn small" data-a="retry" data-id="${esc(i.id)}" style="margin-top:8px">Try again</button></div>` : pending && !i.decision ? `<p class="note">Usually 20 to 90 seconds. You can leave this screen; the result is saved and appears here.</p>` : ''}
     <div class="who">${esc([i.lot && 'Lot ' + i.lot, i.unit && 'Unit ' + i.unit, `Standard v${i.productVersion}`, new Date(i.createdAt).toLocaleString()].filter(Boolean).join(', '))}</div>
     ${a.verdict === 'RETAKE' || !a.photoOk ? `<div class="warn" style="margin:12px 0 0"><b>Photo problems:</b> ${esc(a.photoIssues.join('; ') || 'photos not clear enough')}</div>` : ''}</div>
+  ${i.stage === 'arrival' ? whereHtml(i, a, pending) : ''}
   ${(a.more || []).length ? `<div class="sec"><h3>More photos needed</h3><p>Claude couldn't judge everything from these photos.</p><ul class="badlist" style="color:var(--ink)">${a.more.map(m => `<li><b>${esc(m.part)}</b>${m.why ? `: ${esc(m.why)}` : ''}</li>`).join('')}</ul><button class="btn primary" style="width:100%;margin-top:10px" data-a="recheck" data-id="${esc(i.id)}">Add photos and check again</button></div>` : ''}
   ${photos}
-  ${pending ? '' : `<div class="sec"><h3>Findings</h3>${a.defects.length ? a.defects.map(x => `<div class="def ${x.inSpec ? '' : esc(x.severity)}"><b>${esc(x.type)}</b>${x.size != null ? ` <span class="who">about ${esc(x.size)} mm</span>` : ''}<small>${esc(x.where)}${x.inSpec ? '. Within the standard, logged only.' : `. ${esc(x.severity[0].toUpperCase() + x.severity.slice(1))}, ${Math.round(x.conf * 100)}% sure.`}</small></div>`).join('') : '<p class="note">No defects found.</p>'}</div>`}
+  ${pending ? '' : `<div class="sec"><h3>Findings</h3>${a.defects.length ? a.defects.map(x => `<div class="def ${x.inSpec ? '' : esc(x.severity)}"><b>${esc(x.type)}</b>${x.size != null ? ` <span class="who">about ${esc(x.size)} mm</span>` : ''}<small>${esc(x.where)}${x.inSpec ? '. Within the standard, logged only.' : `. ${esc(x.severity[0].toUpperCase() + x.severity.slice(1))}, ${Math.round(x.conf * 100)}% sure.`}</small>${x.origin && !x.inSpec ? `<small><span class="og ${esc(x.origin)}">${esc(DEF_ORIGIN[x.origin] || x.origin)}</span>${x.originWhy ? ' ' + esc(x.originWhy) : ''}</small>` : ''}</div>`).join('') : '<p class="note">No defects found.</p>'}</div>`}
   ${a.checks.length ? `<div class="sec"><h3>Against the standard</h3><ul class="ck">${a.checks.map(c => `<li><span class="g ${c.result}">${G[c.result]}</span><span>${esc(c.item)}</span><small>${esc(c.note)}</small></li>`).join('')}</ul></div>` : ''}
   <div class="sec"><h3>Your decision</h3><p>AI screening can miss things and flag harmless ones. The final call on shipment is a person's.</p>
     <div class="decide"><button class="btn" data-a="decide" data-v="PASS" data-id="${esc(i.id)}" ${d === 'PASS' && i.decision ? 'disabled' : ''}>Mark as pass</button><button class="btn" data-a="decide" data-v="FAIL" data-id="${esc(i.id)}" ${d === 'FAIL' && i.decision ? 'disabled' : ''}>Mark as fail</button></div>
     <div style="margin-top:14px"><button class="btn small danger" data-a="delInsp" data-id="${esc(i.id)}">Delete this check</button></div></div>`;
-  bar(p ? `<button class="btn primary grow" data-a="check" data-id="${esc(p.id)}">Check next unit</button>` : '');
+  bar((i.lot && i.productId && i.stage !== 'arrival' ? `<button class="btn" data-a="openLot" data-id="${esc(lotKey(i.productId, i.lot))}">Lot report</button>` : '') + (p ? `<button class="btn primary grow" data-a="check" data-id="${esc(p.id)}">Check next unit</button>` : ''));
+}
+
+function whereHtml(i, a, pending) {
+  const f = i.originId ? S.inspections.find(x => x.id === i.originId) : null, rec = (a.factory && a.factory.record) || [];
+  const head = pending ? '<p class="note">Comparing with the factory check once the result is in.</p>' : `<div class="where ${esc(i.damageOrigin || 'unclear')}">${esc(ORIGIN[i.damageOrigin] || ORIGIN.unclear)}</div>${a.originSummary ? `<p style="margin:0 0 6px">${esc(a.originSummary)}</p>` : ''}`;
+  const pairs = f ? (i.photos || []).map(u => { const b = (f.photos || []).find(x => x.view && x.view === u.view); return b ? `<figure><img src="${esc(srcOf(b))}" alt="" data-zoom="${esc(srcOf(b))}"><figcaption>Factory, ${esc(new Date(f.createdAt).toLocaleDateString())}: ${esc(b.part || b.view)}</figcaption></figure><figure><img src="${esc(srcOf(u))}" alt="" data-zoom="${esc(srcOf(u))}"><figcaption>On arrival: ${esc(u.part || u.view)}</figcaption></figure>` : ''; }).join('') : '';
+  return `<div class="sec"><h3>Where it happened</h3>${head}
+    ${pairs ? `<div class="pair">${pairs}</div>` : ''}
+    ${rec.length ? `<ul class="badlist" style="color:var(--ink)">${rec.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${f ? `<button class="btn small" data-a="openInsp" data-id="${esc(f.id)}">Open factory check</button>` : ''}${i.lot && i.productId ? `<button class="btn small" data-a="openLot" data-id="${esc(lotKey(i.productId, i.lot))}">Lot ${esc(i.lot)} report</button>` : ''}</div>
+    <p class="note">Where-it-happened is an AI judgment from the photos. It's strongest when the same unit was photographed at the factory.</p></div>`;
 }
 
 /* ---------- events ---------- */
@@ -589,6 +818,22 @@ document.addEventListener('click', async e => {
   if (a === 'new') { S.draft = null; go('edit', null); }
   else if (a === 'openProd') go('product', id);
   else if (a === 'openInsp') go('insp', id);
+  else if (a === 'openLot') go('lot', id);
+  else if (a === 'newLink') { S.linkDraft = null; go('newlink', id); }
+  else if (a === 'cancelLink') { S.linkDraft = null; back(); }
+  else if (a === 'createLink') createLink();
+  else if (a === 'copyLink') { const l = S.links.find(x => x.id === id); if (l) copyText(linkUrl(l), 'Link copied.'); }
+  else if (a === 'copyMsg') { const l = S.links.find(x => x.id === id); if (l) copyText(linkMsg(l, prodById(l.product_id)), 'Message copied. Paste it into WeChat or email.'); }
+  else if (a === 'toggleLink') { const l = S.links.find(x => x.id === id); if (!l) return; const open = linkOpen(l), patch = open ? { active: false } : { active: true, expires_at: new Date(Math.max(Date.now() + 30 * 864e5, new Date(l.expires_at).getTime())).toISOString() };
+    const { data, error } = await sb.from('factory_links').update(patch).eq('id', id).select().single(); if (error) toast("Couldn't update the link."); else { Object.assign(l, data); render(); toast(open ? 'Link closed. The factory can no longer submit.' : 'Link reopened.'); } }
+  else if (a === 'lang') { S.lang = S.lang === 'zh' ? 'en' : 'zh'; try { localStorage.setItem('dc_lang', S.lang); } catch { } render(); }
+  else if (a === 'fOpen') go('fres', id);
+  else if (a === 'fNext') { S.check = null; S.route = { name: 'factory' }; S.stack = []; render(); window.scrollTo(0, 0); }
+  else if (a === 'fRecheck') { const u = S.factory.units.find(x => x.id === id); if (!u) return; S.check = { productId: 'factory', unit: u.unit, worker: S.factory.worker, hints: (u.ai && u.ai.more) || [], photos: u.photos.map(ph => ({ ...ph, id: ph.path, key: uid(), state: 'ok', idState: 'done', quality: 'ok', userView: true })) }; S.route = { name: 'factory' }; S.stack = []; render(); window.scrollTo(0, 0); }
+  else if (a === 'fRetry') { const u = S.factory.units.find(x => x.id === id); if (!u) return; u.status = 'pending'; u.error = null; render(); try { const r = await callQC({ task: 'factory_retry', id }); Object.assign(u, fUnit(r.unit)); } catch (e) { u.status = 'error'; u.error = sampleErr(e); } render(); }
+  else if (a === 'stage') { if (S.check) { S.check.stage = b.dataset.v; S.check.originId = ''; S.lastStage = b.dataset.v; checkUnit(S.check.productId); } }
+  else if (a === 'arrivalFor') { const [pid, ...rest] = id.split('|'); S.check = { productId: pid, photos: [], lot: rest.join('|'), unit: '', careful: false, hints: [], stage: 'arrival', originId: '' }; S.lastStage = 'arrival'; go('check', pid); }
+  else if (a === 'copyClaim') { const t = claimText(id); try { await navigator.clipboard.writeText(t); toast('Claim summary copied.'); } catch { prompt('Copy the summary:', t); } }
   else if (a === 'edit') { S.draft = null; go('edit', id); }
   else if (a === 'cancelEdit') { S.draft = null; back(); }
   else if (a === 'save') saveProduct();
@@ -602,7 +847,7 @@ document.addEventListener('click', async e => {
   else if (a === 'run') runCheck();
   else if (a === 'recheck') {
     const i = S.inspections.find(x => x.id === id) || S.lastInspection; if (!i) return;
-    S.check = { productId: i.productId, lot: i.lot || '', unit: i.unit || '', careful: false, recheckOf: i.id, hints: (i.ai.more || []),
+    S.check = { productId: i.productId, lot: i.lot || '', unit: i.unit || '', careful: false, recheckOf: i.id, hints: (i.ai.more || []), stage: i.stage || 'factory', originId: i.originId || '',
       photos: i.photos.map(ph => ({ ...ph, key: uid(), state: ph.id ? 'ok' : 'local', idState: 'done', quality: 'ok', userView: true })) };
     go('check', i.productId);
   }
@@ -619,12 +864,13 @@ document.addEventListener('input', e => {
   const t = e.target;
   if (t.dataset.f && S.draft) { S.draft[t.dataset.f] = t.value; if (t.dataset.f === 'sourceUrl' || t.dataset.f === 'listingText') urlHint(); }
   else if (t.dataset.dim && S.draft) S.draft.dims[t.dataset.dim] = t.value;
-  else if (t.dataset.c && S.check) S.check[t.dataset.c] = t.type === 'checkbox' ? t.checked : t.value;
+  else if (t.dataset.c && S.check) { S.check[t.dataset.c] = t.type === 'checkbox' ? t.checked : t.value; if (t.dataset.c === 'lot' || t.dataset.c === 'unit') drawMatch(); }
+  else if (t.dataset.l && S.linkDraft) S.linkDraft[t.dataset.l] = t.value;
 });
 document.addEventListener('change', e => {
   const t = e.target;
   if (t.dataset.view) { const bag = t.dataset.view === 'draft' ? S.draft.photos : S.check.photos, ph = bag[+t.dataset.i]; if (t.value !== '__part') { ph.view = t.value; ph.part = ''; ph.userView = true; if (ph.quality === 'wrong_product') ph.quality = 'ok'; } t.dataset.view === 'draft' ? drawDraftPhotos() : drawCheckPhotos(); }
-  else if (t.dataset.c && S.check) S.check[t.dataset.c] = t.type === 'checkbox' ? t.checked : t.value;
+  else if (t.dataset.c && S.check) { S.check[t.dataset.c] = t.type === 'checkbox' ? t.checked : t.value; if (t.dataset.c === 'originId') drawMatch(); }
 });
 document.addEventListener('click', e => {
   const c = e.target.closest('[data-chips] button'); if (!c || !S.draft) return;
@@ -650,13 +896,15 @@ async function start(session) {
   const { data: m, error } = await sb.from('workspace_members').select('workspace_id, workspaces(name)').eq('user_id', S.user.id).order('created_at').limit(1);
   if (error || !m || !m.length) { S.setupMsg = 'No workspace found for this account. Check that the database migration ran.'; S.route = { name: 'loading' }; render(); return; }
   S.ws = m[0].workspace_id; S.wsName = (m[0].workspaces && m[0].workspaces.name) || '';
-  await Promise.all([reload('products'), reload('inspections')]);
+  await Promise.all([reload('products'), reload('inspections'), reloadLinks()]);
   sb.channel('ws-' + S.ws)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'products', filter: 'workspace_id=eq.' + S.ws }, () => reload('products').then(rer))
     .on('postgres_changes', { event: '*', schema: 'public', table: 'inspections', filter: 'workspace_id=eq.' + S.ws }, () => reload('inspections').then(rer))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'factory_links', filter: 'workspace_id=eq.' + S.ws }, () => reloadLinks().then(rer))
     .subscribe();
   S.ready = true; setSync(); S.route = { name: 'home' }; S.stack = []; render();
 }
+async function reloadLinks() { const { data } = await sb.from('factory_links').select('*').eq('workspace_id', S.ws).order('created_at', { ascending: false }); S.links = data || []; }
 async function reload(col) {
   const q = col === 'products' ? sb.from('products').select('*').eq('workspace_id', S.ws).order('updated_at', { ascending: false })
     : sb.from('inspections').select('*').eq('workspace_id', S.ws).order('created_at', { ascending: false }).limit(300);
@@ -664,13 +912,15 @@ async function reload(col) {
   if (col === 'products') S.products = data.map(prodFromRow); else S.inspections = data.map(inspFromRow);
   await signAll();
 }
-function rer() { if (['home', 'product', 'pick', 'insp'].includes(S.route.name)) render(); }
+function rer() { if (['home', 'product', 'pick', 'insp', 'lot'].includes(S.route.name)) render(); }
+const FTOKEN = new URLSearchParams(location.search).get('f');
 render();
 (async () => {
   if (!CFG.supabaseUrl || !CFG.supabaseAnonKey || !window.supabase) {
     S.setupMsg = 'Setup needed: put your Supabase project URL and anon key in config.js (see README).'; render(); return;
   }
-  sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
+  sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, FTOKEN ? { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } } : undefined);
+  if (FTOKEN) return startFactory(FTOKEN);
   sb.auth.onAuthStateChange((ev, session) => { if (session && !S.user) start(session); });
   const { data: { session } } = await sb.auth.getSession();
   if (session) start(session); else { S.ready = true; S.route = { name: 'login' }; render(); }
