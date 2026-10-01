@@ -238,6 +238,43 @@ table.log th{font-weight:600;color:var(--muted);font-size:12.5px}
 .linkbtn{border:0;background:none;padding:2px 0;font:inherit;font-size:13.5px;font-weight:600;color:var(--focus);cursor:pointer}
 .linkbtn.danger{color:var(--fail)}
 ol.steps{margin:0 0 14px;padding-left:20px;font-size:14px;line-height:1.55;color:var(--muted)}ol.steps li{margin:2px 0}
+.camhint{padding:0 16px 8px;color:rgba(255,255,255,.82);font-size:13.5px;line-height:1.45}
+.camchips{display:flex;flex-wrap:wrap;gap:6px;padding:8px 16px 0}
+.camchip{border-radius:999px;padding:5px 11px;font-size:13px;font-weight:600;background:rgba(255,255,255,.14);color:#fff}
+.camchip.ok{background:#1f7a4f}.camchip.bad{background:#b4271c}
+.camstrip{display:flex;gap:8px;overflow-x:auto;padding:10px 16px 0;min-height:66px}
+.camthumb{position:relative;flex:0 0 auto;width:58px;height:58px;border-radius:10px;overflow:hidden;border:2px solid rgba(255,255,255,.3);padding:0;background:#222}
+.camthumb img{width:100%;height:100%;object-fit:cover;display:block}.camthumb.bad{border-color:#ff6b5b}
+.camthumb span{position:absolute;left:0;right:0;bottom:0;font-size:10px;background:rgba(0,0,0,.6);color:#fff;padding:1px 2px;text-align:center;white-space:nowrap;overflow:hidden}
+.cammsg{margin:8px 16px 0;padding:8px 12px;border-radius:10px;background:#b4271c;color:#fff;font-size:13.5px}
+.cambar .next{background:#fff;color:#16212A;min-width:118px}.cambar .next:disabled{opacity:.45}
+.campick b{display:block;font-size:19px}.campick span{font-size:12.5px;opacity:.8}
+.xcard{display:grid;grid-template-columns:84px 1fr;gap:12px;border:1px solid var(--line);border-radius:14px;padding:10px;margin-top:10px;background:var(--panel)}
+.xcard img{width:84px;height:84px;object-fit:cover;border-radius:10px;background:var(--sunk)}
+.xcard p{margin:4px 0;font-size:14px;line-height:1.45}.xbtns{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+details.passed summary{cursor:pointer;font-weight:600;font-size:14px;padding:6px 0}
+.rec{font-size:20px;font-weight:700;margin:6px 0 4px}.rec.PASS{color:var(--pass)}.rec.FAIL{color:var(--fail)}.rec.REVIEW{color:var(--review)}
+#print{display:none}
+@media print{
+  body{background:#fff}
+  body > :not(#print){display:none !important}
+  #print{display:block;color:#000;font-family:Arial,"PingFang SC","Microsoft YaHei",sans-serif}
+  @page{size:A4;margin:10mm}
+  .ppage{break-after:page}
+  .plabels{display:grid;grid-template-columns:1fr 1fr;gap:5mm}
+  .plabel{height:63mm;box-sizing:border-box;border:.4mm dashed #888;padding:4mm;display:grid;grid-template-columns:1fr 32mm;gap:3mm;align-items:center;break-inside:avoid}
+  .pnum{font-size:34mm;font-weight:800;line-height:1}
+  .pmeta{font-size:3.4mm;line-height:1.35}
+  .pqr svg{width:32mm;height:32mm}
+  .pcard{border:.5mm solid #000;padding:6mm;width:150mm}
+  .pcard h2{font-size:5mm;margin:0 0 4mm}
+  .ruler{position:relative;width:100mm;height:14mm;border-top:.3mm solid #000;margin:2mm 0 4mm}
+  .ruler i{position:absolute;top:0;width:.25mm;background:#000}
+  .ruler b{position:absolute;top:7mm;font-size:2.8mm;transform:translateX(-50%);font-weight:400}
+  .patches{display:flex;gap:2mm;margin:2mm 0 4mm}.patches span{width:14mm;height:14mm;border:.2mm solid #000;font-size:2.2mm;display:flex;align-items:flex-end;padding:.5mm;box-sizing:border-box}
+  .pcard p{font-size:3.2mm;line-height:1.4;margin:2mm 0}
+  .pcard .pqr svg{width:22mm;height:22mm}
+}
 @media (min-width:720px){main{padding-top:28px}.sec{padding:24px}}
 </style></head><body>
 <header class="top"><button class="back" id="back" hidden>‹ Back</button><h1 id="ttl">Defect Check</h1><span class="sync" id="sync">Connecting…</span></header>
@@ -248,7 +285,8 @@ ol.steps{margin:0 0 14px;padding-left:20px;font-size:14px;line-height:1.55;color
 <input type="file" id="docIn" accept="image/*,application/pdf" multiple hidden>
 <div id="toast" role="status"></div>
 <div class="lb" id="lb"><img alt="Enlarged photo"></div>
-<div class="cam" id="cam" role="dialog" aria-label="Camera"><div class="camtop"><span id="camInfo"></span><span class="timer" id="camTimer"></span></div><video id="camVideo" playsinline autoplay muted></video><div class="cambar"><button data-a="camClose" id="camDone">Done</button><button class="shutter" data-a="camShot" aria-label="Take photo"></button><span id="camCount" style="min-width:72px;text-align:right"></span></div></div>
+<div class="cam" id="cam" role="dialog" aria-label="Camera"><div class="camtop"><div class="campick"><b id="camPick"></b><span id="camSub"></span></div><span class="timer" id="camTimer"></span></div><div class="camhint" id="camHint"></div><video id="camVideo" playsinline autoplay muted></video><div class="camchips" id="camChips"></div><div class="camstrip" id="camStrip"></div><div id="camMsg"></div><div class="cambar"><button data-a="camClose" id="camDone">Pause</button><button class="shutter" data-a="camShot" aria-label="Take photo"></button><button class="next" data-a="camNext" id="camNext" disabled>Next unit</button></div></div>
+<div id="print"></div>
 <script>
 (() => {
 const $ = s => document.querySelector(s);
@@ -265,7 +303,7 @@ let sb = null;
 const URLS = new Map();
 const canAI = () => !!S.user || !!S.factory;
 const lines = v => String(v || '').split('\n').map(x => x.trim()).filter(Boolean);
-const SPEC_KEYS = ['material', 'colors', 'finish', 'dims', 'tol', 'packaging', 'inBox', 'officialSpecs', 'listingText', 'goodLooks', 'mustHave', 'allowed', 'watch', 'minDefectMm', 'views'];
+const SPEC_KEYS = ['barcode', 'labelText', 'material', 'colors', 'finish', 'dims', 'tol', 'packaging', 'inBox', 'officialSpecs', 'listingText', 'goodLooks', 'mustHave', 'allowed', 'watch', 'minDefectMm', 'views'];
 const specDefault = k => (k === 'watch' || k === 'views') ? [] : k === 'dims' ? { l: '', w: '', h: '' } : '';
 function prodFromRow(r) {
   const s = r.spec || {};
@@ -280,7 +318,7 @@ function inspFromRow(r) {
   return { id: r.id, productId: r.product_id, productName: r.product_name, productVersion: r.product_version, lot: r.lot || '', unit: r.unit || '',
     photos: (r.photos || []).map(p => ({ ...p, id: p.path })), ai: r.status === 'done' ? r.ai : null, status: r.status, error: r.error, decision: r.decision,
     recheckOf: r.recheck_of, checkedBy: r.model ? 'Claude (' + r.model + ')' : '', createdAt: r.created_at,
-    stage: r.stage || 'factory', originId: r.origin_id || null, damageOrigin: r.damage_origin || null, factoryLinkId: r.factory_link_id || null, submittedBy: r.submitted_by || '' };
+    stage: r.stage || 'factory', originId: r.origin_id || null, damageOrigin: r.damage_origin || null, factoryLinkId: r.factory_link_id || null, submittedBy: r.submitted_by || '', sessionId: r.session_id || null };
 }
 function upsertLocal(col, row) {
   const arr = col === 'products' ? S.products : S.inspections, obj = col === 'products' ? prodFromRow(row) : inspFromRow(row), i = arr.findIndex(x => x.id === obj.id);
@@ -298,7 +336,7 @@ async function signAll() {
   return true;
 }
 async function callQC(body) {
-  if (S.factory) { body = { ...body, token: S.factory.token, pick_token: S.factory.pick && S.factory.pick.token }; if (body.task === 'identify') body.task = 'factory_identify'; }
+  if (S.factory) { body = { ...body, token: S.factory.token, pick_token: body.pick_token || (S.factory.pick && S.factory.pick.token) }; if (body.task === 'identify') body.task = 'factory_identify'; }
   const { data, error } = await sb.functions.invoke('qc', { body });
   if (error) { let msg = error.message; try { const j = await error.context.json(); if (j && j.error) msg = j.error; } catch { } throw new Error(msg); }
   if (data && data.error) throw new Error(data.error);
@@ -334,7 +372,7 @@ async function prepImage(file) {
   const k = Math.min(1, 1600 / Math.max(src.width, src.height)), c = document.createElement('canvas');
   c.width = Math.round(src.width * k); c.height = Math.round(src.height * k); c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
   const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', .86));
-  return { blob, src: c.toDataURL('image/jpeg', .8) };
+  return { blob, src: c.toDataURL('image/jpeg', .8), canvas: c };
 }
 async function uploadPhoto(p, rerender) {
   p.state = 'up'; rerender && rerender();
@@ -375,6 +413,7 @@ async function onFiles(files) {
       const bag = pk.target === 'check' ? S.check && S.check.photos : S.draft && S.draft.photos; if (!bag) return;
       bag.push(ph);
       const rr = pk.target === 'check' ? drawCheckPhotos : drawDraftPhotos; rr(); uploadPhoto(ph, rr);
+      if (pk.target === 'check') readCodes(p.canvas).then(codes => { ph.codes = codes; });
     }
   }
   if (pk.target !== 'official') scheduleIdentify(pk.target === 'check' ? 'check' : 'draft');
@@ -436,7 +475,9 @@ function home() {
   <button data-a="new"><b>Set up a product</b><span>From the official listing, or photos of a good unit</span></button></div>
   <h2>Products</h2><div class="list">${S.products.length ? S.products.map(prodRow).join('') : `<div class="empty">No products yet. Start with <b>Set up a product</b>: take photos of a unit you know is good.</div>`}</div>
   <h2>Recent checks</h2><div class="list">${recent.length ? recent.map(inspRow).join('') : `<div class="empty">Checks you run will appear here.</div>`}</div>`;
-  app.insertAdjacentHTML('beforeend', `<p class="note" style="margin-top:28px">Signed in as ${esc(S.user.email || '')}${S.wsName ? `, workspace ${esc(S.wsName)}` : ''}. <button class="btn small" data-a="signout" style="margin-left:6px">Sign out</button></p>`);
+  app.insertAdjacentHTML('beforeend', S.user.is_anonymous || !S.user.email
+    ? `<p class="note" style="margin-top:28px">Your workspace is saved in this browser, with no sign-in needed. Opening the app on another device or clearing this browser's data starts a new, empty workspace.</p>`
+    : `<p class="note" style="margin-top:28px">Signed in as ${esc(S.user.email)}${S.wsName ? `, workspace ${esc(S.wsName)}` : ''}. <button class="btn small" data-a="signout" style="margin-left:6px">Sign out</button></p>`);
 }
 function prodRow(p) { const n = S.inspections.filter(i => i.productId === p.id).length; const ph = p.photos && p.photos[0];
   return `<button class="row" data-a="openProd" data-id="${esc(p.id)}">${ph ? `<img src="${esc(srcOf(ph))}" alt="">` : '<span class="ph"></span>'}<span><b>${esc(p.name)}</b><small>${esc([p.sku, `${(p.photos || []).length} reference photo${(p.photos || []).length === 1 ? '' : 's'}`, `${n} check${n === 1 ? '' : 's'}`].filter(Boolean).join(', '))}</small></span><span>›</span></button>`; }
@@ -449,7 +490,7 @@ function viewProduct(id) {
   $('#ttl').textContent = p.name;
   const ins = S.inspections.filter(i => i.productId === p.id);
   const dims = p.dims && (p.dims.l || p.dims.w || p.dims.h) ? `${p.dims.l || '?'} × ${p.dims.w || '?'} × ${p.dims.h || '?'} mm${p.tol ? ` (± ${p.tol})` : ''}` : '';
-  const rows = [['Model / SKU', p.sku], ['Material', p.material], ['Colors', p.colors], ['Finish', p.finish], ['Size', dims], ['Packaging', p.packaging], ['In the box', p.inBox], ['Official specs', p.officialSpecs], ['Good unit looks like', p.goodLooks], ['Must have', p.mustHave], ['Allowed variation', p.allowed], ['Watch for', (p.watch || []).join(', ')], ['Smallest rejectable defect', p.minDefectMm ? p.minDefectMm + ' mm' : ''], ['Views that are enough', (p.views || []).join(', ')]].filter(r => r[1]);
+  const rows = [['Model / SKU', p.sku], ['Barcode', p.barcode], ['Required label text', p.labelText], ['Material', p.material], ['Colors', p.colors], ['Finish', p.finish], ['Size', dims], ['Packaging', p.packaging], ['In the box', p.inBox], ['Official specs', p.officialSpecs], ['Good unit looks like', p.goodLooks], ['Must have', p.mustHave], ['Allowed variation', p.allowed], ['Watch for', (p.watch || []).join(', ')], ['Smallest rejectable defect', p.minDefectMm ? p.minDefectMm + ' mm' : ''], ['Views that are enough', (p.views || []).join(', ')]].filter(r => r[1]);
   const safeUrl = /^https?:\/\//i.test(p.sourceUrl || '') ? p.sourceUrl : '';
   app.innerHTML = `${safeUrl ? `<div class="sec"><h3>Official listing</h3><p style="margin:4px 0 0"><a class="src" href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">${esc(safeUrl)}</a></p></div>` : ''}<div class="sec"><h3>Approved reference photos</h3><p>${(p.photos || []).length ? 'Tap to enlarge.' : 'No photos yet. Edit the product to add some.'}</p>
     <div class="strip">${(p.photos || []).map(ph => `<img src="${esc(srcOf(ph))}" alt="${esc(ph.view || 'Reference')}" data-zoom="${esc(srcOf(ph))}">`).join('')}</div></div>
@@ -478,7 +519,8 @@ function sessionOf(l) { return (S.sessions || []).filter(x => x.link_id === l.id
 function sessionHtml(l) {
   const se = sessionOf(l); if (!se) return `<p class="note" style="margin-top:10px">Waiting for the factory to lock the lot size.</p>`;
   const ps = (S.picks || []).filter(x => x.session_id === se.id), c = f => ps.filter(f).length, done = c(x => x.status === 'done'), missed = c(x => x.status === 'missed'), failed = c(x => x.status === 'done' && x.verdict === 'FAIL');
-  const res = se.status === 'done' ? `<span class="chip ${esc(se.result)}" style="margin-right:6px">${esc(se.result === 'PASS' ? 'Lot passed' : se.result === 'FAIL' ? 'Lot failed' : 'Lot needs review')}</span>` : '';
+  const res = (se.status === 'done' ? `<span class="chip ${esc(se.result)}" style="margin-right:6px">${esc(se.result === 'PASS' ? 'Lot passed' : se.result === 'FAIL' ? 'Lot failed' : 'Lot needs review')}</span>` : '')
+    + (se.buyer_decision ? `<span class="chip ${se.buyer_decision === 'release' ? 'PASS' : 'FAIL'}" style="margin-right:6px">${se.buyer_decision === 'release' ? 'Payment released' : 'Payment held'}</span>` : '');
   return `<div class="prog" role="progressbar" aria-valuemin="0" aria-valuemax="${se.sample_size}" aria-valuenow="${done}"><i style="width:${Math.min(100, Math.round(done / se.sample_size * 100))}%"></i></div>
     <p class="lc-line">${res}<b>${done} of ${se.sample_size}</b> random units checked, ${failed} failed${missed ? `, <b style="color:var(--fail)">${missed} missed</b>` : ''}</p>
     <p class="who" style="margin:4px 0 0">Lot passes with up to ${se.accept_major} failed. Locked by the factory: ${se.total_units} units in ${se.cartons} cartons of ${se.units_per_carton}.</p>`;
@@ -498,7 +540,7 @@ function linksHtml(p) {
     return `<div class="sec"><div class="lc-head"><div><b>Lot ${esc(l.lot)}</b><span class="who">${esc([l.factory_name, open ? `Open until ${new Date(l.expires_at).toLocaleDateString()}` : 'Closed'].filter(Boolean).join(', '))}</span></div>
       <span class="tag" style="${open ? 'background:var(--pass-bg);color:var(--pass)' : ''}">${open ? 'Open' : 'Closed'}</span></div>${sessionHtml(l)}
       <div class="lc-actions"><button class="btn small" data-a="copyMsg" data-id="${esc(l.id)}">Copy message for factory</button>${se ? `<button class="btn small" data-a="openLog" data-id="${esc(se.id)}">Sampling log</button>` : ''}<button class="btn small" data-a="openLot" data-id="${esc(lotKey(p.id, l.lot))}">Lot report</button></div>
-      <div class="lc-more"><button class="linkbtn" data-a="copyLink" data-id="${esc(l.id)}">Copy link only</button>${se ? `<button class="linkbtn" data-a="cancelSession" data-id="${esc(se.id)}">Cancel and resample</button>` : ''}<button class="linkbtn ${open ? 'danger' : ''}" data-a="toggleLink" data-id="${esc(l.id)}">${open ? 'Close link' : 'Reopen link'}</button></div></div>`; }).join('');
+      <div class="lc-more"><button class="linkbtn" data-a="copyLink" data-id="${esc(l.id)}">Copy link only</button>${se ? `<button class="linkbtn" data-a="printLabels" data-id="${esc(se.id)}">Print carton labels</button><button class="linkbtn" data-a="cancelSession" data-id="${esc(se.id)}">Cancel and resample</button>` : ''}<button class="linkbtn ${open ? 'danger' : ''}" data-a="toggleLink" data-id="${esc(l.id)}">${open ? 'Close link' : 'Reopen link'}</button></div></div>`; }).join('');
   return `<h2>Factory links</h2>${rows || '<p class="note" style="margin:0 0 8px">Send the factory a link: their staff photograph each unit on a phone, with no account, and every unit is checked against this standard.</p>'}<button class="btn" data-a="newLink" data-id="${esc(p.id)}" style="width:100%">Send a link to a factory</button>`;
 }
 function newLinkView(pid) {
@@ -537,28 +579,26 @@ function factoryHome() {
     <div class="strip">${(p.photos || []).map(ph => `<img src="${esc(srcOf(ph))}" alt="" data-zoom="${esc(srcOf(ph))}">`).join('') || `<span class="note">${L2('No reference photos.', '无参考照片。')}</span>`}</div>
     ${p.goodLooks ? `<p style="margin:10px 0 0;font-size:14.5px">${esc(p.goodLooks)}</p>` : ''}
     ${mh.length ? `<label class="f">${L2('Must have', '必须具备')}</label><ul class="mh">${mh.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    ${p.barcode ? `<label class="f">${L2('Barcode', '条码')}</label><p class="note" style="margin-top:2px">${esc(p.barcode)}</p>` : ''}
+    ${lines(p.labelText).length ? `<label class="f">${L2('Required label text', '标签必须有的文字')}</label><ul class="mh">${lines(p.labelText).map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     ${(p.watch || []).length ? `<label class="f">${L2('Watch for', '重点检查')}</label><p class="note" style="margin-top:2px">${esc(p.watch.join(', '))}</p>` : ''}
     ${dims || p.minDefectMm ? `<p class="note">${esc([dims && L2('Size ', '尺寸 ') + dims, p.minDefectMm && L2('Reject marks from ', '瑕疵超过 ') + p.minDefectMm + ' mm' + L2('', ' 判不合格')].filter(Boolean).join(' · '))}</p>` : ''}</div>`;
   let main = '';
   if (!ses) {
-    const d = F.decl || (F.decl = { total: '', cartons: '', per: '' });
+    const d = F.decl || (F.decl = { total: '', per: '' });
     main = `<div class="sec"><h3>${L2('Start the inspection', '开始检验')}</h3>
-      <ol class="steps"><li>${L2('Pack the whole order.', '先把整批货装箱。')}</li><li>${L2('Write a number on every carton with a marker: 1, 2, 3…', '用记号笔在每个箱子上写编号：1、2、3……')}</li><li>${L2('Enter the lot size below. Once you start, the numbers are locked and the system chooses which units to photograph.', '在下面填写数量。开始后数量会被锁定，由系统随机指定要拍哪几件。')}</li></ol>
-      <div class="dims" style="grid-template-columns:1fr 1fr 1fr"><label>${L2('Total units', '总件数')}<input class="i" inputmode="numeric" data-d="total" value="${esc(d.total)}"></label><label>${L2('Cartons', '箱数')}<input class="i" inputmode="numeric" data-d="cartons" value="${esc(d.cartons)}"></label><label>${L2('Units per carton', '每箱件数')}<input class="i" inputmode="numeric" data-d="per" value="${esc(d.per)}"></label></div>
-      <label class="f">${L2('Your name', '检验员')}<input class="i" data-f2="worker" value="${esc(F.worker || '')}" placeholder="${L2('Optional', '可选')}"></label>
-      <label class="toggle"><input type="checkbox" data-d="numbered" ${d.numbered ? 'checked' : ''}>${L2('Every carton is numbered', '每个箱子都已写好编号')}</label></div>`;
-    bar(`<button class="btn primary grow" data-a="fStart">${L2('Lock lot and start', '锁定数量并开始')}</button>`);
+      <ol class="steps"><li>${L2('Pack the whole order into cartons.', '先把整批货装箱。')}</li><li>${L2('Enter the total units and units per carton below, then lock.', '在下面填写总件数和每箱件数，然后锁定。')}</li><li>${L2('Print the carton labels the app makes, or write a number on each carton.', '打印系统生成的箱标，或用记号笔给每个箱子写编号。')}</li></ol>
+      <div class="dims" style="grid-template-columns:1fr 1fr"><label>${L2('Total units', '总件数')}<input class="i" inputmode="numeric" data-d="total" value="${esc(d.total)}"></label><label>${L2('Units per carton', '每箱件数')}<input class="i" inputmode="numeric" data-d="per" value="${esc(d.per)}"></label></div>
+      ${+d.total > 0 && +d.per > 0 ? `<p class="note" style="margin-top:8px">${L2(`${Math.ceil(d.total / d.per)} cartons`, `共 ${Math.ceil(d.total / d.per)} 箱`)}</p>` : ''}
+      <label class="f">${L2('Your name', '检验员')}<input class="i" data-f2="worker" value="${esc(F.worker || '')}" placeholder="${L2('Optional', '可选')}"></label></div>`;
+    bar(`<button class="btn primary grow" data-a="fStart">${L2('Lock lot', '锁定数量')}</button>`);
   } else if (ses.status === 'sampling') {
-    const pk = F.pick;
     main = `<div class="sec"><h3>${L2('Inspection in progress', '检验进行中')}</h3><div class="stats"><div><b>${ses.done}/${ses.sample_size}</b><span>${L2('units checked', '已检验')}</span></div><div><b>${ses.failed}</b><span>${L2('failed', '不合格')}</span></div><div><b>${ses.missed}</b><span>${L2('missed (time ran out)', '超时未拍')}</span></div></div>
-      <p class="note">${L2(`Lot locked: ${ses.total_units} units in ${ses.cartons} cartons.`, `数量已锁定：${ses.cartons} 箱，共 ${ses.total_units} 件。`)}</p></div>
-      ${pk ? `<div class="pickcard"><div class="who">${L2(`Unit ${pk.seq} of ${pk.of}`, `第 ${pk.seq} 件，共 ${pk.of} 件`)}${pk.attempts ? ' · ' + L2('retake', '重拍') : ''}</div>
-        <div class="big">${L2(`Carton ${pk.carton}, unit ${pk.unit_pos}`, `第 ${pk.carton} 箱，第 ${pk.unit_pos} 件`)}</div>
-        <p style="margin:4px 0 8px">${L2(`Open carton ${pk.carton}. Counting from the top layer, left to right, take out unit ${pk.unit_pos}. First photo: the open carton with its number visible and the unit. Then photograph the unit.`, `打开第 ${pk.carton} 箱，从最上层左边开始数，取出第 ${pk.unit_pos} 件。第一张照片要拍到打开的箱子和箱号，以及这件产品；然后再拍产品本身。`)}</p>
-        <div>${L2('Time left', '剩余时间')}: <span class="timer" id="pickTimer"></span></div>
-        <div class="photos" id="cPhotos" style="margin-top:12px"></div><div id="cover"></div></div>`
-      : `<div class="sec"><p>${L2('The system picks the next unit at random. You have a few minutes to photograph it once it is shown.', '系统会随机指定下一件。显示后需要在几分钟内完成拍照。')}</p></div>`}`;
-    if (!pk) bar(`<button class="btn primary grow" data-a="fNextPick">${L2('Next unit', '下一件')}</button>`);
+      <p class="note">${L2(`Lot locked: ${ses.total_units} units in ${ses.cartons} cartons. The system picks ${ses.sample_size} units at random.`, `数量已锁定：${ses.cartons} 箱，共 ${ses.total_units} 件。系统会随机抽检 ${ses.sample_size} 件。`)}${ses.checking ? ' ' + L2(`${ses.checking} being checked.`, `${ses.checking} 件检验中。`) : ''}</p></div>
+      <div class="sec"><h3>${L2('Before you start', '开始前')}</h3><p>${L2('Print the carton labels and the measuring card (A4, actual size). Stick one label on each carton. Put the card next to the product when you take photos.', '打印箱标和测量卡（A4纸，按实际尺寸打印）。每个箱子贴一张箱标。拍照时把测量卡放在产品旁边。')}</p>
+      <button class="btn" data-a="fPrint" style="width:100%">${L2('Print carton labels and measuring card', '打印箱标和测量卡')}</button>
+      <p class="note">${L2('No printer? Write the carton number on each carton with a marker instead.', '没有打印机？用记号笔在每个箱子上写编号也可以。')}</p></div>`;
+    bar(`<button class="btn primary grow" data-a="fStartCam">${ses.done || F.units.length ? L2('Continue inspecting', '继续检验') : L2('Start inspecting', '开始检验')}</button>`);
   } else {
     const R = { PASS: L2('Lot passed', '整批合格'), FAIL: L2('Lot failed', '整批不合格'), REVIEW: L2('Needs buyer review', '待买家复核') }[ses.result] || '';
     main = `<div class="sec"><div class="stamp ${esc(ses.result === 'PASS' ? 'PASS' : ses.result === 'FAIL' ? 'FAIL' : 'REVIEW')}" style="font-size:34px">${esc(R)}</div>
@@ -568,10 +608,6 @@ function factoryHome() {
   ${main}${std}
   <h2>${L2('Submitted units', '已提交')}</h2><div class="list">${us.length ? us.map(fRow).join('') : `<div class="empty">${L2('Nothing submitted yet.', '还没有提交。')}</div>`}</div>
   <p class="note" style="margin-top:24px">${L2('Link open until', '链接有效期至')} ${esc(new Date(F.link.expires_at).toLocaleDateString())}.</p>`;
-  if (ses && ses.status === 'sampling' && F.pick) {
-    if (!S.check || S.check.productId !== 'factory' || S.check.pickToken !== F.pick.token) S.check = { productId: 'factory', photos: [], unit: '', worker: F.worker || '', hints: [], pickToken: F.pick.token };
-    drawCheckPhotos(); tickPick();
-  }
 }
 let pickTimerT;
 function tickPick() {
@@ -579,71 +615,138 @@ function tickPick() {
   const run = () => {
     const F = S.factory, pk = F && F.pick; if (!pk) return clearInterval(pickTimerT);
     const left = Math.max(0, Math.round((new Date(pk.expires_at) - Date.now()) / 1000)), txt = left ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : L2('time is up', '时间到');
-    document.querySelectorAll('#pickTimer,#camTimer').forEach(el => { el.textContent = txt; el.classList.toggle('low', left < 60); });
-    if (!left) { clearInterval(pickTimerT); closeCam(); F.pick = null; S.check = null; toast(L2('Time ran out for this unit. It is recorded as missed.', '这件超时了，已记录为未拍。'), 5000); if (S.route.name === 'factory') render(); }
+    document.querySelectorAll('#camTimer').forEach(el => { el.textContent = txt; el.classList.toggle('low', left < 60); });
+    if (!left) { clearInterval(pickTimerT); F.pick = null; S.check = null; toast(L2('Time ran out for this unit. It is recorded as missed.', '这件超时了，已记录为未拍。'), 5000); if (camIsOpen()) camLoadPick(); else render(); }
   };
   run(); pickTimerT = setInterval(run, 1000);
 }
 async function factoryStart() {
   const F = S.factory, d = F.decl || {}, n = k => parseInt(String(d[k] || '').trim(), 10);
-  if (!(n('total') > 0 && n('cartons') > 0 && n('per') > 0)) { toast(L2('Enter all three numbers.', '请填写三个数量。')); return; }
-  if (!d.numbered) { toast(L2('Number every carton first, then tick the box.', '请先给每个箱子写编号，然后勾选确认。')); return; }
-  if (!confirm(L2(`Lock ${n('total')} units in ${n('cartons')} cartons? This cannot be changed.`, `确认锁定：${n('cartons')} 箱，共 ${n('total')} 件？锁定后不能修改。`))) return;
-  try { const r = await callQC({ task: 'factory_session_start', total_units: n('total'), cartons: n('cartons'), units_per_carton: n('per') }); F.session = r.session; F.decl = null; render(); window.scrollTo(0, 0); }
+  if (!(n('total') > 0 && n('per') > 0)) { toast(L2('Enter the total units and units per carton.', '请填写总件数和每箱件数。')); return; }
+  const cartons = Math.ceil(n('total') / n('per'));
+  if (!confirm(L2(`Lock ${n('total')} units in ${cartons} cartons? This cannot be changed.`, `确认锁定：${cartons} 箱，共 ${n('total')} 件？锁定后不能修改。`))) return;
+  try { const r = await callQC({ task: 'factory_session_start', total_units: n('total'), cartons, units_per_carton: n('per') }); F.session = r.session; F.decl = null; render(); window.scrollTo(0, 0); }
   catch (e) { toast(sampleErr(e), 6000); }
 }
-async function factoryNextPick() {
-  const F = S.factory;
-  try { const r = await callQC({ task: 'factory_pick_next' }); F.session = r.session; F.pick = r.pick || null; S.check = null; render(); window.scrollTo(0, 0); }
-  catch (e) { toast(sampleErr(e), 6000); }
-}
-/* live camera: the only way to add photos on a factory link */
+/* continuous camera: stays open for the whole sample; each unit is handed in and the next pick appears */
 let camStream = null;
+const camIsOpen = () => !!$('#cam') && $('#cam').classList.contains('on');
 async function openCam() {
-  if (!S.factory || !S.factory.pick) return;
   const cam = $('#cam'), v = $('#camVideo');
   try {
     camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false });
-  } catch (e) { toast(L2('The camera could not open. Allow camera access for this page, or open the link in Chrome or Safari on your phone.', '无法打开相机。请允许此网页使用相机，或用手机的 Chrome / Safari 打开链接。'), 7000); return; }
-  v.srcObject = camStream; cam.classList.add('on');
-  const pk = S.factory.pick; $('#camInfo').textContent = L2(`Carton ${pk.carton}, unit ${pk.unit_pos}`, `第 ${pk.carton} 箱 第 ${pk.unit_pos} 件`); $('#camDone').textContent = L2('Done', '完成'); camCount();
+  } catch (e) { toast(L2('The camera could not open. Allow camera access for this page, or open the link in Chrome or Safari on your phone.', '无法打开相机。请允许此网页使用相机，或用手机的 Chrome / Safari 打开链接。'), 7000); return false; }
+  v.srcObject = camStream; cam.classList.add('on'); $('#camDone').textContent = L2('Pause', '暂停');
+  return true;
 }
 function closeCam() { const cam = $('#cam'); if (camStream) camStream.getTracks().forEach(t => t.stop()); camStream = null; if (cam) cam.classList.remove('on'); }
-function camCount() { const n = (S.check && S.check.photos.length) || 0; $('#camCount').textContent = n ? L2(`${n} photo${n > 1 ? 's' : ''}`, `${n} 张`) : ''; }
+async function factoryStartCam() {
+  if (!(await openCam())) return;
+  if (S.factory.pick && S.check && S.check.pickToken === S.factory.pick.token) { camRender(); tickPick(); return; }
+  await camLoadPick();
+}
+async function camLoadPick() {
+  const F = S.factory;
+  try { const q = await callQC({ task: 'factory_pick_next' }); F.session = q.session || F.session; F.pick = q.pick || null; } catch (e) { F.pick = null; toast(sampleErr(e), 6000); }
+  if (!F.pick) {
+    closeCam(); clearInterval(pickTimerT); S.check = null;
+    toast(F.watch && F.watch.size ? L2('All sampled units are handed in. The last ones are still being checked.', '抽检的产品都已提交，最后几件还在检验中。') : L2('All sampled units are done.', '抽检全部完成。'), 6000);
+    S.route = { name: 'factory' }; S.stack = []; render(); return;
+  }
+  S.check = { productId: 'factory', photos: [], unit: '', worker: F.worker || '', hints: [], pickToken: F.pick.token };
+  camRender(); tickPick();
+}
+function camShotState(ph) {
+  const F = S.factory, pk = F.pick, short = F.session && F.session.id ? F.session.id.slice(0, 8) : '';
+  const lab = (ph.codes || []).filter(c => c.startsWith('DC:')).map(c => c.split(':'));
+  ph.card = (ph.codes || []).some(c => c.startsWith('DC-CARD'));
+  ph.cartonOk = lab.some(x => x[1] === short && +x[2] === pk.carton);
+  ph.wrongCarton = !ph.cartonOk && lab.length ? (lab[0][1] === short ? L2(`carton ${lab[0][2]}`, `第 ${lab[0][2]} 箱`) : L2('a label from another order', '其他订单的箱标')) : '';
+}
 async function camShot() {
-  const v = $('#camVideo'); if (!v.videoWidth || !S.check) return;
+  const v = $('#camVideo'); if (!v.videoWidth || !S.check || !S.factory.pick || S.factory.submitting) return;
   const k = Math.min(1, 1600 / Math.max(v.videoWidth, v.videoHeight)), c = document.createElement('canvas');
   c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k); c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
   const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', .86));
-  addLivePhoto(blob, c.toDataURL('image/jpeg', .8));
+  const ph = { key: uid(), blob, src: c.toDataURL('image/jpeg', .8), view: '', state: 'new', origin: 'unit', kind: '', scanning: true, codes: [] };
+  S.check.photos.push(ph); camRender(); uploadPhoto(ph, camRender); scheduleIdentify('check');
+  readCodes(c).then(codes => { ph.codes = codes; ph.scanning = false; if (S.factory.pick) camShotState(ph); camRender(); });
   v.style.opacity = '.3'; setTimeout(() => v.style.opacity = '', 120);
 }
-function addLivePhoto(blob, src) {
-  if (!S.check) return; const ph = { key: uid(), blob, src, view: '', state: 'new', origin: 'unit', kind: '' };
-  S.check.photos.push(ph); camCount(); drawCheckPhotos(); uploadPhoto(ph, drawCheckPhotos); scheduleIdentify('check');
+function camRender() {
+  const F = S.factory, pk = F && F.pick, c = S.check; if (!pk || !c || !camIsOpen()) return;
+  const p = F.product, ph = c.photos, cv = coverage(p, ph);
+  $('#camPick').textContent = L2(`Carton ${pk.carton}, unit ${pk.unit_pos}`, `第 ${pk.carton} 箱，第 ${pk.unit_pos} 件`);
+  $('#camSub').textContent = L2(`Unit ${pk.seq} of ${pk.of}`, `第 ${pk.seq} 件 / 共 ${pk.of} 件`) + (F.watch && F.watch.size ? L2(`, ${F.watch.size} being checked`, `，${F.watch.size} 件检验中`) : '');
+  $('#camHint').textContent = L2(`Open carton ${pk.carton} and take out unit ${pk.unit_pos}, counting from the top layer, left to right. First photo: the carton label and the unit together. Then photograph the unit${p.barcode ? ' and its barcode' : ''}. Put the measuring card in the photo if you have it.`,
+    `打开第 ${pk.carton} 箱，从最上层左边数，取出第 ${pk.unit_pos} 件。第一张：箱标和这件产品一起拍。然后拍产品${p.barcode ? '和条码' : ''}。有测量卡的话放在产品旁边一起拍。`);
+  const wrong = ph.find(x => x.wrongCarton), cartonOk = ph.some(x => x.cartonOk), card = ph.some(x => x.card);
+  const chips = [`<span class="camchip ${cartonOk ? 'ok' : wrong ? 'bad' : ''}">${cartonOk ? '✓ ' : ''}${L2('Carton label', '箱标')}</span>`,
+    ...cv.need.map(v => `<span class="camchip ${cv.have.has(v) ? 'ok' : ''}">${cv.have.has(v) ? '✓ ' : ''}${esc(T(v))}</span>`),
+    card ? `<span class="camchip ok">✓ ${L2('Measuring card', '测量卡')}</span>` : ''];
+  $('#camChips').innerHTML = chips.join('');
+  $('#camStrip').innerHTML = ph.map((x, i) => { const bad = x.wrongCarton || (x.quality && x.quality !== 'ok') || x.state === 'err';
+    const st = x.state === 'up' || x.state === 'new' ? T('Uploading') : x.state === 'err' ? T('Not saved') : x.idState === 'busy' ? T('Identifying…') : x.wrongCarton ? L2('Wrong carton', '箱号不对') : x.quality && x.quality !== 'ok' ? QL(x.quality) : (x.part || T(x.view || '') || '');
+    return `<button class="camthumb ${bad ? 'bad' : ''}" data-a="camRm" data-i="${i}" aria-label="${L2('Remove photo', '删除照片')}"><img src="${esc(x.src || srcOf(x))}" alt=""><span>${esc(st)}</span></button>`; }).join('');
+  const bads = ph.filter(x => x.quality && x.quality !== 'ok' && x.quality !== 'wrong_product');
+  $('#camMsg').innerHTML = wrong ? `<div class="cammsg">${L2(`A photo shows ${wrong.wrongCarton}. Open carton ${pk.carton}, then tap that photo to delete it.`, `有照片是${wrong.wrongCarton}。请打开第 ${pk.carton} 箱，并点那张照片删除。`)}</div>`
+    : bads.length ? `<div class="cammsg">${L2('A photo is not clear enough. Tap it to delete, then retake.', '有照片不够清楚，点它删除后重拍。')}</div>` : '';
+  const busy = ph.some(x => x.state === 'up' || x.state === 'new' || x.idState === 'busy' || x.scanning) || F.submitting;
+  const btn = $('#camNext');
+  btn.disabled = !ph.length || busy || !!wrong || ph.some(x => x.state === 'err');
+  btn.textContent = F.submitting ? L2('Sending…', '提交中…') : busy ? L2('Checking photo…', '处理中…') : cv.missing.length && ph.length ? L2('Next (views missing)', '下一件（缺角度）') : L2('Next unit', '下一件');
+}
+async function camNext() {
+  const F = S.factory, c = S.check, pk = F.pick; if (!pk || !c || F.submitting) return;
+  const units = c.photos.filter(x => x.id && x.quality !== 'wrong_product' && !x.wrongCarton);
+  if (!units.length) { toast(L2('None of the photos show this product.', '照片里没有这个产品。')); return; }
+  F.submitting = true; camRender();
+  try {
+    const r = await callQC({ task: 'factory_submit', pick_token: pk.token, worker: F.worker, photos: units.map(u => ({ path: u.id, view: u.view || '', part: u.part || '', quality: u.quality || '', codes: u.codes || [] })) });
+    const u = fUnit(r.unit, r.urls); u.photos.forEach(x => { const local = units.find(y => y.id === x.path); if (local && !URLS.get(x.path)) URLS.set(x.path, local.src); });
+    F.units.unshift(u); F.watch = F.watch || new Set(); if (!u.ai) F.watch.add(u.id); startPoll();
+  } catch (e) { toast(sampleErr(e), 6000); }
+  F.submitting = false; F.pick = null; S.check = null;
+  await camLoadPick();
+}
+let pollT = null;
+function startPoll() { if (!pollT) pollT = setInterval(pollUnits, 3500); }
+async function pollUnits() {
+  const F = S.factory; if (!F || !F.watch || !F.watch.size) { clearInterval(pollT); pollT = null; return; }
+  try {
+    const r = await callQC({ task: 'factory_units', ids: [...F.watch] }); if (r.session) F.session = r.session;
+    (r.units || []).forEach(u => {
+      if (u.status !== 'done' && u.status !== 'error') return;
+      F.watch.delete(u.id); const i = F.units.findIndex(x => x.id === u.id);
+      if (i >= 0) F.units[i] = { ...u, photos: F.units[i].photos }; else F.units.unshift(fUnit(u));
+      if (u.verdict && u.verdict !== 'PASS') toast(`${fUnitLabel(u)}: ${fV(u.status === 'error' ? 'ERROR' : u.verdict)}`, 4500);
+    });
+  } catch { }
+  if (camIsOpen()) camRender(); else if (['factory', 'fres'].includes(S.route.name)) render();
+}
+/* printable sheet: carton labels with QR codes plus a measuring card */
+async function printLabels(ses, lot, productName) {
+  try { await loadLib('qrgen'); } catch { toast(L2('Could not load the label maker. Check the connection and try again.', '无法生成箱标，请检查网络后重试。')); return; }
+  const short = ses.id.slice(0, 8), N = ses.cartons;
+  const qr = t => { const q = window.qrcode(0, 'M'); q.addData(t); q.make(); return q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); };
+  let ticks = ''; for (let i = 0; i <= 100; i++) ticks += `<i style="left:${i}mm;height:${i % 10 === 0 ? 6 : i % 5 === 0 ? 4 : 2.5}mm"></i>` + (i % 10 === 0 ? `<b style="left:${i}mm">${i}</b>` : '');
+  const card = `<div class="ppage"><div class="pcard"><h2>Defect Check measuring card 测量卡</h2>
+    <div class="ruler">${ticks}</div>
+    <div class="patches"><span style="background:#fff">white</span><span style="background:#c8c8c8">grey</span><span style="background:#808080;color:#fff">grey</span><span style="background:#000;color:#fff">black</span><span style="background:#d22">red</span><span style="background:#1a1">green</span><span style="background:#23c;color:#fff">blue</span></div>
+    <div class="pqr">${qr('DC-CARD:1')}</div>
+    <p>Print at 100% (actual size). Check that the ruler from 0 to 100 measures exactly 10 cm. Put this card next to the product in your photos.</p>
+    <p>请按100%实际尺寸打印，并确认标尺0到100正好10厘米。拍照时把这张卡放在产品旁边。</p>
+    <p>Lot ${esc(lot)} · ${esc(productName)}</p></div></div>`;
+  const labels = []; for (let n = 1; n <= N; n++) labels.push(`<div class="plabel"><div><div class="pnum">${n}</div><div class="pmeta"><b>Carton ${n} of ${N}</b><br>第 ${n} 箱 / 共 ${N} 箱<br>Lot ${esc(lot)}<br>${esc(productName)}</div></div><div class="pqr">${qr(`DC:${short}:${n}`)}</div></div>`);
+  let pages = ''; for (let i = 0; i < labels.length; i += 8) pages += `<div class="ppage"><div class="plabels">${labels.slice(i, i + 8).join('')}</div></div>`;
+  $('#print').innerHTML = card + pages; window.print();
 }
 const VZH = { PASS: '合格', FAIL: '不合格', REVIEW: '待复核', RETAKE: '需重拍', CHECKING: '检验中', ERROR: '出错' };
 const fV = v => L2(v, VZH[v] || v);
 function fUnitLabel(u) { const m = /^C(\d+)-U(\d+)$/.exec(u.unit || ''); return m ? L2(`Carton ${m[1]}, unit ${m[2]}`, `第 ${m[1]} 箱 第 ${m[2]} 件`) : L2('Unit ', '件号 ') + (u.unit || '—'); }
 function fRow(u) { const d = u.status === 'error' ? 'ERROR' : u.verdict || 'CHECKING', ph = u.photos[0];
   return `<button class="row" data-a="fOpen" data-id="${esc(u.id)}">${ph ? `<img src="${esc(srcOf(ph))}" alt="">` : '<span class="ph"></span>'}<span><b>${esc(fUnitLabel(u))}</b><small>${esc([u.submitted_by, ago(u.created_at)].filter(Boolean).join(', '))}</small></span><span class="chip ${esc(d)}">${esc(fV(d))}</span></button>`; }
-async function factorySubmit() {
-  const c = S.check, F = S.factory;
-  if (!F.pick) { toast(L2('Tap Next unit first.', '请先点“下一件”。')); return; }
-  if (!c.photos.length) { toast(L2('Take at least one photo.', '请至少拍一张照片。')); return; }
-  if (c.photos.some(x => x.idState === 'busy' || x.state === 'up' || x.state === 'new')) { toast(L2('One moment, photos are still processing.', '请稍等，照片还在处理。')); return; }
-  if (c.photos.some(x => !x.id)) { toast(L2('Some photos did not upload. Remove them and take them again.', '有照片没上传成功，请删除后重拍。')); return; }
-  const units = c.photos.filter(x => x.quality !== 'wrong_product'); if (!units.length) { toast(L2('None of the photos show this product.', '照片里没有这个产品。')); return; }
-  const pk = F.pick; clearInterval(pickTimerT); closeCam();
-  const tmp = { id: 'tmp' + uid(), unit: `C${pk.carton}-U${pk.unit_pos}`, status: 'pending', verdict: null, created_at: new Date().toISOString(), submitted_by: F.worker, photos: units.map(u => ({ path: u.id, view: u.view, part: u.part, id: u.id })), ai: null };
-  F.units.unshift(tmp); S.check = null; go('fres', tmp.id);
-  try {
-    const r = await callQC({ task: 'factory_submit', worker: F.worker, photos: units.map(u => ({ path: u.id, view: u.view || '', part: u.part || '', quality: u.quality || '' })) });
-    const i = F.units.indexOf(tmp); F.units[i] = fUnit(r.unit, r.urls); if (S.route.name === 'fres' && S.route.id === tmp.id) S.route.id = r.unit.id;
-    F.session = r.session; F.pick = r.retake || null; F.units[i].retake = !!r.retake;
-  } catch (e) { tmp.status = 'error'; tmp.error = sampleErr(e); F.pick = null; }
-  if (S.route.name === 'fres') render();
-}
+async function factorySubmit() { return camNext(); }
 function factoryResult(id) {
   const F = S.factory, u = F.units.find(x => x.id === id); if (!u) { S.route = { name: 'factory' }; return render(); }
   const a = u.ai, pending = !a && u.status !== 'error', d = u.status === 'error' ? 'ERROR' : a ? a.verdict : 'CHECKING';
@@ -651,22 +754,21 @@ function factoryResult(id) {
   const photos = u.photos.map((ph, k) => `<div class="shot"><img src="${esc(srcOf(ph))}" alt="" data-zoom="${esc(srcOf(ph))}">${a ? a.defects.filter(x => x.photo === k + 1 && x.box && !x.inSpec).map(x => `<div class="box" style="left:${x.box[0] * 100}%;top:${x.box[1] * 100}%;width:${Math.max(4, x.box[2] * 100)}%;height:${Math.max(4, x.box[3] * 100)}%"><span>${esc(x.type)}</span></div>`).join('') : ''}<span class="cap">${esc(ph.part || T(ph.view || '') || L2('Photo ', '照片 ') + (k + 1))}</span></div>`).join('');
   const G = { pass: '✓', fail: '✕', unclear: '?' }, Z = a && S.lang === 'zh' && a.zh ? a.zh : null;
   app.innerHTML = `<div class="sec"><div class="stamp pop ${esc(pending ? 'CHECKING' : d)}">${esc(fV(pending ? 'CHECKING' : d))}</div>
-    ${pending ? `<p class="note">${L2('Checking against the buyer\'s standard. Usually 20 to 90 seconds. Keep this page open.', '正在按买家标准检验，通常需要20到90秒，请不要关闭页面。')}</p>` : ''}
+    ${pending ? `<p class="note">${L2('Checking against the buyer\'s standard in the background. The result appears here when it is ready.', '正在后台按买家标准检验，结果出来后会显示在这里。')}</p>` : ''}
     ${u.status === 'error' ? `<div class="warn">${esc(u.error || '')}<br>${u.id.startsWith('tmp') ? '' : `<button class="btn small" data-a="fRetry" data-id="${esc(u.id)}" style="margin-top:8px">${L2('Try again', '重试')}</button>`}</div>` : ''}
     ${a ? `<div class="sum">${esc(Z && Z.summary || a.summary)}</div>` : ''}
     ${a && (!a.photoOk || a.verdict === 'RETAKE') ? `<div class="warn" style="margin-top:10px"><b>${L2('Photo problems:', '照片问题：')}</b> ${esc((a.photoIssues || []).join('; '))}</div>` : ''}</div>
-  ${u.retake ? `<div class="warn">${L2('These photos could not be judged. Retake this same unit now: the timer has restarted.', '这些照片无法判断，请马上重拍同一件产品，计时已重新开始。')}</div>` : ''}
   ${a && (a.more || []).length ? `<div class="sec"><h3>${L2('Could not be judged from these photos', '以下内容无法从照片判断')}</h3><ul class="badlist" style="color:var(--ink)">${a.more.map((m, k) => Z && Z.more[k] ? `<li>${esc(Z.more[k])}</li>` : `<li><b>${esc(m.part)}</b>${m.why ? `: ${esc(m.why)}` : ''}</li>`).join('')}</ul></div>` : ''}
   ${photos}
   ${a ? `<div class="sec"><h3>${L2('Findings', '发现的问题')}</h3>${a.defects.length ? a.defects.map((x, k) => `<div class="def ${x.inSpec ? '' : esc(x.severity)}"><b>${esc(Z && Z.defects[k] || x.type)}</b>${x.size != null ? ` <span class="who">~${esc(x.size)} mm</span>` : ''}<small>${Z && Z.defects[k] ? '' : esc(x.where)}${x.inSpec ? L2('. Within the standard.', '在标准允许范围内。') : ''}</small></div>`).join('') : `<p class="note">${L2('No defects found.', '未发现问题。')}</p>`}</div>
   ${a.checks.length ? `<div class="sec"><h3>${L2('Against the standard', '对照标准')}</h3><ul class="ck">${a.checks.map(c => `<li><span class="g ${c.result}">${G[c.result]}</span><span>${esc(c.item)}</span><small>${esc(c.note)}</small></li>`).join('')}</ul></div>` : ''}` : ''}
   <p class="note">${L2('This is an automatic screening. The buyer makes the final decision.', '这是自动初检结果，最终由买家决定。')}</p>`;
-  bar(`<button class="btn primary grow" data-a="fNext">${S.factory.pick ? L2('Retake this unit', '重拍这一件') : S.factory.session && S.factory.session.status === 'done' ? L2('See lot result', '查看整批结果') : L2('Back to inspection', '返回检验')}</button>`);
+  bar(`<button class="btn primary grow" data-a="fNext">${L2('Back to inspection', '返回检验')}</button>`);
 }
 async function factoryRefresh() {
   const F = S.factory, r = await callQC({ task: 'factory_open' });
   F.link = r.link; F.product = fProduct(r.product, r.urls); F.units = r.units.map(u => fUnit(u, r.urls)); F.session = r.session || null;
-  if (F.session && F.session.status === 'sampling') { try { const q = await callQC({ task: 'factory_pick_next' }); F.session = q.session; F.pick = q.pick || null; } catch { F.pick = null; } }
+  F.watch = new Set(F.units.filter(u => u.status !== 'done' && u.status !== 'error').map(u => u.id)); if (F.watch.size) startPoll();
 }
 async function startFactory(token) {
   S.factory = { token, units: [], worker: '' }; S.lang = 'zh';
@@ -674,6 +776,34 @@ async function startFactory(token) {
   S.route = { name: 'loading' }; S.setupMsg = L2('Opening…', '正在打开…'); render();
   try { await factoryRefresh(); S.ready = true; S.route = { name: 'factory' }; S.stack = []; render(); }
   catch (e) { S.setupMsg = esc(sampleErr(e)); S.route = { name: 'loading' }; render(); }
+}
+
+/* ---------- lot decision: review only the exceptions, then release or hold payment ---------- */
+const lotSession = (pid, lot) => (S.sessions || []).find(x => x.product_id === pid && normLot(x.lot) === normLot(lot) && x.status !== 'cancelled');
+function decisionHtml(pid, lot) {
+  const se = lotSession(pid, lot); if (!se) return '';
+  const ins = S.inspections.filter(i => i.sessionId === se.id), ps = (S.picks || []).filter(x => x.session_id === se.id);
+  const fin = i => i.decision ? i.decision.final : i.ai ? i.ai.verdict : null;
+  const passed = ins.filter(i => fin(i) === 'PASS'), failed = ins.filter(i => fin(i) === 'FAIL');
+  const open = ins.filter(i => !i.decision && i.ai && i.ai.verdict !== 'PASS');
+  const missed = ps.filter(x => x.status === 'missed').length, done = ps.filter(x => x.status === 'done').length;
+  const unsure = ins.filter(i => !i.decision && (!i.ai || !['PASS', 'FAIL'].includes(i.ai.verdict))).length + missed;
+  const critical = failed.some(i => i.ai && i.ai.defects.some(d => !d.inSpec && d.severity === 'critical'));
+  const rec = se.status === 'sampling' ? ['REVIEW', `Inspection in progress: ${done} of ${se.sample_size} units checked`]
+    : critical || failed.length > se.accept_major ? ['FAIL', 'Recommendation: hold payment']
+    : unsure - missed ? ['REVIEW', `Review ${unsure - missed} unit${unsure - missed > 1 ? 's' : ''} first`]
+    : missed ? ['REVIEW', `${missed} sampled unit${missed > 1 ? 's were' : ' was'} never photographed: your call, or resample`] : ['PASS', 'Recommendation: release payment'];
+  const xcard = i => { const ph = i.photos[0], a = i.ai || {}, d = (a.defects || []).find(x => !x.inSpec);
+    return `<div class="xcard">${ph ? `<img src="${esc(srcOf(ph))}" alt="" data-zoom="${esc(srcOf(ph))}">` : '<span></span>'}<div><b>Unit ${esc(i.unit)}</b> <span class="chip ${esc(a.verdict || 'CHECKING')}">${esc(a.verdict || 'CHECKING')}</span>
+      <p>${esc(a.summary || '')}</p>${d ? `<small class="who">${esc(d.type)}${d.where ? ', ' + esc(d.where) : ''}${d.size != null ? `, about ${esc(d.size)} mm` : ''}</small>` : ''}
+      <div class="xbtns"><button class="btn small" data-a="xDecide" data-v="PASS" data-id="${esc(i.id)}">Accept unit</button><button class="btn small danger" data-a="xDecide" data-v="FAIL" data-id="${esc(i.id)}">Reject unit</button><button class="linkbtn" data-a="openInsp" data-id="${esc(i.id)}">Details</button></div></div></div>`; };
+  return `<div class="sec"><h3>Decision for lot ${esc(lot)}</h3>
+    <div class="rec ${rec[0]}">${esc(rec[1])}</div>
+    <p class="note">${passed.length} passed, ${failed.length} failed, ${unsure} unresolved${missed ? ` (${missed} missed)` : ''}. The lot passes with up to ${se.accept_major} failed of ${se.sample_size} sampled (AQL 2.5); any critical defect fails it.</p>
+    ${se.buyer_decision ? `<p style="margin:10px 0 0"><b>You chose to ${se.buyer_decision === 'release' ? 'release' : 'hold'} payment</b> <span class="who">${esc(new Date(se.decided_at).toLocaleString())}</span></p>` : ''}
+    <div class="decide"><button class="btn ${se.buyer_decision === 'release' ? 'primary' : ''}" data-a="lotDecide" data-v="release" data-id="${esc(se.id)}">Release payment</button><button class="btn ${se.buyer_decision === 'hold' ? 'primary' : ''}" data-a="lotDecide" data-v="hold" data-id="${esc(se.id)}">Hold payment</button></div>
+    ${open.length ? `<h3 style="margin-top:20px">Needs your review (${open.length})</h3>${open.map(xcard).join('')}` : se.status === 'done' ? '<p class="note" style="margin-top:14px">Nothing left to review.</p>' : ''}
+    ${passed.length ? `<details class="passed" style="margin-top:12px"><summary>Passed (${passed.length})</summary><div class="list">${passed.map(inspRow).join('')}</div></details>` : ''}</div>`;
 }
 
 /* ---------- lot report: factory vs arrival ---------- */
@@ -685,6 +815,7 @@ function viewLot(key) {
   const oc = k => cnt(arr, i => i.damageOrigin === k);
   app.innerHTML = `<div class="sec"><h3>${esc(p ? p.name : (fac[0] || arr[0] || {}).productName || '')}</h3><p>Every check of lot ${esc(lot)}, before shipping and after arrival.</p>
     <div class="stats"><div><b>${fac.length}</b><span>checked at factory</span></div><div><b>${cnt(fac, i => decOf(i) === 'PASS')}</b><span>passed at factory</span></div><div><b>${arr.length}</b><span>checked on arrival</span></div></div></div>
+  ${decisionHtml(pid, lot)}
   ${arr.length ? `<div class="sec"><h3>Where the arrival problems happened</h3><div class="stats">
     <div><b>${oc('none')}</b><span class="og none">${ORIGIN.none}</span></div><div><b>${oc('transit')}</b><span class="og transit">${ORIGIN.transit}</span></div>
     <div><b>${oc('factory') + oc('both')}</b><span class="og factory">Factory fault</span></div><div><b>${oc('unclear') + cnt(arr, i => !i.damageOrigin)}</b><span class="og unclear">Unclear or not checked</span></div></div>
@@ -710,7 +841,7 @@ function claimText(key) {
 }
 
 /* ---------- product editor ---------- */
-function blankDraft() { return { _for: 'new', mode: '', name: '', sku: '', material: '', colors: '', finish: '', dims: { l: '', w: '', h: '' }, tol: '', packaging: '', inBox: '', officialSpecs: '', sourceUrl: '', listingText: '', goodLooks: '', mustHave: '', allowed: '', watch: [], minDefectMm: '', views: ['Front', 'Back', 'Top'], photos: [] }; }
+function blankDraft() { return { _for: 'new', mode: '', name: '', sku: '', barcode: '', labelText: '', material: '', colors: '', finish: '', dims: { l: '', w: '', h: '' }, tol: '', packaging: '', inBox: '', officialSpecs: '', sourceUrl: '', listingText: '', goodLooks: '', mustHave: '', allowed: '', watch: [], minDefectMm: '', views: ['Front', 'Back', 'Top'], photos: [] }; }
 function editProduct(id) {
   const p = id ? prodById(id) : null;
   if (!S.draft || S.draft._for !== (id || 'new')) S.draft = p ? { ...blankDraft(), ...JSON.parse(JSON.stringify(p)), photos: (p.photos || []).map(ph => ({ ...ph, key: uid(), state: 'ok', idState: 'done', userView: true })), _for: id, mode: (p.sourceUrl || (p.photos || []).some(x => x.origin === 'official')) ? 'official' : 'unit' } : blankDraft();
@@ -740,6 +871,8 @@ function editProduct(id) {
   <div class="sec"><h3>Basics</h3>
     ${inp('name', 'Product name', '', 'e.g. SUNNYPRO solar path light')}
     ${inp('sku', 'Model or SKU', '', 'e.g. SP-SL-04')}
+    ${inp('barcode', 'Barcode (FNSKU, UPC or EAN)', 'The phone scans the barcode in each photo and checks it matches', 'e.g. X00ABC1234')}
+    ${ta('labelText', 'Required label text', 'One per line. Each must appear on the product, label or box, spelled exactly.', 'Made in China\nSUNNYPRO')}
     ${inp('material', 'Material', '', 'e.g. ABS plastic, stainless steel stake')}
     ${inp('colors', 'Colors', '', 'e.g. matte black body, clear lens')}
     <label class="f">Finish<select class="i" data-f="finish">${['', 'Matte', 'Satin', 'Glossy', 'Textured', 'Brushed', 'Mixed'].map(o => `<option ${d.finish === o ? 'selected' : ''} value="${o}">${o || 'Choose'}</option>`).join('')}</select></label>
@@ -762,6 +895,25 @@ function urlHint() { const el = $('#urlHint'); if (el) el.innerHTML = ''; }
 function kindLabel(p) { return p.kind === 'product_photo' ? 'Official photo' : (p.kind === 'spec_or_text' || p.kind === 'document') ? 'Spec' : p.kind === 'lifestyle' ? 'Lifestyle' : 'Official'; }
 const QLBL = { blurry: 'Blurry', dark: 'Too dark', glare: 'Glare', cropped: 'Cropped', wrong_product: 'Wrong product' };
 const QL = q => T(QLBL[q] || 'Check photo');
+/* barcode and QR reading on the phone (no server round trip) */
+const LIBS = { jsqr: 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js', zxing: 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js', qrgen: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js' };
+const libP = {};
+function loadLib(k) { return libP[k] || (libP[k] = new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = LIBS[k]; sc.onload = res; sc.onerror = () => { libP[k] = null; rej(new Error('Could not load ' + k)); }; document.head.appendChild(sc); })); }
+async function readCodes(canvas) {
+  const out = new Set();
+  try { if ('BarcodeDetector' in window) (await new window.BarcodeDetector().detect(canvas)).forEach(b => b.rawValue && out.add(b.rawValue)); } catch { }
+  if (out.size) return [...out];
+  try { await loadLib('jsqr'); const x = canvas.getContext('2d'), im = x.getImageData(0, 0, canvas.width, canvas.height), q = window.jsQR(im.data, im.width, im.height); if (q && q.data) out.add(q.data); } catch { }
+  try {
+    await loadLib('zxing'); const Z = window.ZXing, hints = new Map();
+    hints.set(Z.DecodeHintType.TRY_HARDER, true);
+    hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.CODE_128, Z.BarcodeFormat.EAN_13, Z.BarcodeFormat.EAN_8, Z.BarcodeFormat.UPC_A, Z.BarcodeFormat.UPC_E, Z.BarcodeFormat.CODE_39]);
+    const r = new Z.MultiFormatOneDReader(hints);
+    const res = r.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(canvas))), hints);
+    if (res && res.getText()) out.add(res.getText());
+  } catch { }
+  return [...out];
+}
 function tileHtml(p, i, kind) {
   const bad = p.quality && p.quality !== 'ok';
   const st = p.state === 'up' ? T('Uploading') : p.state === 'err' ? T('Not saved') : p.idState === 'busy' ? T('Identifying…') : bad ? QL(p.quality) : p.origin === 'official' ? kindLabel(p) : p.state === 'local' ? 'Local' : '';
@@ -911,6 +1063,7 @@ function drawMatch() {
     <label class="f">Factory unit to compare with<select class="i" data-c="originId"><option value="">${c.unit ? 'Match by unit number' : 'Whole lot'}</option>${m.fac.map(i => `<option value="${esc(i.id)}" ${c.originId === i.id ? 'selected' : ''}>Unit ${esc(i.unit || '(no number)')}: ${esc(decOf(i))}, ${esc(new Date(i.createdAt).toLocaleDateString())}</option>`).join('')}</select></label>`;
 }
 function drawCheckPhotos() {
+  if (S.factory) return camRender();
   const el = $('#cPhotos'); if (!el || !S.check) return; const p = prodById(S.check.productId), ph = S.check.photos;
   el.innerHTML = ph.map((x, i) => tileHtml(x, i, 'check')).join('') + addTiles('check');
   const cv = coverage(p, ph), box = $('#cover'), ai = canAI(), q = false, uploading = ph.some(x => x.state === 'up' || x.state === 'new');
@@ -952,7 +1105,7 @@ async function runCheck() {
   const units = c.photos.filter(x => x.quality !== 'wrong_product'); if (!units.length) { toast('None of the photos show this product.'); return; }
   $('#runBtn').disabled = true;
   const row = { product_id: p.id, product_name: p.name, product_version: p.version || 1, spec_snapshot: prodToRow(p).spec, lot: c.lot || null, unit: c.unit || null,
-    photos: units.map(u => ({ path: u.id, view: u.view || '', part: u.part || '', quality: u.quality || '' })), careful: !!c.careful, status: 'pending', recheck_of: c.recheckOf || null,
+    photos: units.map(u => ({ path: u.id, view: u.view || '', part: u.part || '', quality: u.quality || '', codes: u.codes || [] })), careful: !!c.careful, status: 'pending', recheck_of: c.recheckOf || null,
     stage: c.stage === 'arrival' ? 'arrival' : 'factory', origin_id: c.stage === 'arrival' ? ((matchFor(c).unit || {}).id || null) : null };
   try {
     const id = await saveDoc('inspections', null, row);
@@ -1020,10 +1173,15 @@ document.addEventListener('click', async e => {
   else if (a === 'fOpen') go('fres', id);
   else if (a === 'fNext') { if (!S.factory.pick) S.check = null; S.route = { name: 'factory' }; S.stack = []; render(); window.scrollTo(0, 0); }
   else if (a === 'fStart') factoryStart();
-  else if (a === 'fNextPick') factoryNextPick();
-  else if (a === 'camOpen') openCam();
+  else if (a === 'fNextPick' || a === 'fStartCam' || a === 'camOpen') factoryStartCam();
   else if (a === 'camShot') camShot();
-  else if (a === 'camClose') closeCam();
+  else if (a === 'camNext') camNext();
+  else if (a === 'camRm') { if (S.check && !S.factory.submitting) { S.check.photos.splice(+b.dataset.i, 1); camRender(); } }
+  else if (a === 'camClose') { closeCam(); render(); }
+  else if (a === 'fPrint') printLabels(S.factory.session, S.factory.link.lot, S.factory.product.name);
+  else if (a === 'printLabels') { const se = (S.sessions || []).find(x => x.id === id), pr = se && prodById(se.product_id); if (se) printLabels(se, se.lot, pr ? pr.name : ''); }
+  else if (a === 'xDecide') { const { data: r, error } = await sb.from('inspections').update({ decision: { final: b.dataset.v, at: new Date().toISOString(), by: S.user.email || 'buyer' } }).eq('id', id).select().single(); if (error) toast("Couldn't save the decision."); else { upsertLocal('inspections', r); render(); toast(b.dataset.v === 'PASS' ? 'Unit accepted.' : 'Unit rejected.'); } }
+  else if (a === 'lotDecide') { const { data: r, error } = await sb.from('factory_sessions').update({ buyer_decision: b.dataset.v, decided_at: new Date().toISOString(), decided_by: S.user.email || 'buyer' }).eq('id', id).select().single(); if (error) toast("Couldn't save the decision."); else { const i = S.sessions.findIndex(x => x.id === id); if (i >= 0) S.sessions[i] = r; render(); toast(b.dataset.v === 'release' ? 'Decision saved: release payment.' : 'Decision saved: hold payment.'); } }
   else if (a === 'cancelSession') { if (!confirm('Cancel this sample and let the factory start a new one? The checks already done stay in the history.')) return; const { error } = await sb.from('factory_sessions').update({ status: 'cancelled' }).eq('id', id); if (error) toast("Couldn't cancel."); else { await reloadLinks(); render(); toast('Sample cancelled. The factory can lock the lot again.'); } }
   else if (a === 'openLog') go('slog', id);
   else if (a === 'fRecheck') { const u = S.factory.units.find(x => x.id === id); if (!u) return; S.check = { productId: 'factory', unit: u.unit, worker: S.factory.worker, hints: (u.ai && u.ai.more) || [], photos: u.photos.map(ph => ({ ...ph, id: ph.path, key: uid(), state: 'ok', idState: 'done', quality: 'ok', userView: true })) }; S.route = { name: 'factory' }; S.stack = []; render(); window.scrollTo(0, 0); }
@@ -1083,7 +1241,7 @@ function loadingView() { $('#ttl').textContent = 'Defect Check'; app.innerHTML =
 function loginView() {
   $('#ttl').textContent = 'Defect Check';
   app.innerHTML = `<div class="sec"><h3>Sign in</h3><p>We'll email you a sign-in link. No password needed.</p>
-    <label class="f">Email<input class="i" type="email" id="email" autocomplete="email" inputmode="email" placeholder="you@company.com"></label>
+    <label class="f">Email<input class="i" type="text" id="email" name="dc-signin" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore inputmode="email" placeholder="you@company.com"></label>
     <button class="btn primary" data-a="sendLink" style="width:100%;margin-top:14px">Email me a sign-in link</button><p class="note" id="loginNote"></p></div>`;
 }
 async function sendLink() {
@@ -1130,7 +1288,12 @@ render();
   if (FTOKEN) return startFactory(FTOKEN);
   sb.auth.onAuthStateChange((ev, session) => { if (session && !S.user) start(session); });
   const { data: { session } } = await sb.auth.getSession();
-  if (session) start(session); else { S.ready = true; S.route = { name: 'login' }; setSync(); render(); }
+  if (session) return start(session);
+  // No sign-in screen: each browser gets its own private workspace automatically.
+  S.setupMsg = 'Opening your workspace…'; render();
+  const { data: anon, error: anonErr } = await sb.auth.signInAnonymously();
+  if (anon && anon.session) return start(anon.session);
+  S.setupMsg = 'Could not open your workspace: ' + esc((anonErr && anonErr.message) || 'unknown error') + '. Reload the page to try again.'; S.ready = true; setSync(); render();
 })();
 })();
 </script>
