@@ -23,6 +23,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .top h1{margin:0;font-size:19px;font-weight:800;font-stretch:112%;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .top .back{border:0;background:none;font-weight:700;font-size:16px;padding:4px 6px 4px 0;cursor:pointer}
 .sync{font-size:12.5px;color:var(--muted);white-space:nowrap}
+.opslink{font-weight:700;font-size:14px;color:var(--ink);text-decoration:none;border:1px solid var(--line2);border-radius:999px;padding:4px 12px;white-space:nowrap}
 main{max-width:640px;margin:0 auto;padding:16px 16px 120px}
 .bottom{position:fixed;left:0;right:0;bottom:0;z-index:5;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px))}
 .bottom:empty{display:none}
@@ -278,7 +279,7 @@ details.passed summary{cursor:pointer;font-weight:600;font-size:14px;padding:6px
 }
 @media (min-width:720px){main{padding-top:28px}.sec{padding:24px}}
 </style></head><body>
-<header class="top"><button class="back" id="back" hidden>‹ Back</button><h1 id="ttl">Defect Check</h1><span class="sync" id="sync">Connecting…</span></header>
+<header class="top"><button class="back" id="back" hidden>‹ Back</button><h1 id="ttl">Defect Check</h1><a class="opslink" id="opsLink" href="ops.html">Orders</a><span class="sync" id="sync">Connecting…</span></header>
 <main id="app"></main>
 <div class="bottom" id="bottom"></div>
 <input type="file" id="camIn" accept="image/*" capture="environment" hidden>
@@ -1286,7 +1287,7 @@ render();
     S.setupMsg = 'Setup needed: put your Supabase project URL and anon key in config.js (see README).'; render(); return;
   }
   sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, FTOKEN ? { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } } : undefined);
-  if (FTOKEN) return startFactory(FTOKEN);
+  if (FTOKEN) { const ol = document.getElementById('opsLink'); if (ol) ol.remove(); return startFactory(FTOKEN); }
   sb.auth.onAuthStateChange((ev, session) => { if (session && !S.user) start(session); });
   const { data: { session } } = await sb.auth.getSession();
   if (session) return start(session);
