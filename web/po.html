@@ -68,7 +68,9 @@ label.f{display:flex;flex-direction:column;gap:5px;font-weight:700;font-size:14.
 @media (prefers-reduced-motion:reduce){.spin{animation:none}}
 #toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:10px 16px;border-radius:8px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s;z-index:20;max-width:90vw}
 #toast.on{opacity:1}
-</style><script>/* Browsers keep pages for up to 10 minutes. If the server has a newer copy, reload once. */(function(){try{fetch(location.pathname,{method:'HEAD',cache:'no-store'}).then(function(r){var lm=r.headers.get('last-modified');if(!lm)return;var k='dc-fresh:'+location.pathname;if(new Date(lm).getTime()-new Date(document.lastModified).getTime()>1000&&sessionStorage.getItem(k)!==lm){sessionStorage.setItem(k,lm);location.reload();}}).catch(function(){});}catch(e){}})();</script>
+</style><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="theme.css">
+<script>/* Browsers keep pages for up to 10 minutes. If the server has a newer copy, reload once. */(function(){try{fetch(location.pathname,{method:'HEAD',cache:'no-store'}).then(function(r){var lm=r.headers.get('last-modified');if(!lm)return;var k='dc-fresh:'+location.pathname;if(new Date(lm).getTime()-new Date(document.lastModified).getTime()>1000&&sessionStorage.getItem(k)!==lm){sessionStorage.setItem(k,lm);location.reload();}}).catch(function(){});}catch(e){}})();</script>
 </head><body>
 <header class="top"><b id="ttl">Defect Check</b><button class="lang" id="lang">EN</button></header>
 <main id="app"><p class="mut">加载中… Loading…</p></main>
