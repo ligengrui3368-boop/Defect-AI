@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Defect Check | AI quality control for factory orders</title>
+<meta name="description" content="Defect Check inspects factory orders before you pay the balance. Your factory photographs randomly chosen units, AI checks each one against your approved sample, and you get a clear release or hold decision.">
+<meta property="og:title" content="Defect Check | Know what is in the carton before you pay for it">
+<meta property="og:description" content="AI quality control for factory orders: random sampling, live photos, barcode checks and a pay-or-hold answer before the balance is due.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23000'/%3E%3Crect x='7' y='7' width='18' height='18' rx='3' fill='none' stroke='%23fff' stroke-width='2.5'/%3E%3Cpath d='M11.5 16.5l3 3 6-7' fill='none' stroke='%237CF2B0' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#000;--ink:#fff;--muted:#a3a8ad;--dim:#6b7177;--line:#1f2326;--card:#0b0d0e;--card2:#121517;--accent:#7cf2b0;--fail:#ff5d4d;--pass:#7cf2b0;--review:#9aa6ff;--maxw:1200px}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:calc(72px + env(safe-area-inset-top,0px))}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Archivo",system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;font-size:17px;line-height:1.55;-webkit-font-smoothing:antialiased}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+a{color:inherit}
+img,svg{max-width:100%}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* announcement + nav */
+.announce{border-bottom:1px solid var(--line);font-size:14px;color:var(--muted);text-align:center;padding:10px 16px}
+.announce a{color:var(--ink);text-underline-offset:3px}
+header.nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:rgba(0,0,0,.82);backdrop-filter:saturate(1.4) blur(12px);-webkit-backdrop-filter:saturate(1.4) blur(12px);border-bottom:1px solid var(--line)}
+.nav .wrap{display:flex;align-items:center;gap:28px;height:68px}
+.brand{display:flex;align-items:center;gap:10px;white-space:nowrap;text-decoration:none;font-weight:800;font-stretch:112%;font-size:19px;letter-spacing:-.01em}
+.brand svg{width:26px;height:26px}
+.nav nav{display:flex;gap:24px;font-size:15px}
+.nav nav a{text-decoration:none;color:var(--muted)}.nav nav a:hover{color:var(--ink)}
+.nav .right{margin-left:auto;display:flex;gap:10px;align-items:center}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:999px;padding:11px 20px;font:inherit;font-size:15px;font-weight:600;text-decoration:none;border:1px solid transparent;cursor:pointer;white-space:nowrap}
+.btn.light{background:var(--ink);color:#000}.btn.light:hover{background:#dfe3e6}
+.btn.ghost{border-color:#2d3236;color:var(--ink);background:transparent}.btn.ghost:hover{border-color:#5a6066}
+.btn.big{padding:15px 26px;font-size:16px}
+.menu{display:none;margin-left:auto;background:none;border:1px solid #2d3236;color:var(--ink);border-radius:10px;padding:8px 12px;font:inherit;font-size:14px}
+@media (max-width:900px){.nav nav,.nav .right .ghost{display:none}.nav .right{margin-left:auto}}
+
+/* hero */
+.hero{padding:96px 0 72px;position:relative;overflow:hidden}
+.hero .wrap{display:grid;grid-template-columns:1.1fr .9fr;gap:56px;align-items:center}
+.kicker{color:var(--muted);font-size:15px;margin:0 0 18px}
+h1{font-size:clamp(44px,6.4vw,84px);line-height:.98;font-weight:800;font-stretch:115%;letter-spacing:-.035em;margin:0 0 26px}
+.lede{font-size:clamp(18px,1.6vw,21px);color:var(--muted);max-width:34em;margin:0 0 34px}
+.ctas{display:flex;gap:12px;flex-wrap:wrap}
+.hero .fine{color:var(--dim);font-size:14px;margin-top:18px}
+@media (max-width:980px){.hero .wrap{grid-template-columns:1fr}.hero{padding-top:64px}}
+
+/* hero product visual */
+.stage{position:relative;min-height:560px}
+.phone{position:relative;width:300px;height:600px;margin:0 0 0 20px;border-radius:44px;background:#070808;border:1px solid #2a2f33;box-shadow:0 0 0 8px #0d0f10,0 40px 120px rgba(124,242,176,.08);overflow:hidden}
+.vf{position:absolute;inset:0;background:radial-gradient(120% 70% at 50% 40%,#2a2e31 0%,#121415 60%,#0a0b0c 100%)}
+.vf .top{position:absolute;left:0;right:0;top:0;padding:26px 20px 12px;background:linear-gradient(#000c,transparent)}
+.vf .top b{display:block;font-size:20px;font-stretch:110%}
+.vf .top span{font-size:12px;color:#c9cdd1}
+.vf .timer{position:absolute;right:20px;top:30px;font-weight:700;font-size:15px;font-variant-numeric:tabular-nums}
+.carton{position:absolute;left:24px;bottom:150px;width:120px;height:118px;background:#8a6034;border-radius:6px;transform:rotate(-4deg)}
+.carton:before{content:"7";position:absolute;left:14px;top:6px;font-size:68px;font-weight:800;color:#111}
+.carton .qr{position:absolute;right:10px;top:12px;width:40px;height:40px;background:conic-gradient(#fff 0 25%,#111 0 50%,#fff 0 75%,#111 0) 0 0/10px 10px;border:3px solid #fff}
+.bottle{position:absolute;left:150px;bottom:130px;width:100px}
+.box{position:absolute;border:2px solid var(--fail);border-radius:6px;left:200px;top:368px;width:32px;height:24px}
+.box span{position:absolute;left:-2px;top:-24px;background:var(--fail);color:#fff;font-size:11px;font-weight:700;padding:2px 6px;border-radius:4px;white-space:nowrap}
+.chips{position:absolute;left:16px;right:16px;bottom:96px;display:flex;gap:6px;flex-wrap:wrap}
+.chip{font-size:11.5px;font-weight:600;padding:4px 9px;border-radius:999px;background:rgba(255,255,255,.14)}
+.chip.ok{background:#1b5e40}
+.shutterbar{position:absolute;left:0;right:0;bottom:0;height:86px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;background:#000a}
+.shutterbar i{width:58px;height:58px;border-radius:50%;background:#fff;border:5px solid #ffffff55;background-clip:padding-box}
+.shutterbar em{font-style:normal;font-size:13px;font-weight:700;background:#fff;color:#000;border-radius:10px;padding:9px 12px}
+.shutterbar small{font-size:12px;color:#c9cdd1}
+.float{position:absolute;background:var(--card2);border:1px solid #262b2f;border-radius:16px;padding:16px 18px;box-shadow:0 20px 60px #000c;width:250px}
+.float .who{color:var(--muted);font-size:12.5px}
+.f1{right:0;top:96px;width:230px}.f2{right:-10px;bottom:118px;width:230px}
+.stamp{display:inline-block;font-weight:800;font-stretch:120%;font-size:30px;letter-spacing:.02em;border:3px solid currentColor;border-radius:8px;padding:2px 12px 0;transform:rotate(-6deg);margin:6px 0 8px}
+.stamp.fail{color:var(--fail)}.stamp.pass{color:var(--pass)}
+.reveal .stamp{animation:stamp .55s cubic-bezier(.2,1.4,.4,1) 1.1s both}
+@keyframes stamp{from{transform:rotate(-6deg) scale(2.2);opacity:0}to{transform:rotate(-6deg) scale(1);opacity:1}}
+.bar{height:6px;border-radius:9px;background:#22272b;overflow:hidden;margin:10px 0 6px}.bar i{display:block;height:100%;width:72%;background:var(--ink);border-radius:9px}
+@media (max-width:980px){.stage{max-width:520px;margin:0 auto;width:100%}.phone{margin:0 auto}}
+@media (max-width:560px){.stage{min-height:520px}.phone{transform:scale(.86);transform-origin:top center}.float{width:220px;padding:12px 14px}.f1{top:auto;bottom:-6px;right:-6px}.f2{display:none}}
+
+/* ticker */
+.ticker{border-top:1px solid var(--line);border-bottom:1px solid var(--line);overflow:hidden;padding:26px 0}
+.ticker p{margin:0 0 14px;text-align:center;color:var(--dim);font-size:14px}
+.track{display:flex;gap:56px;width:max-content;animation:slide 40s linear infinite}
+.track span{font-size:clamp(22px,2.6vw,32px);font-weight:700;font-stretch:112%;color:#5b6166;white-space:nowrap}
+@keyframes slide{to{transform:translateX(-50%)}}
+
+/* sections */
+section{padding:120px 0}
+.label{color:var(--muted);font-size:15px;margin:0 0 14px}
+h2{font-size:clamp(36px,4.6vw,64px);line-height:1.02;font-weight:800;font-stretch:112%;letter-spacing:-.03em;margin:0 0 20px;max-width:16em}
+h3{font-size:22px;font-weight:700;font-stretch:106%;letter-spacing:-.01em;margin:0 0 8px}
+.sub{color:var(--muted);font-size:clamp(17px,1.4vw,20px);max-width:38em;margin:0}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center;margin-top:56px}
+@media (max-width:900px){.split{grid-template-columns:1fr;gap:36px}section{padding:84px 0}}
+.points{list-style:none;margin:0;padding:0;display:grid;gap:22px}
+.points li{border-top:1px solid var(--line);padding-top:18px}
+.points b{display:block;font-size:18px;margin-bottom:4px}
+.points span{color:var(--muted);font-size:16px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:26px}
+
+/* report mock */
+.rep h4{margin:0 0 4px;font-size:15px;color:var(--muted);font-weight:500}
+.rep .rec{font-size:28px;font-weight:800;font-stretch:110%;color:var(--fail);margin:0 0 6px}
+.rep .rule{color:var(--muted);font-size:14px;margin:0 0 18px}
+.xrow{display:grid;grid-template-columns:56px 1fr auto;gap:14px;align-items:center;border-top:1px solid var(--line);padding:12px 0}
+.thumb{width:56px;height:56px;border-radius:10px;background:linear-gradient(135deg,#2e3337,#191c1e);position:relative;overflow:hidden}
+.thumb:after{content:"";position:absolute;left:30%;top:20%;width:40%;height:62%;background:#3a7d55;border-radius:30% 30% 12% 12%}
+.xrow b{font-size:15px}.xrow small{display:block;color:var(--muted);font-size:13px}
+.pill{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px}
+.pill.f{background:#3a1512;color:var(--fail)}.pill.r{background:#1d2144;color:var(--review)}.pill.p{background:#123224;color:var(--pass)}
+.decide{display:flex;gap:10px;margin-top:18px}.decide span{flex:1;text-align:center;border-radius:999px;padding:10px;font-size:14px;font-weight:700;border:1px solid #2d3236}.decide span.on{background:var(--ink);color:#000;border-color:var(--ink)}
+
+/* arrival mock */
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.pic{aspect-ratio:4/5;border-radius:14px;background:radial-gradient(90% 70% at 50% 40%,#2b3033,#121416);position:relative;overflow:hidden}
+.pic:before{content:"";position:absolute;left:32%;top:18%;width:36%;height:66%;background:#3a7d55;border-radius:28% 28% 10% 10%}
+.pic.dent:after{content:"";position:absolute;left:40%;top:46%;width:22%;height:16%;border:2px solid var(--fail);border-radius:6px}
+.pic em{position:absolute;left:10px;top:10px;font-style:normal;font-size:12px;font-weight:700;background:#000b;padding:3px 8px;border-radius:6px}
+.origin{margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.origin b{font-size:20px}
+
+/* steps */
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:56px;counter-reset:s}
+.step{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:26px 22px 28px;counter-increment:s}
+.step:before{content:counter(s);display:block;font-size:52px;font-weight:800;font-stretch:120%;color:#2a2f33;line-height:1;margin-bottom:22px}
+.step p{color:var(--muted);font-size:15.5px;margin:0}
+@media (max-width:980px){.steps{grid-template-columns:1fr 1fr}}@media (max-width:560px){.steps{grid-template-columns:1fr}}
+
+/* anti-cheat grid */
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:22px;overflow:hidden;margin-top:56px}
+.cell{background:#000;padding:30px 28px}
+.cell p{color:var(--muted);font-size:15.5px;margin:0}
+.cell .ic{width:34px;height:34px;margin-bottom:18px;color:var(--accent)}
+@media (max-width:900px){.grid{grid-template-columns:1fr 1fr}}@media (max-width:560px){.grid{grid-template-columns:1fr}}
+
+/* numbers */
+.nums{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:56px}
+.num{border-top:1px solid #2d3236;padding-top:20px}
+.num b{display:block;font-size:clamp(40px,4.4vw,60px);font-weight:800;font-stretch:115%;letter-spacing:-.03em;line-height:1}
+.num span{color:var(--muted);font-size:15px;display:block;margin-top:10px}
+@media (max-width:900px){.nums{grid-template-columns:1fr 1fr}}
+
+/* use cases */
+.cases{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-top:56px}
+.case{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:30px}
+.case .who{color:var(--accent);font-size:14px;font-weight:600;margin:0 0 10px}
+.case p{color:var(--muted);margin:0}
+@media (max-width:800px){.cases{grid-template-columns:1fr}}
+
+/* compare */
+table.cmp{width:100%;border-collapse:collapse;margin-top:48px;font-size:16px}
+.cmpwrap{overflow-x:auto}
+table.cmp th,table.cmp td{text-align:left;padding:16px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+table.cmp th{color:var(--muted);font-weight:500;font-size:14px}
+table.cmp td:first-child{color:var(--muted)}
+table.cmp td.us{color:var(--ink);font-weight:600}
+
+/* pricing */
+.plans{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:56px}
+.plan{border:1px solid var(--line);border-radius:22px;padding:30px;display:flex;flex-direction:column;gap:14px;background:var(--card)}
+.plan.hl{border-color:#3a4046;background:var(--card2)}
+.plan .price{font-size:40px;font-weight:800;font-stretch:112%;letter-spacing:-.02em;line-height:1}
+.plan .price small{font-size:15px;font-weight:500;color:var(--muted);letter-spacing:0}
+.plan ul{margin:0;padding-left:18px;color:var(--muted);font-size:15.5px;display:grid;gap:6px;flex:1}
+@media (max-width:900px){.plans{grid-template-columns:1fr}}
+
+/* faq */
+.faq{margin-top:48px;border-top:1px solid var(--line)}
+details{border-bottom:1px solid var(--line);padding:22px 0}
+summary{cursor:pointer;list-style:none;font-size:19px;font-weight:600;display:flex;justify-content:space-between;gap:20px}
+summary::-webkit-details-marker{display:none}
+summary:after{content:"+";color:var(--muted);font-weight:400;font-size:24px;line-height:1}
+details[open] summary:after{content:"–"}
+details p{color:var(--muted);margin:12px 0 0;max-width:46em}
+
+/* cta + form */
+.cta{text-align:center;padding:140px 0}
+.cta h2{margin:0 auto 18px;max-width:14em}
+.cta .sub{margin:0 auto 36px}
+form.lead{max-width:640px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:left}
+form.lead label{display:grid;gap:6px;font-size:14px;color:var(--muted)}
+form.lead .full{grid-column:1/-1}
+form.lead input,form.lead select,form.lead textarea{font:inherit;font-size:16px;color:var(--ink);background:#0b0d0e;border:1px solid #2d3236;border-radius:12px;padding:13px 14px;width:100%}
+form.lead input:focus,form.lead select:focus,form.lead textarea:focus{outline:none;border-color:var(--accent)}
+form.lead button{grid-column:1/-1;margin-top:6px}
+.formmsg{grid-column:1/-1;min-height:24px;font-size:15px;text-align:center}
+.formmsg.ok{color:var(--pass)}.formmsg.err{color:var(--fail)}
+@media (max-width:560px){form.lead{grid-template-columns:1fr}}
+
+footer{border-top:1px solid var(--line);padding:64px 0 48px;color:var(--muted);font-size:14.5px}
+footer .cols{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:32px}
+footer h5{color:var(--ink);font-size:14px;margin:0 0 12px;font-weight:600}
+footer a{display:block;text-decoration:none;color:var(--muted);margin:6px 0}footer a:hover{color:var(--ink)}
+footer .legal{margin-top:48px;color:var(--dim);font-size:13px}
+@media (max-width:800px){footer .cols{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="announce">Pilot program open: we inspect your next factory order free. <a href="#pilot">Apply for the pilot</a></div>
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Defect Check home"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="3" width="26" height="26" rx="6" fill="none" stroke="#fff" stroke-width="2.5"/><path d="M10 16.5l4 4 8-9" fill="none" stroke="#7cf2b0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>Defect Check</a>
+    <nav aria-label="Main"><a href="#factory">Product</a><a href="#how">How it works</a><a href="#trust">Anti-cheat</a><a href="#customers">Customers</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a></nav>
+    <div class="right"><a class="btn ghost" href="../">Open the app</a><a class="btn light" href="#pilot">Book a pilot</a></div>
+  </div>
+</header>
+
+<main id="top">
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <p class="kicker">AI quality control for factory orders</p>
+      <h1>Know what's in the carton before you pay for it.</h1>
+      <p class="lede">Your factory photographs units the system picks at random. AI checks every photo against your approved sample. You get a clear release or hold decision before the balance is due, without sending an inspector.</p>
+      <div class="ctas"><a class="btn light big" href="#pilot">Book a pilot</a><a class="btn ghost big" href="#how">See how it works</a></div>
+      <p class="fine">Works on any phone. Chinese and English factory page. No hardware.</p>
+    </div>
+    <div class="stage reveal" aria-label="Product preview: a factory worker photographs carton 7, unit 3, and the AI finds a stain on the label">
+      <div class="phone">
+        <div class="vf">
+          <div class="top"><b>第 7 箱，第 3 件</b><span>Carton 7, unit 3 · unit 12 of 80</span></div>
+          <div class="timer">5:42</div>
+          <div class="carton"><div class="qr"></div></div>
+          <svg class="bottle" viewBox="0 0 100 250" aria-hidden="true"><rect x="36" y="0" width="28" height="22" rx="3" fill="#1f6b2c"/><path d="M38 22h24l18 36v178q0 10-10 10H30q-10 0-10-10V58z" fill="#3e8f5a"/><rect x="22" y="110" width="56" height="62" rx="2" fill="#f2f2ee"/><text x="50" y="146" text-anchor="middle" font-family="Archivo,Arial" font-weight="800" font-size="15" fill="#111">LOGO</text><ellipse cx="66" cy="160" rx="7" ry="5" fill="#7a4a1d" opacity=".85"/></svg>
+          <div class="box"><span>Stain · 4 mm</span></div>
+          <div class="chips"><span class="chip ok">✓ Carton label</span><span class="chip ok">✓ Front</span><span class="chip ok">✓ Barcode</span></div>
+          <div class="shutterbar"><small>Pause</small><i></i><em>Next unit</em></div>
+        </div>
+      </div>
+      <div class="float f1"><div class="who">Carton 7, unit 3</div><div class="stamp fail">FAIL</div><div style="font-size:14px">Brown stain on the front label, about 4 mm. Rejects from 2 mm.</div></div>
+      <div class="float f2"><div class="who">Lot PO-1182 · 1,000 units</div><div class="bar"><i></i></div><div style="font-size:14px"><b>58 of 80</b> random units checked, 2 failed. Lot passes with up to 5.</div></div>
+    </div>
+  </div>
+</section>
+
+<div class="ticker" aria-label="Product categories we inspect">
+  <p>Built for brands that buy from factories they can't visit</p>
+  <div class="track" aria-hidden="true">
+    <span>Home and kitchen</span><span>Outdoor and garden</span><span>Pet products</span><span>Phone accessories</span><span>Bags and luggage</span><span>Packaging and labels</span><span>Toys</span><span>Beauty packaging</span><span>Apparel</span><span>Small electronics</span>
+    <span>Home and kitchen</span><span>Outdoor and garden</span><span>Pet products</span><span>Phone accessories</span><span>Bags and luggage</span><span>Packaging and labels</span><span>Toys</span><span>Beauty packaging</span><span>Apparel</span><span>Small electronics</span>
+  </div>
+</div>
+
+<section id="factory">
+  <div class="wrap">
+    <p class="label">Factory inspection</p>
+    <h2>Inspect every order, not just the big ones.</h2>
+    <p class="sub">An inspector visit costs a few hundred dollars, so most small brands only inspect new suppliers and large orders. Defect Check is cheap enough to run on every shipment, and it's ready the same day.</p>
+    <div class="split">
+      <ul class="points">
+        <li><b>Set the standard once</b><span>Paste your product listing or photograph an approved sample. The AI drafts the standard: colors, labels, must-have features, what to watch for, the smallest defect that counts.</span></li>
+        <li><b>Send one link per order</b><span>The factory opens it on a phone, with no account or app to install. The page is in Chinese, with your standard shown next to the camera.</span></li>
+        <li><b>Get a decision, not a pile of photos</b><span>Only failed and unsure units reach you, with the defect boxed on the photo. Accept or reject them, then release or hold the payment.</span></li>
+      </ul>
+      <div class="panel rep" aria-label="Example lot decision">
+        <h4>Decision for lot PO-1182</h4>
+        <div class="rec">Recommendation: hold payment</div>
+        <p class="rule">78 passed, 7 failed, 0 unresolved. The lot passes with up to 5 failed of 80 sampled (AQL 2.5).</p>
+        <div class="xrow"><div class="thumb"></div><div><b>Carton 7, unit 3</b><small>Stain on front label, about 4 mm</small></div><span class="pill f">FAIL</span></div>
+        <div class="xrow"><div class="thumb"></div><div><b>Carton 22, unit 14</b><small>Barcode reads X00ABC1239, expected X00ABC1234</small></div><span class="pill f">FAIL</span></div>
+        <div class="xrow"><div class="thumb"></div><div><b>Carton 31, unit 8</b><small>Possible scratch on cap, needs a look</small></div><span class="pill r">REVIEW</span></div>
+        <div class="decide"><span>Release payment</span><span class="on">Hold payment</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="arrival" style="padding-top:40px">
+  <div class="wrap">
+    <p class="label">Arrival checks and claims</p>
+    <h2>When goods arrive damaged, know who pays.</h2>
+    <p class="sub">Check units again when they land. Defect Check puts the factory photos of that exact unit next to the arrival photos and tells you whether the damage happened at the factory or in transit, with a claim summary ready to send.</p>
+    <div class="split">
+      <div class="panel">
+        <div class="pair"><div class="pic"><em>At the factory</em></div><div class="pic dent"><em>On arrival</em></div></div>
+        <div class="origin"><span class="pill f">Damaged in transit</span><b>Dent on shoulder, 9 mm</b></div>
+        <p style="color:var(--muted);margin:10px 0 0;font-size:15px">The factory photo of carton 12, unit 5 shows this side clean. Claim against the carrier.</p>
+      </div>
+      <ul class="points">
+        <li><b>Same unit, before and after</b><span>Carton QR labels tie each arrival check to the photos taken of that unit at the factory.</span></li>
+        <li><b>Factory fault or transit damage</b><span>Every finding is tagged with where it most likely happened and why, so you claim from the right party.</span></li>
+        <li><b>Claim text in one tap</b><span>Copy a summary of transit damage for the carrier and factory faults for the supplier, with dates and photos.</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="how" style="border-top:1px solid var(--line)">
+  <div class="wrap">
+    <p class="label">How it works</p>
+    <h2>From packed cartons to a decision in an afternoon.</h2>
+    <div class="steps">
+      <div class="step"><h3>Lock the lot</h3><p>The factory enters total units and units per carton. The numbers are locked, and printed QR labels go on every carton.</p></div>
+      <div class="step"><h3>Random picks</h3><p>The server picks which units to check using the AQL standard and reveals them one at a time, each with a short timer.</p></div>
+      <div class="step"><h3>Live photos</h3><p>The camera stays open. Workers photograph each picked unit, its barcode and its carton label, then tap Next unit.</p></div>
+      <div class="step"><h3>Your call</h3><p>AI checks run in the background. You review the exceptions and release or hold the balance.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="trust" style="border-top:1px solid var(--line)">
+  <div class="wrap">
+    <p class="label">Anti-cheat by design</p>
+    <h2>The factory can't choose what you see.</h2>
+    <p class="sub">Photos from the supplier are only useful if they can't be staged. Every part of the flow is built so that showing you the good units is harder than making good units.</p>
+    <div class="grid">
+      <div class="cell"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg><h3>Server-drawn random sample</h3><p>Picks follow the AQL table and are drawn on our server after the lot is locked. They can't be re-rolled.</p></div>
+      <div class="cell"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg><h3>One unit at a time, timed</h3><p>Each pick appears only when the worker asks for it, with minutes to photograph it. Run out of time and it's logged as missed.</p></div>
+      <div class="cell"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><h3>Live camera only</h3><p>No photo library, no uploads, no paste. Photos must be taken in the app and uploaded inside that unit's window.</p></div>
+      <div class="cell"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM20 14v7M14 20h3"/></svg><h3>QR carton labels</h3><p>Every carton gets a printed label tied to this order. The wrong carton or another order's label is caught on the spot.</p></div>
+      <div class="cell"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 5v14M6 5v14M9 5v14M13 5v14M16 5v14M21 5v14M18.5 5v14"/></svg><h3>Barcode and label checks</h3><p>The phone reads FNSKU, UPC and EAN barcodes and checks them against your listing. Required label text is checked for spelling.</p></div>
+      <div class="cell"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><h3>Authenticity check</h3><p>Photos of screens, renders and edited images are flagged. Arrival checks then confirm the factory's results held up.</p></div>
+    </div>
+  </div>
+</section>
+
+<section style="border-top:1px solid var(--line)">
+  <div class="wrap">
+    <p class="label">By the numbers</p>
+    <h2>Inspection math, built in.</h2>
+    <div class="nums">
+      <div class="num"><b>80</b><span>units checked on a 1,000-unit order, per the AQL 2.5 table inspectors use</span></div>
+      <div class="num"><b>&lt;1 s</b><span>to hand in a unit and get the next random pick, while the AI checks in the background</span></div>
+      <div class="num"><b>8 min</b><span>to photograph each picked unit before it's recorded as missed</span></div>
+      <div class="num"><b>0</b><span>apps for the factory to install. One link, Chinese or English</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="customers" style="border-top:1px solid var(--line)">
+  <div class="wrap">
+    <p class="label">Who it's for</p>
+    <h2>For brands that source overseas and sell online.</h2>
+    <div class="cases">
+      <div class="case"><p class="who">Amazon FBA sellers</p><h3>Catch problems before Amazon does.</h3><p>Once stock reaches a fulfillment center you can't touch it. Wrong barcodes, missing labels and defects get caught at the factory, while there's still leverage.</p></div>
+      <div class="case"><p class="who">Shopify and DTC brands</p><h3>Fewer returns from the first batch.</h3><p>Every order is checked against the approved sample, so the units your customers open match the ones you photographed.</p></div>
+      <div class="case"><p class="who">Importers and distributors</p><h3>Settle damage disputes with evidence.</h3><p>Arrival checks show whether damage happened at the factory or in transit, so claims go to the right party with photos attached.</p></div>
+      <div class="case"><p class="who">Sourcing agents</p><h3>Prove the quality you promise.</h3><p>Give clients a live, tamper-resistant inspection record for every order you manage, in their language and yours.</p></div>
+    </div>
+  </div>
+</section>
+
+<section style="border-top:1px solid var(--line)">
+  <div class="wrap">
+    <p class="label">Compared with an inspector visit</p>
+    <h2>Use it on every order. Keep the inspector for the big ones.</h2>
+    <div class="cmpwrap"><table class="cmp">
+      <thead><tr><th></th><th>Third-party inspector</th><th>Defect Check</th></tr></thead>
+      <tbody>
+        <tr><td>Cost per order</td><td>About $200 to $350 per inspector-day, plus travel</td><td class="us">A fraction of a visit, priced per unit checked</td></tr>
+        <tr><td>Turnaround</td><td>Booked in advance, report after the visit</td><td class="us">Same day, results while the factory works</td></tr>
+        <tr><td>Who picks the units</td><td>The inspector, on site</td><td class="us">Our server, at random, revealed one at a time</td></tr>
+        <tr><td>Evidence you keep</td><td>A PDF report</td><td class="us">Every photo, timestamp and finding, tied to each carton</td></tr>
+        <tr><td>Arrival and claims</td><td>Not included</td><td class="us">Factory vs. transit damage, with a claim summary</td></tr>
+        <tr><td>Physical tests</td><td class="us" style="font-weight:600">Yes: measurements, drop tests, function tests</td><td>Photos only. A measuring card in frame gives sizes in mm</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<section id="pricing" style="border-top:1px solid var(--line)">
+  <div class="wrap">
+    <p class="label">Pricing</p>
+    <h2>Start with one order, free.</h2>
+    <div class="plans">
+      <div class="plan"><h3>Pilot</h3><div class="price">Free</div><ul><li>Your next factory order, up to 200 units checked</li><li>We set up your product standard with you</li><li>Factory link and carton labels</li><li>Lot decision and full photo record</li></ul><a class="btn ghost" href="#pilot">Apply for the pilot</a></div>
+      <div class="plan hl"><h3>Growth</h3><div class="price">Per unit <small>checked</small></div><ul><li>Unlimited products and factory links</li><li>Random sampling with anti-cheat</li><li>Barcode and label checks</li><li>Arrival checks and claim summaries</li></ul><a class="btn light" href="#pilot">Talk to us</a></div>
+      <div class="plan"><h3>Enterprise</h3><div class="price">Custom</div><ul><li>Many suppliers and warehouses</li><li>Supplier scorecards and trends</li><li>Case and pallet receiving checks</li><li>Team accounts and exports</li></ul><a class="btn ghost" href="#pilot">Contact sales</a></div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" style="border-top:1px solid var(--line)">
+  <div class="wrap">
+    <p class="label">Questions</p>
+    <h2>Before you ask.</h2>
+    <div class="faq">
+      <details><summary>Will my factory actually do this?</summary><p>It takes a phone and the link. The page is in Chinese, the steps are shown on screen, and there's nothing to install. Most buyers make it a condition of releasing the balance payment, which is the strongest reason for the factory to take part.</p></details>
+      <details><summary>Can the factory fake the photos?</summary><p>They can't choose which units are checked, can't upload from the photo library, and only get a few minutes per unit. Carton QR labels, barcode reads and an authenticity check on every photo make staging hard, and arrival checks show whether the factory's results held up.</p></details>
+      <details><summary>How many units get checked?</summary><p>We follow the AQL sampling table that professional inspectors use (general level II, AQL 2.5 for major defects). For example, 80 units on a 1,000-unit order, and the lot passes with up to 5 failures. Any critical defect fails the lot.</p></details>
+      <details><summary>Does it replace an in-person inspection?</summary><p>For routine and repeat orders, it's designed to. For a new supplier, a high-value order or anything that needs physical testing, keep the inspector and use Defect Check on everything else.</p></details>
+      <details><summary>What products work best?</summary><p>Anything where defects show in a photo: home goods, kitchenware, pet and outdoor products, bags, accessories, printed packaging and labels. Products that need function or safety testing still need a lab or an inspector for those tests.</p></details>
+      <details><summary>Who sees my data?</summary><p>Only your workspace. Factories see your standard and their own submissions through a link that expires and that you can close at any time.</p></details>
+    </div>
+  </div>
+</section>
+
+<section class="cta" id="pilot" style="border-top:1px solid var(--line)">
+  <div class="wrap">
+    <h2>Inspect your next order before you pay for it.</h2>
+    <p class="sub">Tell us about your next shipment. We'll set up the product standard with you and inspect the order free.</p>
+    <form class="lead" id="leadForm" novalidate>
+      <label>Work email<input type="email" name="email" required autocomplete="email" placeholder="you@brand.com"></label>
+      <label>Name<input type="text" name="name" autocomplete="name"></label>
+      <label>Company or brand<input type="text" name="company" autocomplete="organization"></label>
+      <label>Factory orders per month<select name="orders"><option value="">Choose</option><option>1 or fewer</option><option>2 to 5</option><option>6 to 20</option><option>More than 20</option></select></label>
+      <label class="full">What do you import, and from where?<textarea name="message" rows="3" placeholder="e.g. Silicone kitchen tools from Ningbo, 2,000 units per order"></textarea></label>
+      <button class="btn light big" type="submit">Apply for the pilot</button>
+      <p class="formmsg" id="formMsg" role="status" aria-live="polite"></p>
+    </form>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div><a class="brand" href="#top" style="color:var(--ink);margin:0 0 12px"><svg viewBox="0 0 32 32" aria-hidden="true" style="width:24px;height:24px"><rect x="3" y="3" width="26" height="26" rx="6" fill="none" stroke="#fff" stroke-width="2.5"/><path d="M10 16.5l4 4 8-9" fill="none" stroke="#7cf2b0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>Defect Check</a><p style="margin:0;max-width:22em">AI quality control for factory orders. Inspect before you pay, and know who pays when goods arrive damaged.</p></div>
+      <div><h5>Product</h5><a href="#factory">Factory inspection</a><a href="#arrival">Arrival checks</a><a href="#trust">Anti-cheat</a><a href="#pricing">Pricing</a></div>
+      <div><h5>Customers</h5><a href="#customers">Amazon FBA sellers</a><a href="#customers">DTC brands</a><a href="#customers">Importers</a><a href="#customers">Sourcing agents</a></div>
+      <div><h5>Company</h5><a href="#pilot">Book a pilot</a><a href="#faq">FAQ</a><a href="../">Open the app</a></div>
+    </div>
+    <p class="legal">© 2026 Defect Check. All rights reserved.</p>
+  </div>
+</footer>
+
+<script src="../config.js"></script>
+<script>
+(() => {
+  const f = document.getElementById('leadForm'), msg = document.getElementById('formMsg');
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(f).entries());
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.email || '')) { msg.className = 'formmsg err'; msg.textContent = 'Enter a valid email address.'; return; }
+    const C = window.DEFECT_CHECK_CONFIG || {};
+    const btn = f.querySelector('button'); btn.disabled = true; btn.textContent = 'Sending…'; msg.textContent = '';
+    try {
+      const r = await fetch(C.supabaseUrl + '/rest/v1/leads', { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: C.supabaseAnonKey, Authorization: 'Bearer ' + C.supabaseAnonKey, Prefer: 'return=minimal' },
+        body: JSON.stringify({ email: d.email.trim(), name: (d.name || '').slice(0, 120) || null, company: (d.company || '').slice(0, 160) || null, orders_per_month: d.orders || null, message: (d.message || '').slice(0, 2000) || null, source: 'site' }) });
+      if (!r.ok) throw new Error(String(r.status));
+      f.reset(); msg.className = 'formmsg ok'; msg.textContent = 'Thanks. We will be in touch by email to set up your pilot.';
+    } catch (err) { msg.className = 'formmsg err'; msg.textContent = 'That did not go through. Please try again in a minute.'; }
+    btn.disabled = false; btn.textContent = 'Apply for the pilot';
+  });
+})();
+</script>
+</body>
+</html>
