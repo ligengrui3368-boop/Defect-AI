@@ -54,7 +54,7 @@ supabase functions deploy qc
 
 Without the CLI:
 1. Dashboard → SQL Editor → run each file in `supabase/migrations/`, one at a time, in filename order:
-   `20260930000000_init.sql`, `20260930000100_harden_functions.sql`, `20261001000000_arrival_checks.sql`, `20261001000100_factory_links.sql`, `20261001000200_sampled_inspection.sql`.
+   `20260930000000_init.sql`, `20260930000100_harden_functions.sql`, `20261001000000_arrival_checks.sql`, `20261001000100_factory_links.sql`, `20261001000200_sampled_inspection.sql`, `20261001000300_continuous_capture_and_decisions.sql`.
 2. Dashboard → Edge Functions → Deploy a new function named `qc` → paste `supabase/functions/qc/index.ts`. Keep "Verify JWT" on (factory links still work: the page sends the public anon key, and the function checks the link token itself).
 3. Dashboard → Edge Functions → Secrets → add `ANTHROPIC_API_KEY`.
 
@@ -76,7 +76,7 @@ Dashboard → Authentication → URL Configuration. Set the Site URL to where th
 | --- | --- |
 | Code | https://github.com/ligengrui3368-boop/Defect-AI (branch `main`) |
 | Web app | https://ligengrui3368-boop.github.io/Defect-AI/ (GitHub Pages, deployed by `.github/workflows/pages.yml` on every push to `main` that touches `web/`) |
-| Backend | Supabase project `jkgevzgfacfqcjqxosnm`: all five migrations applied, `qc` Edge Function deployed with Verify JWT on |
+| Backend | Supabase project `jkgevzgfacfqcjqxosnm`: all six migrations applied, `qc` Edge Function deployed with Verify JWT on |
 
 To reproduce on a new Supabase project, follow Setup above, then change `web/config.js` to the new project's URL and anon key.
 
@@ -139,6 +139,15 @@ Factories can't choose which units you see, and can't reuse or upload old photos
 Known limits: units within a carton are chosen by position ("unit 3, counting from the top layer"), which a worker could fudge; a determined attacker who bypasses the app could still upload a fresh image inside a pick's window. Next steps on the roadmap: per-carton QR labels, duplicate-photo detection, and a factory trust score from arrival checks.
 
 Database: `factory_sessions` (the locked lot and AQL plan) and `factory_picks` (every drawn unit with its window, attempts and verdict), plus `inspections.session_id` and `inspections.pick_id`. See `supabase/migrations/20261001000200_sampled_inspection.sql`.
+
+### Continuous camera, printed labels and scanner checks
+- **Continuous camera.** After the lot is locked, the factory taps *Start inspecting* and the camera stays open for the whole sample. The current pick ("carton 7, unit 3") and its countdown are shown over the camera with a checklist (carton label, required views, measuring card) that ticks itself as photos are recognised. *Next unit* hands the unit in and shows the next random pick straight away; the AI check runs in the background on the server and results appear as they finish.
+- **Printed sheet.** After locking, the factory (or the buyer, from the product page) can print an A4 sheet: one label per carton with a big number and a QR code tied to that lot, plus a measuring card with a 10 cm ruler and colour squares. Print at 100%.
+- **Scanner checks.** The phone reads QR codes and barcodes (Code 128, EAN, UPC, Code 39) in every photo. A carton label from the wrong carton or another lot blocks *Next unit* on the spot and is flagged on the server. If the product has a barcode (FNSKU, UPC or EAN) in its standard, a different barcode fails the unit. Required label text (for example "Made in China") is checked by the AI, and the measuring card lets it measure sizes in mm.
+- **No sign-in.** Each browser gets its own private workspace automatically (Supabase anonymous sign-in must be enabled under Authentication, Sign In / Providers).
+
+### Lot decision: review only the exceptions
+The lot report starts with a decision card: the recommendation (release payment, hold payment, or review N units first), the AQL rule, the units that need your review with Accept / Reject buttons, and the passed units folded away. *Release payment* or *Hold payment* records your decision on the lot.
 
 ### Factory links (factory staff, no account)
 On a product page, tap **Send a link to a factory**, enter the lot/PO number, and send the link (the app copies a ready-made Chinese/English message for WeChat or email). Factory staff open it on a phone. The page is in Chinese with an English switch. They see your standard, lock the lot size, and photograph the units the system picks at random (see *Anti-cheat sampling* above). Each unit gets a result (合格 / 不合格 / 待复核 / 需重拍) with findings in Chinese. Each submission is saved as a factory check in your workspace and shows up live in your lot report, ready to be matched by arrival checks later.
