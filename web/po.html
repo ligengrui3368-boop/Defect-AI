@@ -1,1 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>订单验货 Defect Check</title>
+<meta name="theme-color" content="#17222B">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil+Display:wght@800&display=swap" rel="stylesheet">
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+:root{--paper:#EDF0F0;--panel:#FFFFFF;--sunk:#E4E9EA;--ink:#17222B;--muted:#5B6870;--line:#DCE2E4;--line2:#C7D0D4;--harbor:#1F5F7A;--hivis:#F3C33A;--pass:#16794F;--fail:#B4271C;--review:#3F4FB0;--pass-bg:#E3F2EA;--fail-bg:#FBE7E4;--review-bg:#E8EAF8;--focus:#2457C5;--stencil:"Big Shoulders Stencil Display","Archivo",Impact,sans-serif;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--paper:#121A20;--panel:#1A242C;--sunk:#162027;--ink:#E6ECEF;--muted:#97A4AD;--line:#2A363E;--line2:#3A4751;--harbor:#6FB3D2;--pass:#43BE8D;--fail:#F2695A;--review:#8E97F2;--pass-bg:#1D3A2F;--fail-bg:#40211E;--review-bg:#262B4D;--focus:#7AA7FF;color-scheme:dark}}
+:root[data-theme="dark"]{--paper:#121A20;--panel:#1A242C;--sunk:#162027;--ink:#E6ECEF;--muted:#97A4AD;--line:#2A363E;--line2:#3A4751;--harbor:#6FB3D2;--pass:#43BE8D;--fail:#F2695A;--review:#8E97F2;--pass-bg:#1D3A2F;--fail-bg:#40211E;--review-bg:#262B4D;--focus:#7AA7FF;color-scheme:dark}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Archivo",system-ui,-apple-system,"PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif;font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--paper);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;gap:10px}
+.top b{flex:1;font-weight:800;font-stretch:112%}
+.lang{border:1px solid var(--line2);background:var(--panel);border-radius:999px;padding:4px 12px;font-weight:700;font-size:14px;cursor:pointer}
+main{max-width:620px;margin:0 auto;padding:18px 16px 120px}
+.po{font-family:var(--stencil);font-weight:800;font-size:46px;line-height:1;letter-spacing:.02em}
+.ctn{font-family:var(--stencil);font-weight:800;font-size:30px;letter-spacing:.04em}
+.mut{color:var(--muted)}.sm{font-size:14px}
+h2{font-size:19px;font-weight:800;font-stretch:108%;margin:30px 0 4px}
+h2+p{margin:0 0 12px;color:var(--muted);font-size:14.5px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:10px}
+.line{display:grid;grid-template-columns:64px 1fr;gap:12px;align-items:center}
+.line img,.line .noimg{width:64px;height:64px;border-radius:8px;object-fit:cover;background:var(--sunk)}
+.line .act{grid-column:1/-1;display:flex;gap:10px;align-items:center;justify-content:space-between}
+.btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line2);background:var(--panel);border-radius:10px;padding:11px 16px;font-weight:700;font-size:15.5px;cursor:pointer;min-height:46px;text-decoration:none;color:var(--ink)}
+.btn.primary{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.btn.wide{width:100%}
+.btn:disabled{opacity:.45}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:13px;font-weight:700;background:var(--sunk);color:var(--muted)}
+.b-PASS{background:var(--pass-bg);color:var(--pass)}.b-FAIL{background:var(--fail-bg);color:var(--fail)}.b-REVIEW{background:var(--review-bg);color:var(--review)}
+.step{display:grid;grid-template-columns:30px 1fr;gap:10px;padding:14px 0;border-top:1px solid var(--line)}
+.step:first-child{border-top:0;padding-top:4px}
+.n{width:30px;height:30px;border-radius:50%;border:2px solid var(--line2);display:grid;place-items:center;font-weight:800;font-size:14px}
+.step.ok .n{background:var(--ink);border-color:var(--ink);color:var(--panel)}
+.step b{display:block}
+.thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.thumbs figure{margin:0;width:72px;height:72px;border-radius:8px;overflow:hidden;position:relative;background:var(--sunk)}
+.thumbs img{width:100%;height:100%;object-fit:cover}
+.thumbs .x{position:absolute;top:2px;right:2px;border:0;background:rgba(0,0,0,.6);color:#fff;border-radius:50%;width:24px;height:24px;cursor:pointer}
+.shoot{margin-top:8px}
+label.f{display:flex;flex-direction:column;gap:5px;font-weight:700;font-size:14.5px;margin-top:14px}
+.i{border:1px solid var(--line2);background:var(--panel);border-radius:10px;padding:11px 12px;min-height:46px;width:100%;font-size:17px}
+.hint{font-size:13.5px;font-weight:600}
+.ok{color:var(--pass)}.bad{color:var(--fail)}
+.counts{width:100%;border-collapse:collapse;margin-top:6px}
+.counts td{padding:8px 0;border-bottom:1px solid var(--line)}
+.counts td:last-child{width:110px}
+.counts .i{text-align:right}
+.issues{list-style:none;padding:0;margin:12px 0 0;display:flex;flex-direction:column;gap:6px}
+.issues li{padding:9px 12px;border-radius:8px;background:var(--sunk);font-size:15px}
+.issues li.FAIL{background:var(--fail-bg)}.issues li.REVIEW{background:var(--review-bg)}
+.warn{background:var(--review-bg);border-radius:10px;padding:10px 12px;font-size:14.5px;margin-top:10px}
+.err{background:var(--fail-bg);color:var(--fail);border-radius:10px;padding:10px 12px;margin-top:10px}
+.bottom{position:fixed;left:0;right:0;bottom:0;background:color-mix(in srgb,var(--paper) 92%,transparent);backdrop-filter:blur(8px);border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px))}
+.bottom:empty{display:none}
+.bottom .in{max-width:620px;margin:0 auto}
+.spin{display:inline-block;width:16px;height:16px;border:2px solid var(--line2);border-top-color:var(--harbor);border-radius:50%;animation:sp .9s linear infinite;vertical-align:-3px;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:10px 16px;border-radius:8px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s;z-index:20;max-width:90vw}
+#toast.on{opacity:1}
+</style></head><body>
+<header class="top"><b id="ttl">Defect Check</b><button class="lang" id="lang">EN</button></header>
+<main id="app"><p class="mut">加载中… Loading…</p></main>
+<div class="bottom" id="bottom"></div>
+<div id="toast" role="status"></div>
+<input type="file" id="cam" accept="image/*" capture="environment" hidden>
+<script>
+(() => {
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const CFG = window.DEFECT_CHECK_CONFIG || {};
+const TOKEN = new URLSearchParams(location.search).get('t') || '';
+let sb = null, D = null, zh = (localStorage.getItem('dc-lang') || 'zh') === 'zh', busy = false, poll = null;
+const T = (c, e) => zh ? c : e;
+const app = $('#app'), bottom = $('#bottom');
+function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('on'), 3500); }
+async function qc(body) {
+  const r = await fetch(CFG.supabaseUrl + '/functions/v1/qc', { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: CFG.supabaseAnonKey, Authorization: 'Bearer ' + CFG.supabaseAnonKey }, body: JSON.stringify({ ...body, token: TOKEN }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('Error ' + r.status));
+  return j;
+}
+function iso6346(raw) {
+  const s = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!/^[A-Z]{4}\d{7}$/.test(s)) return { number: s, valid: false, shape: false };
+  const val = ch => { if (/\d/.test(ch)) return +ch; let v = 10; for (let c = 65; c < ch.charCodeAt(0); c++) { v++; if (v % 11 === 0) v++; } return v; };
+  let sum = 0; for (let i = 0; i < 10; i++) sum += val(s[i]) * 2 ** i;
+  return { number: s, valid: (sum % 11) % 10 === +s[10], shape: true };
+}
+const RES = { PASS: ['合格', 'Passed'], FAIL: ['不合格', 'Failed'], REVIEW: ['待复核', 'Under review'] };
+const badge = r => `<span class="badge b-${esc(r)}">${esc(RES[r] ? T(RES[r][0], RES[r][1]) : r)}</span>`;
 
+// draft of the loading check, kept on this phone until it is submitted
+const draftKey = () => 'dc-load-' + (D && D.loading ? D.loading.id : '');
+function draft() { try { return JSON.parse(localStorage.getItem(draftKey()) || 'null') || { photos: [], container_no: '', seal_no: '', counts: {}, worker: localStorage.getItem('dc-worker') || '' }; } catch { return { photos: [], container_no: '', seal_no: '', counts: {}, worker: '' }; } }
+let DR = null;
+const saveDraft = () => { try { localStorage.setItem(draftKey(), JSON.stringify(DR)); if (DR.worker) localStorage.setItem('dc-worker', DR.worker); } catch { } };
+const blobs = new Map();
+
+async function load() {
+  try { D = await qc({ task: 'po_open' }); }
+  catch (e) { app.innerHTML = `<div class="err">${esc(e.message)}</div>`; bottom.innerHTML = ''; return; }
+  if (D.loading && D.loading.status === 'open') { const k = draftKey(); if (!DR || DR._k !== k) { DR = draft(); DR._k = k; } } else DR = null;
+  clearInterval(poll); if (D.loading && D.loading.status === 'checking') poll = setInterval(load, 6000);
+  render();
+}
+function render() {
+  if (!D) return;
+  $('#ttl').textContent = T('订单验货', 'Order inspection');
+  $('#lang').textContent = zh ? 'EN' : '中文';
+  document.documentElement.lang = zh ? 'zh-CN' : 'en';
+  const p = D.po;
+  let h = `<div class="mut sm">${p.supplier_name ? esc(p.supplier_name) : T('订单', 'Purchase order')}</div><div class="po">${esc(p.po_number)}</div>${p.ship_by ? `<div class="sm mut">${T('出货日期', 'Ship by')} ${esc(p.ship_by)}</div>` : ''}${p.notes ? `<div class="warn">${esc(p.notes)}</div>` : ''}`;
+  h += `<h2>${T('1. 产品验货', '1. Product inspection')}</h2><p>${T('每个产品生产完成后验货。系统随机抽取要拍的箱号和件号。', 'Inspect each product when it is finished. The system picks which cartons and units to photograph.')}</p>`;
+  h += D.lines.map(l => { const s = l.inspection; const st = !s ? `<span class="badge">${T('未开始', 'Not started')}</span>` : s.status === 'done' ? badge(s.result) : `<span class="badge">${T('抽检中', 'In progress')}</span>`;
+    return `<div class="card line">${l.thumb && D.urls[l.thumb] ? `<img src="${esc(D.urls[l.thumb])}" alt="">` : '<div class="noimg"></div>'}<div><b>${esc(l.name)}</b>${l.sku ? `<div class="sm mut">${esc(l.sku)}</div>` : ''}<div class="sm">${T(`${l.qty} 件，${l.cartons} 箱，每箱 ${l.units_per_carton} 件`, `${l.qty} units, ${l.cartons} cartons of ${l.units_per_carton}`)}</div></div>
+      <div class="act">${st}${l.link_token ? `<a class="btn ${s && s.status === 'done' ? '' : 'primary'}" href="index.html?f=${esc(l.link_token)}">${s && s.status === 'done' ? T('查看结果', 'View results') : s ? T('继续验货', 'Continue') : T('开始验货', 'Start inspection')}</a>` : `<span class="sm mut">${T('链接已关闭', 'Link closed')}</span>`}</div></div>`; }).join('');
+  h += `<h2>${T('2. 装柜检查', '2. Container loading check')}</h2><p>${T('装柜时按步骤现场拍照，并填写集装箱号、封条号和每个产品的装箱数。', 'Photograph each stage live while loading, and enter the container number, seal number and cartons loaded per product.')}</p>`;
+  h += loadingHtml();
+  app.innerHTML = h;
+  bottom.innerHTML = D.loading && D.loading.status === 'open' ? `<div class="in"><button class="btn primary wide" id="submit" ${busy ? 'disabled' : ''}>${busy ? T('提交中…', 'Submitting…') : T('提交装柜检查', 'Submit loading check')}</button></div>` : '';
+}
+function loadingHtml() {
+  const L = D.loading;
+  if (!L) {
+    const ready = D.lines.every(l => l.inspection && l.inspection.status === 'done');
+    return `<div class="card">${ready ? '' : `<div class="warn" style="margin-top:0">${T('还有产品没有完成验货。建议验货合格后再装柜。', 'Some products have not finished inspection. Load after they pass.')}</div>`}
+      <p style="margin:10px 0">${T('开始后需在 12 小时内完成，所有照片必须在本页面现场拍摄。', 'Once started, finish within 12 hours. All photos must be taken live on this page.')}</p><button class="btn primary wide" data-a="start">${T('开始装柜检查', 'Start loading check')}</button></div>`;
+  }
+  if (L.status === 'checking') return `<div class="card"><span class="spin"></span>${T('正在检查照片，大约一分钟…', 'Checking the photos, about a minute…')}</div>`;
+  if (L.status === 'error') return `<div class="card"><div class="err" style="margin-top:0">${T('检查出错，请联系买家。', 'The check failed. Contact the buyer.')} ${esc(L.error || '')}</div></div>`;
+  if (L.status === 'done') {
+    const ai = L.ai || {};
+    const zd = (ai.zh && ai.zh.defects) || [];
+    return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><div><div class="mut sm">${T('集装箱号', 'Container')}</div><div class="ctn">${esc(L.container_no)}</div><div class="sm">${T('封条', 'Seal')} ${esc(L.seal_no)}</div></div>${badge(L.result)}</div>
+      <p style="margin:12px 0 0">${esc(zh && ai.zh && ai.zh.summary ? ai.zh.summary : ai.summary)}</p>
+      ${(ai.issues || []).length || (ai.defects || []).length ? `<ul class="issues">${(ai.issues || []).map(x => `<li class="${esc(x.level)}">${esc(zh ? x.zh : x.en)}</li>`).join('')}${(ai.defects || []).map((d, k) => `<li class="${d.severity === 'critical' ? 'FAIL' : 'REVIEW'}">${esc(zh && zd[k] ? zd[k] : d.type + (d.where ? ', ' + d.where : ''))}</li>`).join('')}</ul>` : ''}
+      <p class="sm mut" style="margin:12px 0 0">${T('如需重做，请联系买家。', 'If it needs to be redone, contact the buyer.')}</p></div>`;
+  }
+  // open: the guided loading check
+  const exp = new Date(L.expires_at);
+  const c = iso6346(DR.container_no);
+  const stepsHtml = D.steps.map(s => { const ph = DR.photos.filter(p => p.step === s.key);
+    return `<div class="step ${ph.length ? 'ok' : ''}"><div class="n">${ph.length ? '✓' : D.steps.indexOf(s) + 1}</div><div><b>${esc(zh ? s.zh : s.en)}</b><span class="sm mut">${esc(zh ? s.en : s.zh)}${s.required ? '' : T('（可选）', ' (optional)')}</span>
+      <div class="thumbs">${ph.map(p => `<figure>${blobs.has(p.path) ? `<img src="${esc(blobs.get(p.path))}" alt="">` : ''}<button class="x" data-a="rm" data-p="${esc(p.path)}" aria-label="${T('删除', 'Remove')}">×</button></figure>`).join('')}</div>
+      <button class="btn shoot" data-a="shoot" data-step="${esc(s.key)}">${ph.length ? T('再拍一张', 'Add another') : T('拍照', 'Take photo')}</button></div></div>`; }).join('');
+  return `<div class="card"><div class="sm mut">${T('请在此时间前完成：', 'Finish before ')}${esc(exp.toLocaleString())}</div>${stepsHtml}</div>
+    <div class="card">
+      <label class="f">${T('集装箱号', 'Container number')}<input class="i" data-f="container_no" value="${esc(DR.container_no)}" placeholder="ABCU1234567" autocapitalize="characters" autocomplete="off" style="text-transform:uppercase;letter-spacing:.05em"></label>
+      <div class="hint" id="chk">${c.shape ? (c.valid ? `<span class="ok">${T('校验位正确', 'Check digit is correct')}</span>` : `<span class="bad">${T('校验位不对，请再核对一遍', 'Check digit is wrong. Please re-check the number')}</span>`) : `<span class="mut">${T('4个字母 + 7个数字', '4 letters + 7 digits')}</span>`}</div>
+      <label class="f">${T('封条号', 'Seal number')}<input class="i" data-f="seal_no" value="${esc(DR.seal_no)}" autocapitalize="characters" autocomplete="off" style="text-transform:uppercase"></label>
+      <div style="margin-top:16px;font-weight:700;font-size:14.5px">${T('实际装箱数', 'Cartons loaded')}</div>
+      <table class="counts">${D.lines.map(l => `<tr><td>${esc(l.name)}<div class="sm mut">${T('订单', 'Ordered')} ${l.cartons} ${T('箱', 'cartons')}</div></td><td><input class="i" inputmode="numeric" data-c="${esc(l.id)}" value="${esc(DR.counts[l.id] ?? '')}" aria-label="${esc(l.name)}"></td></tr>`).join('')}</table>
+      <label class="f">${T('您的姓名', 'Your name')}<input class="i" data-f="worker" value="${esc(DR.worker)}" autocomplete="name"></label>
+    </div>`;
+}
+async function prep(file) {
+  let src; try { src = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch { src = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = URL.createObjectURL(file); }); }
+  const k = Math.min(1, 1600 / Math.max(src.width, src.height)), c = document.createElement('canvas');
+  c.width = Math.round(src.width * k); c.height = Math.round(src.height * k); c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+  return await new Promise(r => c.toBlob(r, 'image/jpeg', .86));
+}
+async function shoot(step, btn) {
+  const inp = $('#cam'); inp.value = '';
+  const files = await new Promise(res => { inp.onchange = () => res([...inp.files]); inp.click(); });
+  if (!files.length) return;
+  btn.disabled = true; btn.innerHTML = `<span class="spin"></span>${T('上传中', 'Uploading')}`;
+  try {
+    for (const f of files) {
+      const blob = await prep(f);
+      const up = await qc({ task: 'po_load_upload', step });
+      const { error } = await sb.storage.from('photos').uploadToSignedUrl(up.path, up.token, blob, { contentType: 'image/jpeg' });
+      if (error) throw error;
+      blobs.set(up.path, URL.createObjectURL(blob));
+      DR.photos.push({ path: up.path, step }); saveDraft();
+    }
+  } catch (e) { toast(T('上传失败：', 'Upload failed: ') + (e.message || e)); }
+  render();
+}
+async function submit() {
+  const miss = D.steps.filter(s => s.required && !DR.photos.some(p => p.step === s.key));
+  if (miss.length) return toast(T('还缺照片：', 'Missing photos: ') + miss.map(s => zh ? s.zh : s.en).join('、'));
+  const c = iso6346(DR.container_no);
+  if (!c.shape) return toast(T('请填写正确的集装箱号（4个字母 + 7个数字）', 'Enter the container number: 4 letters + 7 digits'));
+  if (!c.valid && !confirm(T('集装箱号校验位不对。确定号码没有输错吗？', 'The container number check digit is wrong. Submit anyway?'))) return;
+  if (!String(DR.seal_no).trim()) return toast(T('请填写封条号', 'Enter the seal number'));
+  for (const l of D.lines) if (DR.counts[l.id] === undefined || DR.counts[l.id] === '') return toast(T(`请填写 ${l.name} 的装箱数`, `Enter cartons loaded for ${l.name}`));
+  const short = D.lines.filter(l => +DR.counts[l.id] < l.cartons);
+  if (short.length && !confirm(T(`以下产品装箱数少于订单：${short.map(l => l.name).join('、')}。确定提交？`, `Fewer cartons than ordered for: ${short.map(l => l.name).join(', ')}. Submit anyway?`))) return;
+  busy = true; render();
+  try {
+    await qc({ task: 'po_load_submit', container_no: c.number, seal_no: DR.seal_no, counts: Object.fromEntries(D.lines.map(l => [l.id, +DR.counts[l.id]])), photos: DR.photos, worker: DR.worker });
+    localStorage.removeItem(draftKey()); DR = null; toast(T('已提交，正在检查', 'Submitted. Checking now.'));
+  } catch (e) { toast(e.message); }
+  busy = false; await load();
+}
+app.addEventListener('input', e => {
+  const t = e.target; if (!DR) return;
+  if (t.dataset.f) { DR[t.dataset.f] = t.value; saveDraft(); if (t.dataset.f === 'container_no') { const c = iso6346(t.value), el = $('#chk'); if (el) el.innerHTML = c.shape ? (c.valid ? `<span class="ok">${T('校验位正确', 'Check digit is correct')}</span>` : `<span class="bad">${T('校验位不对，请再核对一遍', 'Check digit is wrong. Please re-check the number')}</span>`) : `<span class="mut">${T('4个字母 + 7个数字', '4 letters + 7 digits')}</span>`; } }
+  if (t.dataset.c) { DR.counts[t.dataset.c] = t.value.replace(/\D/g, ''); saveDraft(); }
+});
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-a], #submit, #lang'); if (!b) return;
+  if (b.id === 'lang') { zh = !zh; localStorage.setItem('dc-lang', zh ? 'zh' : 'en'); render(); return; }
+  if (b.id === 'submit') return submit();
+  const a = b.dataset.a;
+  if (a === 'start') { b.disabled = true; try { await qc({ task: 'po_load_start' }); } catch (err) { toast(err.message); } await load(); }
+  if (a === 'shoot') shoot(b.dataset.step, b);
+  if (a === 'rm') { DR.photos = DR.photos.filter(p => p.path !== b.dataset.p); saveDraft(); render(); }
+});
+(async () => {
+  if (!CFG.supabaseUrl || !window.supabase) { app.innerHTML = '<div class="err">Setup needed: config.js</div>'; return; }
+  if (!/^[a-f0-9]{48,80}$/.test(TOKEN)) { app.innerHTML = `<div class="err">${T('链接无效，请向买家索取新链接。', 'This link is not valid. Ask the buyer for a new one.')}</div>`; return; }
+  sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+  await load();
+})();
+})();
+</script>
+</body></html>
