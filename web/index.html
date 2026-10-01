@@ -1,243 +1,210 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Defect Check</title>
+<title>Home · Defect Check</title>
 <script>
 // Factory links (?f=), website demos (?demo=) and sign-in links open the product app directly.
 (function () { var s = location.search, h = location.hash; if (/[?&](f|demo)=/.test(s) || /access_token|error_description/.test(h)) location.replace('app.html' + s + h); })();
 </script>
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#17222B">
+<meta name="theme-color" content="#F7F7F5">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil+Display:wght@800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650&display=swap" rel="stylesheet">
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<link rel="stylesheet" href="theme.css">
 <style>
-:root{--paper:#EDF0F0;--panel:#FFFFFF;--sunk:#E4E9EA;--ink:#17222B;--muted:#5B6870;--line:#DCE2E4;--line2:#C7D0D4;--harbor:#1F5F7A;--harbor-bg:#E1EEF3;--hivis:#F3C33A;--pass:#16794F;--fail:#B4271C;--review:#3F4FB0;--pass-bg:#E3F2EA;--fail-bg:#FBE7E4;--review-bg:#E8EAF8;--focus:#2457C5;--stencil:"Big Shoulders Stencil Display","Archivo",Impact,sans-serif;color-scheme:light}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--paper:#121A20;--panel:#1A242C;--sunk:#162027;--ink:#E6ECEF;--muted:#97A4AD;--line:#2A363E;--line2:#3A4751;--harbor:#6FB3D2;--harbor-bg:#17323F;--pass:#43BE8D;--fail:#F2695A;--review:#8E97F2;--pass-bg:#1D3A2F;--fail-bg:#40211E;--review-bg:#262B4D;--focus:#7AA7FF;color-scheme:dark}}
-:root[data-theme="dark"]{--paper:#121A20;--panel:#1A242C;--sunk:#162027;--ink:#E6ECEF;--muted:#97A4AD;--line:#2A363E;--line2:#3A4751;--harbor:#6FB3D2;--harbor-bg:#17323F;--pass:#43BE8D;--fail:#F2695A;--review:#8E97F2;--pass-bg:#1D3A2F;--fail-bg:#40211E;--review-bg:#262B4D;--focus:#7AA7FF;color-scheme:dark}
 :root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-html{scroll-padding-top:env(safe-area-inset-top,0px)}
 *,*::before,*::after{box-sizing:inherit}
-body{margin:0;background:var(--paper);color:var(--ink);font-family:"Archivo",system-ui,-apple-system,"Segoe UI","PingFang SC","Noto Sans SC",Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
-:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
-a{color:var(--harbor)}
-.shell{display:grid;grid-template-columns:216px 1fr;min-height:100vh}
-.rail{position:sticky;top:0;height:100vh;padding:20px 14px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:4px}
-.brand{font-weight:800;font-stretch:118%;font-size:17px;padding:4px 10px 18px;display:flex;align-items:center;gap:8px}
-.brand i{width:12px;height:12px;border-radius:2px;background:var(--hivis);box-shadow:0 0 0 2px var(--ink)}
-.rail a{display:flex;justify-content:space-between;align-items:center;text-decoration:none;color:var(--ink);padding:9px 10px;border-radius:8px;font-weight:600}
-.rail a:hover{background:var(--sunk)}
-.rail a[aria-current="page"]{background:var(--panel);box-shadow:inset 3px 0 0 var(--harbor)}
-.rail a small{font-weight:700;color:var(--fail);font-size:12px}
+html,body{height:100%}
+body{margin:0;font-size:15px;line-height:1.5}
+.rail{position:sticky;top:0;height:100vh;display:flex;flex-direction:column}
+.rail a{display:flex;align-items:center;gap:10px;text-decoration:none}
+.rail a svg{width:18px;height:18px;opacity:.7;flex-shrink:0}
 .rail .grow{flex:1}
-.rail .meta{font-size:12.5px;color:var(--muted);padding:0 10px}
-.rail a.quiet{font-weight:500;color:var(--muted);font-size:14px}
-main{padding:30px 32px 80px;max-width:1240px;width:100%}
-.hello{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
-.hello h1{margin:0;font-size:28px;font-weight:800;font-stretch:112%;letter-spacing:-.01em}
-.hello p{margin:4px 0 0;color:var(--muted)}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px}
-.corridor{margin-top:22px;padding:22px 24px 18px}
-.corridor .track{display:grid;grid-template-columns:repeat(5,1fr);position:relative}
-.corridor .track::before{content:"";position:absolute;left:0;right:0;top:66px;height:3px;background:var(--line2)}
-.corridor a{position:relative;display:flex;flex-direction:column;gap:2px;text-decoration:none;color:var(--ink);padding-right:10px}
-.corridor .n{font-family:var(--stencil);font-weight:800;font-size:52px;line-height:1}
-.corridor .n.zero{color:var(--line2)}
-.corridor .dot{width:16px;height:16px;border-radius:50%;background:var(--panel);border:3px solid var(--line2);margin:6px 0 8px;position:relative;z-index:1}
-.corridor a.has .dot{background:var(--ink);border-color:var(--ink)}
-.corridor a.bad .dot{background:var(--fail);border-color:var(--fail)}
-.corridor .lab{font-weight:700;font-size:14px}
-.corridor .sub{font-size:12.5px;color:var(--muted)}
-.corridor .sub.bad{color:var(--fail);font-weight:600}
-.corridor a:hover .lab{text-decoration:underline}
-.cols{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:18px;margin-top:22px;align-items:start}
-h2{font-size:17px;font-weight:800;font-stretch:108%;margin:0 0 10px}
-.src{margin-top:22px;padding:18px 22px}.src .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.src .top a.b{display:inline-flex;padding:8px 14px;border-radius:9px;font-weight:700;font-size:14px;text-decoration:none;border:1px solid var(--line2);color:var(--ink);background:var(--panel)}.src .top a.b.main{background:var(--ink);color:var(--panel);border-color:var(--ink)}.src .stg{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:14px}.src .stg a{display:flex;flex-direction:column;padding:10px 12px;border-radius:9px;background:var(--sunk);text-decoration:none;color:var(--ink)}.src .stg a b{font-family:var(--stencil);font-size:30px;line-height:1}.src .stg a b.z{color:var(--line2)}.src .stg a span{font-size:12.5px;font-weight:700;color:var(--muted)}.src ul{list-style:none;margin:12px 0 0;padding:0}.src li a{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid var(--line);text-decoration:none;color:var(--ink)}.src li small{color:var(--muted)}@media (max-width:900px){.src .stg{grid-template-columns:repeat(4,1fr)}}
-.acts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.act{display:grid;grid-template-columns:40px 1fr;gap:12px;align-items:start;padding:14px;text-decoration:none;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:12px}
-.act:hover{border-color:var(--ink)}
-.act svg{width:40px;height:40px;border-radius:10px;background:var(--sunk);padding:9px;stroke:var(--ink);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.act.main{background:var(--ink);color:var(--panel);border-color:var(--ink)}
-.act.main svg{background:color-mix(in srgb,var(--panel) 14%,transparent);stroke:var(--hivis)}
-.act b{display:block;font-size:15.5px}
-.act span{font-size:13px;color:var(--muted);line-height:1.4}
-.act.main span{color:color-mix(in srgb,var(--panel) 72%,transparent)}
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:22px}
-.stats .panel{padding:14px 16px}
-.stats b{display:block;font-size:24px;font-weight:800;font-stretch:108%}
-.stats span{font-size:13px;color:var(--muted)}
-.feed{list-style:none;margin:0;padding:0}
-.feed li{border-bottom:1px solid var(--line)}
-.feed li:last-child{border-bottom:0}
-.feed a{display:grid;grid-template-columns:10px 1fr auto;gap:12px;align-items:baseline;padding:11px 16px;text-decoration:none;color:var(--ink)}
-.feed a:hover{background:var(--sunk)}
-.feed i{width:8px;height:8px;border-radius:50%;background:var(--muted);transform:translateY(-1px)}
-.feed i.PASS{background:var(--pass)}.feed i.FAIL{background:var(--fail)}.feed i.REVIEW,.feed i.RETAKE{background:var(--review)}
-.feed .t{font-size:14px}.feed .t small{display:block;color:var(--muted);font-size:12.5px}
-.feed time{font-size:12.5px;color:var(--muted);white-space:nowrap}
-.att{list-style:none;margin:0 0 18px;padding:0;display:flex;flex-direction:column;gap:6px}
-.att a{display:flex;gap:12px;align-items:baseline;padding:10px 14px;border-radius:10px;text-decoration:none;color:var(--ink);background:var(--fail-bg)}
-.att a.REVIEW{background:var(--review-bg)}
-.att a b{font-family:var(--stencil);font-weight:800;font-size:18px;letter-spacing:.02em;white-space:nowrap}
-.empty{padding:22px 16px;color:var(--muted);text-align:center;font-size:14px}
-.start{margin-top:22px;padding:22px 24px}
-.start ol{margin:12px 0 0;padding:0;list-style:none;display:grid;grid-template-columns:repeat(3,1fr);gap:14px;counter-reset:s}
-.start li{counter-increment:s;padding:14px;border:1px solid var(--line);border-radius:10px}
-.start li::before{content:counter(s);display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--ink);color:var(--panel);font-weight:800;font-size:13px;margin-bottom:8px}
-.start li b{display:block}
-.start li span{font-size:13.5px;color:var(--muted)}
-.start li a{display:inline-block;margin-top:8px;font-weight:700}
-footer{margin-top:28px;font-size:13px;color:var(--muted)}
-@media (max-width:1000px){.cols{grid-template-columns:1fr}}
-@media (max-width:900px){
-  .shell{grid-template-columns:1fr}
-  .rail{position:sticky;top:0;height:auto;flex-direction:row;align-items:center;overflow-x:auto;padding:8px 10px;border-right:0;border-bottom:1px solid var(--line);background:var(--paper);z-index:10}
-  .brand{padding:0 8px 0 2px}
-  .rail .grow,.rail .meta,.rail a.quiet{display:none}
-  .rail a{white-space:nowrap}
-  main{padding:20px 14px 60px}
-  .stats{grid-template-columns:1fr 1fr}
-  .start ol{grid-template-columns:1fr}
-}
-@media (max-width:620px){
-  .acts{grid-template-columns:1fr}
-  .corridor{padding:16px}
-  .corridor .track{grid-template-columns:1fr;gap:4px}
-  .corridor .track::before{display:none}
-  .corridor a{display:grid;grid-template-columns:56px 1fr;grid-template-rows:auto auto;align-items:center;column-gap:10px}
-  .corridor .n{font-size:34px;grid-row:1/3}
-  .corridor .dot{display:none}
-}
-</style><script>/* Browsers keep pages for up to 10 minutes. If the server has a newer copy, reload once. */(function(){try{fetch(location.pathname,{method:'HEAD',cache:'no-store'}).then(function(r){var lm=r.headers.get('last-modified');if(!lm)return;var k='dc-fresh:'+location.pathname;if(new Date(lm).getTime()-new Date(document.lastModified).getTime()>1000&&sessionStorage.getItem(k)!==lm){sessionStorage.setItem(k,lm);location.reload();}}).catch(function(){});}catch(e){}})();</script>
+.rail .clients a{font-size:14.5px!important}
+.rail .clients a i{width:8px;height:8px;border-radius:50%;background:var(--line2);margin:0 5px}
+.rail .clients a b{margin-left:auto;font-weight:400;color:var(--muted);font-size:13px}
+.hello{margin:0 0 22px}
+.hello h2{margin:0;font-size:26px;font-weight:650;letter-spacing:-.025em}
+.hello p{margin:4px 0 0;color:var(--muted);font-size:15px}
+</style>
+<script>/* Browsers keep pages for up to 10 minutes. If the server has a newer copy, reload once. */(function(){try{fetch(location.pathname,{method:'HEAD',cache:'no-store'}).then(function(r){var lm=r.headers.get('last-modified');if(!lm)return;var k='dc-fresh:'+location.pathname;if(new Date(lm).getTime()-new Date(document.lastModified).getTime()>1000&&sessionStorage.getItem(k)!==lm){sessionStorage.setItem(k,lm);location.reload();}}).catch(function(){});}catch(e){}})();</script>
 </head><body>
-<div class="shell">
+<div class="dc-shell">
   <nav class="rail" aria-label="Main">
     <div class="brand"><i aria-hidden="true"></i>Defect Check</div>
-    <a href="./" aria-current="page">Home</a>
-    <a href="ops.html#/orders">Orders <small id="navAtt"></small></a>
-    <a href="app.html">Products</a>
-    <a href="ops.html#/defects">Defects</a>
-    <a href="ops.html#/suppliers">Suppliers</a>
-    <a href="sourcing.html">Sourcing</a>
+    <a href="./" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7v9H4z"/><path d="M10 20v-6h4v6"/></svg>Home</a>
+    <a href="sourcing.html#/requests"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>Requests</a>
+    <a href="ops.html#/orders"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l3 3v15H6z"/><path d="M9 10h6M9 14h6"/></svg>Orders</a>
+    <a href="app.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg>Products</a>
+    <a href="sourcing.html#/factories"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V10l5 3V10l5 3V6l8 4v11z"/></svg>Factories</a>
+    <a href="sourcing.html#/rates"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V4M4 20h16"/><path d="M8 16v-5M12 16V8M16 16v-3"/></svg>Rate cards</a>
+    <div class="sect">Clients</div>
+    <div class="clients" id="navClients"></div>
+    <a href="sourcing.html#/clients" class="quiet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add a client</a>
     <div class="grow"></div>
     <a class="quiet" href="site/">Website</a>
     <div class="meta" id="sync">Connecting…</div>
   </nav>
-  <main id="app"><p style="color:var(--muted)">Loading…</p></main>
+
+  <main class="dc-main">
+    <div class="dc-bar"><h1>Home</h1><div class="sp"></div>
+      <a class="pill" href="ops.html#/new">New order</a>
+      <a class="pill dark" href="sourcing.html#/new"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>New request</a>
+    </div>
+    <div class="dc-wrap" id="app"><p style="color:var(--muted)">Loading…</p></div>
+  </main>
+
+  <aside class="op" aria-label="Operator">
+    <div class="op-head"><span class="av op"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18c0-4 3-6 8-6s8 2 8 6"/><circle cx="12" cy="7" r="3.5"/></svg></span>Operator<div class="sp"></div><button class="pill" id="opClear" title="Clear the conversation">Clear</button></div>
+    <div class="op-log" id="opLog" aria-live="polite"></div>
+    <div class="op-sug" id="opSug"></div>
+    <form class="op-box" id="opForm"><textarea id="opIn" rows="1" placeholder="Ask Operator to source something…" aria-label="Message Operator"></textarea><button id="opSend" aria-label="Send" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></form>
+  </aside>
 </div>
 <script>
 (() => {
-const $ = s => document.querySelector(s);
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const CFG = window.DEFECT_CHECK_CONFIG || {};
-const app = $('#app');
-const STOPS = ['Ordered', 'In production', 'Inspected', 'Loaded', 'Received'];
-const D = {};
-const ago = d => { const s = (Date.now() - new Date(d).getTime()) / 1000; if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s / 60) + ' min ago'; if (s < 86400) return Math.floor(s / 3600) + ' h ago'; if (s < 86400 * 7) return Math.floor(s / 86400) + ' d ago'; return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); };
-const icon = p => `<svg viewBox="0 0 24 24" aria-hidden="true">${p}</svg>`;
-const I = {
-  po: icon('<path d="M6 3h9l3 3v15H6z"/><path d="M9 10h6M9 14h6M9 18h3"/>'),
-  check: icon('<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/>'),
-  product: icon('<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/>'),
-  dock: icon('<path d="M3 20h18M5 20V9l7-5 7 5v11"/><path d="M9 20v-6h6v6"/>'),
-  chart: icon('<path d="M4 20V4M4 20h16"/><path d="M8 16v-5M12 16V8M16 16v-3"/>'),
-  sourcing: icon('<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/><path d="M9 11h4M11 9v4"/>'),
-  factory: icon('<path d="M3 21V10l5 3V10l5 3V6l8 4v11z"/><path d="M7 17h2M12 17h2M17 17h1"/>'),
-};
-
-function stateOf(po) {
-  const ls = D.lines.filter(l => l.po_id === po.id);
-  const ses = ls.map(l => D.sessions.find(s => s.link_id === l.link_id && s.status !== 'cancelled'));
-  const lc = D.loads.find(x => x.po_id === po.id && x.status !== 'cancelled'), rc = D.receipts.find(x => x.po_id === po.id);
-  let stage = 0;
-  if (ses.some(Boolean)) stage = 1;
-  if (ls.length && ses.every(s => s && s.status === 'done')) stage = 2;
-  if (lc && lc.status === 'done') stage = 3;
-  if (rc && rc.status === 'done') stage = 4;
-  const att = [];
-  ls.forEach((l, k) => { const s = ses[k]; if (s && s.status === 'done' && s.result !== 'PASS' && !s.buyer_decision) att.push({ level: s.result, text: `${prodName(l.product_id)}: factory lot ${s.result === 'FAIL' ? 'failed' : 'needs review'}` }); });
-  if (lc && lc.status === 'done' && lc.result !== 'PASS') att.push({ level: lc.result, text: `Container loading ${lc.result === 'FAIL' ? 'failed' : 'needs review'}` });
-  if (rc && rc.status === 'done' && rc.result !== 'PASS') att.push({ level: rc.result, text: `Receiving: ${(rc.ai && rc.ai.summary) || 'exceptions found'}` });
-  return { stage, att };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const $ = id => document.getElementById(id);
+const app = $('app');
+const SV = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+const IC = { cal: SV('<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>'), clock: SV('<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>'), op: SV('<path d="M4 18c0-4 3-6 8-6s8 2 8 6"/><circle cx="12" cy="7" r="3.5"/>') };
+const day0 = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+const parseDay = (s) => s ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? s + 'T00:00' : s) : null;
+function due(s) {
+  const d = parseDay(s); if (!d) return '';
+  const diff = Math.round((day0(d) - day0(new Date())) / 864e5);
+  const label = diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : diff === -1 ? 'Yesterday' : diff > 1 && diff < 7 ? d.toLocaleDateString('en-US', { weekday: 'short' }) : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return `<span class="tag ${diff < 0 ? 'red' : diff === 0 ? 'blue' : ''}">${IC.cal}${label}</span>`;
 }
-const prodName = id => (D.products.find(p => p.id === id) || {}).name || 'Product';
+const ago = d => { const s = (Date.now() - new Date(d).getTime()) / 1000; if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s / 60) + ' min ago'; if (s < 86400) return Math.floor(s / 3600) + ' h ago'; return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
+let sb, ws, D = { reqs: [], clients: [], pos: [], negs: [], quotes: [] }, tab = 'all';
+
+// What each request needs next, in plain words.
+function nextStep(r) {
+  const negs = D.negs.filter(n => n.request_id === r.id), qs = D.quotes.filter(q => q.request_id === r.id);
+  const q = r.spec?.questions?.length || 0;
+  switch (r.status) {
+    case 'intake': return r.spec?.intake_at ? (q ? [`Answer ${q} question${q === 1 ? '' : 's'} from intake`, 'half'] : ['Spec ready, search for factories', 'half']) : ['Run intake on the brief', 'empty'];
+    case 'sourcing': return ['Find factories on 1688', 'half'];
+    case 'shortlisted': return ['Pick factories to contact', 'half'];
+    case 'negotiating': { const w = negs.filter(n => n.status === 'waiting_us').length; return [w ? `${w} factor${w === 1 ? 'y is' : 'ies are'} waiting on you` : `Negotiating with ${negs.length || 'the'} factor${negs.length === 1 ? 'y' : 'ies'}`, 'half']; }
+    case 'quoted': return qs.some(x => x.released_to_client) ? ['Waiting for the client to approve', 'half'] : ['Send the quote to the client', 'half'];
+    case 'approved': return ['Place the order with the factory', 'half'];
+    case 'ordered': return ['In production, inspect before the balance', 'half'];
+    default: return ['Closed', 'full'];
+  }
+}
+const clientName = (id) => { const c = D.clients.find(x => x.id === id); return c ? (c.company || c.name) : ''; };
 
 function render() {
-  const open = D.pos.filter(p => !p.closed).map(po => ({ po, ...stateOf(po) }));
-  const at = open.filter(x => x.att.length);
-  $('#navAtt').textContent = at.length || '';
-  const month = Date.now() - 30 * 864e5;
-  const units = D.insps.filter(i => i.status === 'done' && new Date(i.created_at).getTime() >= month);
-  const failed = units.filter(i => (i.final_result || i.verdict) === 'FAIL').length;
-  const findings = D.findings.filter(f => !f.in_spec && new Date(f.created_at || 0).getTime() >= month).length;
-  const newUser = !D.pos.length && !D.products.length;
-
-  const corridor = `<section class="panel corridor" aria-label="Open orders by stage"><div class="track">${STOPS.map((s, k) => {
-    const here = open.filter(x => x.stage === k), bad = here.filter(x => x.att.length).length;
-    return `<a href="ops.html#/orders" class="${here.length ? 'has' : ''} ${bad ? 'bad' : ''}"><span class="n ${here.length ? '' : 'zero'}">${here.length}</span><span class="dot"></span><span class="lab">${esc(s)}</span><span class="sub ${bad ? 'bad' : ''}">${bad ? `${bad} need${bad === 1 ? 's' : ''} attention` : here.length === 1 ? '1 order' : here.length + ' orders'}</span></a>`;
-  }).join('')}</div></section>`;
-
-  const SST = [['intake', 'Intake'], ['sourcing', 'Sourcing'], ['shortlisted', 'Shortlist'], ['negotiating', 'Negotiating'], ['quoted', 'Quoted'], ['approved', 'Approved'], ['ordered', 'Ordered']];
-  const openReq = D.reqs.filter(r => r.status !== 'closed');
-  const sourcing = `<section class="panel src" aria-label="Sourcing"><div class="top"><div><h2 style="margin:0">Sourcing</h2><span class="mut" style="color:var(--muted);font-size:14px">${openReq.length ? `${openReq.length} open request${openReq.length === 1 ? '' : 's'}` : 'Client requests, factories on 1688, negotiation and landed-cost quotes.'}</span></div><div style="display:flex;gap:8px"><a class="b" href="sourcing.html#/clients">Clients</a><a class="b" href="sourcing.html#/factories">Factories</a><a class="b main" href="sourcing.html#/new">New sourcing request</a></div></div>
-    <div class="stg">${SST.map(([k, l]) => { const n = D.reqs.filter(r => r.status === k).length; return `<a href="sourcing.html#/requests"><b class="${n ? '' : 'z'}">${n}</b><span>${l}</span></a>`; }).join('')}</div>
-    ${openReq.length ? `<ul>${openReq.slice(0, 4).map(r => `<li><a href="sourcing.html#/request/${r.id}"><span>${esc(r.title)}</span><small>${esc((SST.find(s => s[0] === r.status) || [, r.status])[1])} · ${esc(ago(r.updated_at))}</small></a></li>`).join('')}</ul>` : ''}</section>`;
-
-  const actions = `<div class="acts">
-    <a class="act main" href="sourcing.html#/new">${I.sourcing}<div><b>New sourcing request</b><span>What the client wants made: specs, quantity, target price. The agent structures it and finds factories.</span></div></a>
-    <a class="act" href="ops.html#/new">${I.po}<div><b>New purchase order</b><span>One link for the factory: inspection for each product, then the loading check.</span></div></a>
-    <a class="act" href="app.html?go=check">${I.check}<div><b>Check a unit</b><span>Photograph one unit and compare it with its approved standard.</span></div></a>
-    <a class="act" href="app.html?go=new">${I.product}<div><b>Set up a product</b><span>From the official listing, or photos of a good unit.</span></div></a>
-    <a class="act" href="ops.html#/orders">${I.dock}<div><b>Receive a container</b><span>Seal, carton counts and damage, traced to factory or carrier.</span></div></a>
-    <a class="act" href="ops.html#/defects">${I.chart}<div><b>Defect report</b><span>The most frequent defects across every order.</span></div></a>
-    <a class="act" href="ops.html#/suppliers">${I.factory}<div><b>Supplier scorecards</b><span>Each factory's record: lots passed, shortages, damage.</span></div></a>
-  </div>`;
-
-  const feed = [
-    ...D.insps.filter(i => i.status === 'done').slice(0, 15).map(i => ({ at: i.created_at, cls: i.final_result || i.verdict, href: 'app.html', t: `${i.stage === 'arrival' ? 'Arrival check' : 'Factory check'}: ${i.product_name}${i.unit ? ', unit ' + i.unit : ''}`, s: (i.final_result || i.verdict || '').toLowerCase() })),
-    ...D.loads.filter(x => x.status === 'done').map(x => ({ at: x.checked_at, cls: x.result, href: 'ops.html#/po/' + x.po_id, t: `Container loaded: ${poNum(x.po_id)}`, s: `${x.container_no || ''}, ${String(x.result || '').toLowerCase()}` })),
-    ...D.receipts.filter(x => x.status === 'done').map(x => ({ at: x.checked_at, cls: x.result, href: 'ops.html#/po/' + x.po_id, t: `Received: ${poNum(x.po_id)}`, s: (x.ai && x.ai.summary) || '' })),
-    ...D.reqs.map(r => ({ at: r.created_at, cls: '', href: 'sourcing.html#/request/' + r.id, t: `Sourcing request: ${r.title}`, s: r.status })),
-    ...D.pos.map(p => ({ at: p.created_at, cls: '', href: 'ops.html#/po/' + p.id, t: `Order created: ${p.po_number}`, s: p.supplier_name || '' })),
-  ].filter(x => x.at).sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 12);
-
-  app.innerHTML = `<div class="hello"><div><h1>Home</h1><p>${open.length ? `${open.length} open order${open.length === 1 ? '' : 's'}${at.length ? `, ${at.length} need${at.length === 1 ? 's' : ''} your attention` : ', nothing needs your attention'}.` : 'From the factory floor to your dock.'}</p></div></div>
-  ${newUser ? `<section class="panel start"><h2>Get started</h2><ol>
-    <li><b>Set up a product</b><span>Paste the official product page or photograph a good unit. This becomes the approved standard.</span><br><a href="app.html?go=new">Set up a product</a></li>
-    <li><b>Create a purchase order</b><span>Add each product with its quantity and carton size.</span><br><a href="ops.html#/new">New purchase order</a></li>
-    <li><b>Send the factory its link</b><span>They inspect random units, then photograph the container as it's loaded.</span><br><a href="ops.html#/orders">Open orders</a></li>
-  </ol></section>` : corridor}
-  ${sourcing}
-  <div class="stats"><div class="panel"><b>${D.products.length}</b><span>Products with a standard</span></div><div class="panel"><b>${units.length}</b><span>Units checked, 30 days</span></div><div class="panel"><b>${units.length ? (failed / units.length * 100).toFixed(1) + '%' : '—'}</b><span>Units failed, 30 days</span></div><div class="panel"><b>${findings}</b><span>Defects found, 30 days</span></div></div>
-  <div class="cols">
-    <section>${at.length ? `<h2>Needs your attention</h2><ul class="att">${at.slice(0, 6).map(x => `<li><a class="${esc(x.att[0].level)}" href="ops.html#/po/${x.po.id}"><b>${esc(x.po.po_number)}</b><span>${esc(x.att.map(a => a.text).join('; '))}</span></a></li>`).join('')}</ul>` : ''}
-      <h2>Start something</h2>${actions}</section>
-    <section><h2>Recent activity</h2><div class="panel">${feed.length ? `<ul class="feed">${feed.map(f => `<li><a href="${esc(f.href)}"><i class="${esc(f.cls)}"></i><span class="t">${esc(f.t)}${f.s ? `<small>${esc(f.s.length > 90 ? f.s.slice(0, 89) + '…' : f.s)}</small>` : ''}</span><time datetime="${esc(f.at)}">${esc(ago(f.at))}</time></a></li>`).join('')}</ul>` : '<div class="empty">Checks, loading and receiving will show up here.</div>'}</div></section>
-  </div>
-  <footer>${esc(D.wsName || 'My workspace')}${D.email ? `, signed in as ${esc(D.email)}` : ', saved in this browser'}. <a href="site/">Defect Check website</a></footer>`;
+  const open = D.reqs.filter(r => r.status !== 'closed');
+  const counts = {}; open.forEach(r => { const k = r.client_id || 'none'; counts[k] = (counts[k] || 0) + 1; });
+  const shown = open.filter(r => tab === 'all' || (r.client_id || 'none') === tab);
+  const waiting = open.filter(r => ['intake', 'shortlisted', 'quoted', 'approved'].includes(r.status) || D.negs.some(n => n.request_id === r.id && n.status === 'waiting_us'));
+  const now = new Date();
+  const greet = now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening';
+  const openPos = D.pos.filter(p => !p.closed);
+  $('navClients').innerHTML = D.clients.map(c => `<a href="#" data-client="${c.id}"><i></i>${esc(c.company || c.name)}<b>${counts[c.id] || ''}</b></a>`).join('');
+  app.innerHTML = `<div class="hello"><h2>${greet}, Gary</h2><p>${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}. ${waiting.length ? `${waiting.length} request${waiting.length === 1 ? ' needs' : 's need'} you.` : open.length ? 'Nothing is waiting on you.' : 'No open requests yet.'}</p></div>
+  ${open.length ? `<div class="tabs" role="group" aria-label="Filter by client"><button data-tab="all" aria-pressed="${tab === 'all'}">All clients <span>${open.length}</span></button>${D.clients.filter(c => counts[c.id]).map(c => `<button data-tab="${c.id}" aria-pressed="${tab === c.id}">${esc(c.company || c.name)} <span>${counts[c.id]}</span></button>`).join('')}${counts.none ? `<button data-tab="none" aria-pressed="${tab === 'none'}">No client <span>${counts.none}</span></button>` : ''}</div>` : ''}
+  ${shown.length ? `<ul class="rows">${shown.map(r => { const [step, ring] = nextStep(r); const attn = waiting.includes(r);
+      return `<li><a class="row" href="sourcing.html#/request/${r.id}"><span class="ring ${ring}"></span><span class="t"><b>${esc(r.title)}</b><small>${esc(step)}${r.quantity ? `, ${Number(r.quantity).toLocaleString()} units` : ''}</small></span><span class="chips">${attn ? '<span class="tag dot" title="Needs you"></span>' : ''}${due(r.deadline)}${r.client_id ? `<span class="tag">${esc(clientName(r.client_id))}</span>` : ''}</span></a></li>`; }).join('')}</ul>`
+    : `<div class="dc-empty">${open.length ? 'Nothing for this client.' : 'Tell Operator what a client wants made, or <a href="sourcing.html#/new">create a request</a>. It structures the spec, finds factories and works out the landed cost.'}</div>`}
+  ${openPos.length ? `<div class="dc-sec">Orders in progress</div><ul class="rows">${openPos.map(p => `<li><a class="row" href="ops.html#/po/${p.id}"><span class="ring half"></span><span class="t"><b>${esc(p.po_number)}</b><small>${esc(p.supplier_name || 'Factory')}${p.supplier_city ? ', ' + esc(p.supplier_city) : ''}</small></span><span class="chips">${due(p.ship_by)}<span class="tag">Order</span></span></a></li>`).join('')}</ul>` : ''}`;
+  app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+  document.querySelectorAll('[data-client]').forEach(a => a.onclick = (e) => { e.preventDefault(); tab = a.dataset.client; render(); });
 }
-const poNum = id => (D.pos.find(p => p.id === id) || {}).po_number || 'order';
 
-async function load(sb, ws) {
-  const q = (t, sel = '*', order = 'created_at', lim = 1000) => sb.from(t).select(sel).eq('workspace_id', ws).order(order, { ascending: false }).limit(lim);
-  const r = await Promise.all([q('products', 'id, name', 'updated_at'), q('purchase_orders'), q('po_lines'), q('factory_sessions'), q('loading_checks', '*', 'started_at'), q('receipts'),
-    q('inspections', 'id, product_name, unit, stage, status, verdict, final_result, created_at', 'created_at', 300), q('defect_findings', 'in_spec, created_at', 'created_at', 5000), q('sourcing_requests', 'id, title, status, created_at, updated_at', 'updated_at', 200)]);
-  [D.products, D.pos, D.lines, D.sessions, D.loads, D.receipts, D.insps, D.findings, D.reqs] = r.map(x => x.data || []);
+async function load() {
+  const q = (t, sel, order) => sb.from(t).select(sel).eq('workspace_id', ws).order(order, { ascending: false }).limit(300);
+  const r = await Promise.all([
+    q('sourcing_requests', 'id, title, status, client_id, quantity, deadline, spec, updated_at', 'updated_at'),
+    q('clients', 'id, name, company', 'created_at'),
+    q('purchase_orders', 'id, po_number, supplier_name, supplier_city, ship_by, closed', 'created_at'),
+    q('negotiations', 'id, request_id, status', 'updated_at'),
+    q('quotes', 'id, request_id, released_to_client, status', 'created_at'),
+  ]);
+  [D.reqs, D.clients, D.pos, D.negs, D.quotes] = r.map(x => x.data || []);
 }
+
+// ---------- Operator ----------
+const LOG_KEY = 'dc-operator-log';
+let log = []; try { log = JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); } catch {}
+const saveLog = () => { try { localStorage.setItem(LOG_KEY, JSON.stringify(log.slice(-40))); } catch {} };
+const tm = (d) => new Date(d).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+const linkify = (s) => esc(s).replace(/\[([^\]]+)\]\(((?:sourcing|ops|app)\.html#\/[\w\/-]+)\)/g, '<a href="$2">$1</a>');
+function drawLog(busy) {
+  $('opLog').innerHTML = log.map(m => `<div class="msg"><span class="av ${m.role === 'op' ? 'op' : ''}">${m.role === 'op' ? IC.op : 'G'}</span><div><div class="who">${m.role === 'op' ? 'Operator' : 'You'}<time>${tm(m.at)}</time></div><div class="body">${linkify(m.text)}</div>${m.done ? `<span class="done">✓ ${esc(m.done)}</span>` : ''}</div></div>`).join('')
+    + (busy ? `<div class="msg"><span class="av op">${IC.op}</span><div><div class="who">Operator</div><div class="typing"><i></i><i></i><i></i></div></div></div>` : '');
+  $('opLog').scrollTop = $('opLog').scrollHeight;
+  const sug = ['Source 1,000 foldable camping chairs for SUNNYPRO, about $9.50 landed, needed by December', "What's waiting on me?", 'Add a client called Brightside Home'];
+  $('opSug').innerHTML = log.length || busy ? '' : sug.map(s => `<button type="button">${esc(s)}</button>`).join('');
+  $('opSug').querySelectorAll('button').forEach(b => b.onclick = () => send(b.textContent));
+}
+async function call(task, body) {
+  const { data, error } = await sb.functions.invoke('sourcing', { body: { task, ...body } });
+  if (error) { let m = error.message; try { const j = await error.context?.json(); if (j?.error) m = j.error; } catch {} throw new Error(m); }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+async function findOrMakeClient(name) {
+  if (!name) return null;
+  const n = name.toLowerCase();
+  const c = D.clients.find(x => [x.name, x.company].filter(Boolean).some(v => v.toLowerCase() === n || v.toLowerCase().includes(n) || n.includes(v.toLowerCase())));
+  if (c) return c.id;
+  const { data } = await sb.from('clients').insert({ workspace_id: ws, name, company: name }).select('id').single();
+  return data?.id || null;
+}
+async function send(text) {
+  text = text.trim(); if (!text || !sb) return;
+  log.push({ role: 'me', text, at: new Date().toISOString() }); saveLog(); drawLog(true);
+  $('opIn').value = ''; $('opSend').disabled = true;
+  try {
+    const out = await call('operator', { message: text, history: log.slice(-9, -1).map(m => ({ role: m.role === 'op' ? 'operator' : 'user', text: m.text })) });
+    const a = out.action; let reply = out.reply || 'Done.', done = '';
+    if (a?.type === 'create_request') {
+      const client_id = await findOrMakeClient(a.client_name);
+      const { data: r, error } = await sb.from('sourcing_requests').insert({ workspace_id: ws, client_id, title: a.title || 'New request', raw_brief: a.brief || text, quantity: a.quantity || null, target_unit_price: a.target_unit_price || null, deadline: a.deadline || null }).select('id').single();
+      if (error) throw error;
+      log.push({ role: 'op', text: reply, at: new Date().toISOString() }); saveLog(); await load(); render(); drawLog(true);
+      try {
+        const it = await call('intake', { request_id: r.id }); const sp = it.spec || {};
+        reply = `Spec is ready for [${a.title}](sourcing.html#/request/${r.id}).` + (sp.estimated_factory_price_cny ? ` Rough factory price is around ¥${sp.estimated_factory_price_cny} a unit.` : '') + (sp.questions?.length ? `\n\nBefore I search factories, the client should answer:\n${sp.questions.map((x, i) => `${i + 1}. ${x}`).join('\n')}` : ' Nothing is missing, so it can go straight to the factory search.');
+        done = 'Request created, intake done';
+      } catch (e) { reply = `I created [${a.title}](sourcing.html#/request/${r.id}), but intake failed: ${e.message}`; }
+    } else if (a?.type === 'create_client') {
+      const { data: c, error } = await sb.from('clients').insert({ workspace_id: ws, name: a.name, company: a.company || null, email: a.email || null }).select('portal_token').single();
+      if (error) throw error;
+      reply += `\n\nTheir portal link: ${new URL('portal.html?c=' + c.portal_token, location.href).href}`; done = 'Client added';
+    } else if (a?.type === 'open' && a.href) { reply += `\n\n[Open it](${a.href})`; }
+    log.push({ role: 'op', text: reply, at: new Date().toISOString(), done }); saveLog();
+    await load(); render();
+  } catch (e) {
+    log.push({ role: 'op', text: `That didn't work: ${e.message}`, at: new Date().toISOString() }); saveLog();
+  }
+  drawLog(false);
+}
+$('opForm').onsubmit = (e) => { e.preventDefault(); send($('opIn').value); };
+$('opIn').oninput = (e) => { $('opSend').disabled = !e.target.value.trim(); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 180) + 'px'; };
+$('opIn').onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send($('opIn').value); } };
+$('opClear').onclick = () => { log = []; saveLog(); drawLog(false); };
+drawLog(false);
+
 (async () => {
   if (!CFG.supabaseUrl || !window.supabase) { app.innerHTML = '<p>Setup needed: add your Supabase URL and anon key to config.js.</p>'; return; }
-  const sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
+  sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
   let { data: { session } } = await sb.auth.getSession();
   if (!session) { const { data, error } = await sb.auth.signInAnonymously(); if (error) { app.innerHTML = `<p>Could not open your workspace: ${esc(error.message)}</p>`; return; } session = data.session; }
   const { data: m } = await sb.from('workspace_members').select('workspace_id, workspaces(name)').eq('user_id', session.user.id).order('created_at').limit(1);
   if (!m || !m.length) { app.innerHTML = '<p>No workspace found for this account.</p>'; return; }
-  const ws = m[0].workspace_id; D.wsName = m[0].workspaces && m[0].workspaces.name; D.email = session.user.is_anonymous ? '' : session.user.email;
-  await load(sb, ws); render();
+  ws = m[0].workspace_id;
+  await load(); render();
   let t = null; const ch = sb.channel('home-' + ws);
-  ['purchase_orders', 'loading_checks', 'receipts', 'factory_sessions', 'inspections', 'products', 'sourcing_requests'].forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb, filter: 'workspace_id=eq.' + ws }, () => { clearTimeout(t); t = setTimeout(async () => { await load(sb, ws); render(); }, 500); }));
-  ch.subscribe(st => { $('#sync').textContent = st === 'SUBSCRIBED' ? 'Live' : 'Reconnecting…'; });
+  ['sourcing_requests', 'clients', 'purchase_orders', 'negotiations', 'quotes'].forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb, filter: 'workspace_id=eq.' + ws }, () => { clearTimeout(t); t = setTimeout(async () => { await load(); render(); }, 500); }));
+  ch.subscribe(st => { $('sync').textContent = st === 'SUBSCRIBED' ? (m[0].workspaces?.name || 'My workspace') + ', live' : 'Reconnecting…'; });
 })();
 })();
 </script>
