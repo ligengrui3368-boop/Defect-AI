@@ -1130,7 +1130,7 @@ render();
   if (FTOKEN) return startFactory(FTOKEN);
   sb.auth.onAuthStateChange((ev, session) => { if (session && !S.user) start(session); });
   const { data: { session } } = await sb.auth.getSession();
-  if (session) start(session); else { S.ready = true; S.route = { name: 'login' }; render(); }
+  if (session) start(session); else { S.ready = true; S.route = { name: 'login' }; setSync(); render(); }
 })();
 })();
 </script>
