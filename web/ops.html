@@ -168,10 +168,11 @@ textarea.i{min-height:72px;resize:vertical}
 <div class="shell">
   <nav class="rail" aria-label="Main">
     <div class="brand"><i aria-hidden="true"></i>Defect Check</div>
+    <a href="./">Home</a>
     <a href="#/orders" data-nav="orders">Orders <small id="navAtt"></small></a>
     <a href="#/defects" data-nav="defects">Defects</a>
     <a href="#/suppliers" data-nav="suppliers">Suppliers</a>
-    <a href="index.html">Products</a>
+    <a href="app.html">Products</a>
     <div class="grow"></div>
     <div class="meta" id="sync">Connecting…</div>
   </nav>
@@ -285,7 +286,7 @@ function newView() {
   setNav('orders'); document.title = 'New purchase order · Defect Check';
   const d = S.newPo || (S.newPo = { po_number: '', supplier_name: '', supplier_city: '', ship_by: '', eta: '', notes: '', lines: [{ product_id: '', qty: '', upc: '', cartons: '' }] });
   if (!S.products.length) {
-    app.innerHTML = `<div class="head"><h1>New purchase order</h1></div><div class="panel empty"><h3>Set up a product first</h3><p>Each order line is checked against a product's approved standard. Add your products (from the product page link or photos of a good unit), then come back here.</p><a class="btn primary" href="index.html">Set up products</a></div>`;
+    app.innerHTML = `<div class="head"><h1>New purchase order</h1></div><div class="panel empty"><h3>Set up a product first</h3><p>Each order line is checked against a product's approved standard. Add your products (from the product page link or photos of a good unit), then come back here.</p><a class="btn primary" href="app.html?go=new">Set up products</a></div>`;
     return;
   }
   const opts = id => `<option value="">Choose a product</option>${S.products.map(p => `<option value="${p.id}" ${p.id === id ? 'selected' : ''}>${esc(p.name)}${p.sku ? ' (' + esc(p.sku) + ')' : ''}</option>`).join('')}`;
@@ -350,7 +351,7 @@ function poView(id) {
   <section class="sec"><h2>Factory inspection <span>Random AQL sample per product, photographed live at the factory</span></h2>
   <div class="panel tablewrap"><table><thead><tr><th>Product</th><th class="num">Units</th><th class="num">Cartons</th><th>Sample</th><th>Result</th><th>Payment</th></tr></thead><tbody>
   ${st.ls.map((l, k) => { const s = st.ses[k]; const done = s ? S.insps.filter(i => i.session_id === s.id && i.status === 'done').length : 0; const fails = s ? S.insps.filter(i => i.session_id === s.id && (i.final_result || i.verdict) === 'FAIL').length : 0;
-    return `<tr><td><b>${esc(prodName(l.product_id))}</b><div class="mut sm">${esc((S.products.find(p => p.id === l.product_id) || {}).sku || '')}</div></td><td class="num">${n0(l.qty)}</td><td class="num">${n0(l.cartons)}</td><td>${s ? `${done} of ${s.sample_size} checked${fails ? `, <b style="color:var(--fail)">${fails} failed</b>` : ''}<div class="mut sm">passes with ${s.accept_major} or fewer failed</div>` : '<span class="mut">Factory hasn\'t started</span>'}</td><td>${s ? (s.status === 'done' ? badge(s.result) : badge('WAIT', 'Sampling')) : badge('WAIT', 'Not started')}</td><td>${s && s.buyer_decision ? badge(s.buyer_decision === 'release' ? 'PASS' : 'FAIL', s.buyer_decision === 'release' ? 'Released' : 'On hold') : s && s.status === 'done' ? '<a href="index.html" class="sm">Review units</a>' : ''}</td></tr>`; }).join('')}
+    return `<tr><td><b>${esc(prodName(l.product_id))}</b><div class="mut sm">${esc((S.products.find(p => p.id === l.product_id) || {}).sku || '')}</div></td><td class="num">${n0(l.qty)}</td><td class="num">${n0(l.cartons)}</td><td>${s ? `${done} of ${s.sample_size} checked${fails ? `, <b style="color:var(--fail)">${fails} failed</b>` : ''}<div class="mut sm">passes with ${s.accept_major} or fewer failed</div>` : '<span class="mut">Factory hasn\'t started</span>'}</td><td>${s ? (s.status === 'done' ? badge(s.result) : badge('WAIT', 'Sampling')) : badge('WAIT', 'Not started')}</td><td>${s && s.buyer_decision ? badge(s.buyer_decision === 'release' ? 'PASS' : 'FAIL', s.buyer_decision === 'release' ? 'Released' : 'On hold') : s && s.status === 'done' ? '<a href="app.html" class="sm">Review units</a>' : ''}</td></tr>`; }).join('')}
   </tbody></table></div></section>
 
   <section class="sec"><h2>Container loading <span>Photographed by the factory at each stage of loading</span></h2>${loadingHtml(po, st)}</section>
