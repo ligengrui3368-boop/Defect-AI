@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Your sourcing portal · Defect Check</title>
+<meta name="theme-color" content="#17222B">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil+Display:wght@800&display=swap" rel="stylesheet">
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+:root{--paper:#EDF0F0;--panel:#FFFFFF;--sunk:#E4E9EA;--ink:#17222B;--muted:#5B6870;--line:#DCE2E4;--line2:#C7D0D4;--harbor:#1F5F7A;--harbor-bg:#E1EEF3;--hivis:#F3C33A;--pass:#16794F;--fail:#B4271C;--review:#3F4FB0;--pass-bg:#E3F2EA;--fail-bg:#FBE7E4;--review-bg:#E8EAF8;--focus:#2457C5;--stencil:"Big Shoulders Stencil Display","Archivo",Impact,sans-serif;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--paper:#121A20;--panel:#1A242C;--sunk:#162027;--ink:#E6ECEF;--muted:#97A4AD;--line:#2A363E;--line2:#3A4751;--harbor:#6FB3D2;--harbor-bg:#17323F;--pass:#43BE8D;--fail:#F2695A;--review:#8E97F2;--pass-bg:#1D3A2F;--fail-bg:#40211E;--review-bg:#262B4D;--focus:#7AA7FF;color-scheme:dark}}
+:root[data-theme="dark"]{--paper:#121A20;--panel:#1A242C;--sunk:#162027;--ink:#E6ECEF;--muted:#97A4AD;--line:#2A363E;--line2:#3A4751;--harbor:#6FB3D2;--harbor-bg:#17323F;--pass:#43BE8D;--fail:#F2695A;--review:#8E97F2;--pass-bg:#1D3A2F;--fail-bg:#40211E;--review-bg:#262B4D;--focus:#7AA7FF;color-scheme:dark}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Archivo",system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;font-size:15.5px;line-height:1.5;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--paper);border-bottom:1px solid var(--line);padding:12px 18px;display:flex;align-items:center;gap:10px}
+.brand{font-weight:800;font-stretch:118%;display:flex;align-items:center;gap:8px}.brand i{width:12px;height:12px;border-radius:2px;background:var(--hivis);box-shadow:0 0 0 2px var(--ink)}
+.top .who{margin-left:auto;color:var(--muted);font-size:14px}
+main{max-width:860px;margin:0 auto;padding:22px 18px 120px}
+h1{font-size:26px;font-weight:800;font-stretch:112%;margin:0 0 4px}
+h2{font-size:17px;font-weight:800;margin:0 0 8px}h3{font-size:14.5px;font-weight:800;margin:16px 0 6px}
+.mut{color:var(--muted)}.sm{font-size:13.5px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-top:14px}
+.btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line2);background:var(--panel);border-radius:10px;padding:9px 15px;font-weight:700;font-size:14.5px;cursor:pointer;color:var(--ink)}
+.btn.primary{background:var(--ink);color:var(--panel);border-color:var(--ink)}.btn.sm{padding:6px 10px;font-size:13px}.btn:disabled{opacity:.45}
+.badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12.5px;font-weight:700;background:var(--sunk);color:var(--muted)}
+.b-pass{background:var(--pass-bg);color:var(--pass)}.b-fail{background:var(--fail-bg);color:var(--fail)}.b-rev{background:var(--review-bg);color:var(--review)}.b-harbor{background:var(--harbor-bg);color:var(--harbor)}
+label{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin:10px 0 4px}
+input,select,textarea{width:100%;border:1px solid var(--line2);background:var(--paper);border-radius:8px;padding:9px 11px}textarea{min-height:110px;resize:vertical}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 12px}@media (max-width:640px){.grid3{grid-template-columns:1fr}}
+.steps{display:grid;grid-template-columns:repeat(8,1fr);gap:3px;margin:12px 0}
+.steps div{font-size:11px;font-weight:700;text-align:center;padding:6px 2px;border-radius:5px;background:var(--sunk);color:var(--muted)}
+.steps div.on{background:var(--ink);color:var(--panel)}.steps div.done{background:var(--harbor-bg);color:var(--harbor)}
+@media (max-width:640px){.steps{grid-template-columns:repeat(4,1fr)}}
+.card{border:1px solid var(--line);border-radius:10px;padding:10px 13px;margin-top:8px}
+.kv{display:grid;grid-template-columns:140px 1fr;gap:3px 10px;font-size:14.5px}.kv b{color:var(--muted);font-weight:600}
+.chip{display:inline-block;background:var(--sunk);border-radius:6px;padding:2px 8px;margin:2px 4px 2px 0;font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:14px}td{padding:6px 8px;border-bottom:1px solid var(--line)}td.r{text-align:right}
+.num{font-family:var(--stencil);font-size:34px;line-height:1;font-weight:800}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+details summary{cursor:pointer;font-weight:700}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:10px 16px;border-radius:10px;font-weight:600;z-index:9}
+</style></head><body>
+<div class="top"><div class="brand"><i aria-hidden="true"></i>Defect Check</div><div class="who" id="who"></div></div>
+<main id="app"><p class="mut">Loading your portal…</p></main>
+<script>
+(() => {
+const CFG = window.DEFECT_CHECK_CONFIG || {};
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const app = document.getElementById('app'); const $ = (id) => document.getElementById(id);
+const fmt = (n, d = 2) => n == null || isNaN(n) ? '—' : Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+const usd = (n, d = 2) => n == null ? '—' : '$' + fmt(n, d);
+const dt = (s) => s ? new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+const STATUSES = ['intake', 'sourcing', 'shortlisted', 'negotiating', 'quoted', 'approved', 'ordered', 'closed'];
+const SLABEL = { intake: 'Received', sourcing: 'Finding factories', shortlisted: 'Shortlist', negotiating: 'Negotiating', quoted: 'Quote ready', approved: 'Approved', ordered: 'In production', closed: 'Done' };
+const EXPLAIN = { intake: 'We received your request and are structuring the spec. We may send you a few questions.', sourcing: 'Our agents are searching 1688 and other sources for factories that can make this, and checking they are real manufacturers.', shortlisted: 'Factories are shortlisted. We are contacting the best fits.', negotiating: 'We are negotiating price, MOQ, lead time and payment terms with the factories.', quoted: 'Your landed-cost quote is ready below. Every cost line is shown.', approved: 'You approved the quote. We are placing the order.', ordered: 'In production. Before the balance is paid, randomly sampled units are photo-inspected against your spec.', closed: 'This request is complete.' };
+const token = new URLSearchParams(location.search).get('c');
+let sb, data; let toastT; const toast = (m) => { let t = document.querySelector('.toast'); if (!t) { t = document.createElement('div'); t.className = 'toast'; document.body.appendChild(t); } t.textContent = m; clearTimeout(toastT); toastT = setTimeout(() => t.remove(), 3500); };
+
+const list = (a) => (a && a.length) ? a.map(x => `<span class="chip">${esc(x)}</span>`).join('') : '<span class="mut">—</span>';
+function steps(st) { const i = STATUSES.indexOf(st); return `<div class="steps">${STATUSES.map((s, k) => `<div class="${k < i ? 'done' : k === i ? 'on' : ''}">${SLABEL[s]}</div>`).join('')}</div>`; }
+function quoteRows(b) {
+  const row = (l, v, strong) => `<tr><td>${l}</td><td class="r">${strong ? '<b>' + v + '</b>' : v}</td></tr>`;
+  return `<table><tbody>${row('Goods (ex-works)', usd(b.goods_usd))}${row('Domestic freight', usd(b.domestic_freight_usd))}${b.vat_rebate_usd ? row('VAT rebate', '−' + usd(b.vat_rebate_usd)) : ''}${row('FOB value', usd(b.fob_usd), 1)}${row('International freight', usd(b.intl_freight_usd))}${row(`Duties &amp; tariffs (${fmt(b.duty_pct_total, 2)}%)`, usd(b.duty_usd))}${row('MPF', usd(b.mpf_usd))}${row('HMF', usd(b.hmf_usd))}${row('Customs broker', usd(b.broker_fee_usd))}${row('Insurance', usd(b.insurance_usd))}${row('Payment fees', usd(b.payment_fee_usd))}${row('Landed total', usd(b.landed_total_usd), 1)}${row('Landed cost per unit', usd(b.landed_unit_usd, 4), 1)}${row(`Defect Check commission (${fmt(b.commission_pct, 1)}%)`, usd(b.commission_usd))}${b.client_unit_price != null ? row('Your selling price per unit', usd(b.client_unit_price)) + row('Your profit per unit', usd(b.profit_unit_usd, 4), 1) : ''}</tbody></table>
+  ${b.margin_pct != null ? `<div style="margin-top:10px">Your margin at that price: <span class="num" style="color:${b.margin_pct < 0 ? 'var(--fail)' : b.margin_pct < 15 ? 'var(--review)' : 'var(--pass)'}">${fmt(b.margin_pct, 1)}%</span></div>` : ''}`;
+}
+
+function render() {
+  const c = data.client; $('who').textContent = c.company || c.name;
+  const reqs = data.requests || [];
+  app.innerHTML = `<h1>Hi ${esc(c.name.split(' ')[0])}</h1><p class="mut">Tell us what you want made. We find real factories, show you every cost down to the tariff, negotiate for you, and check the goods before you pay the balance.</p>
+  <div class="panel"><h2>New request</h2>
+    <label>What do you want to make?</label><input id="nTitle" placeholder="e.g. Foldable camping chair, 600D oxford, holds 150 kg">
+    <label>Details — specs, materials, sizes, colors, packaging, links to similar products, anything that matters</label><textarea id="nBrief"></textarea>
+    <div class="grid3"><div><label>Quantity</label><input id="nQty" type="number" min="1"></div><div><label>Your target cost per unit (USD, landed)</label><input id="nTarget" type="number" step="0.01"></div><div><label>Needed by</label><input id="nDead" type="date"></div></div>
+    <div class="bar" style="margin-top:14px"><button class="btn primary" id="nSend">Send request</button></div></div>
+  ${reqs.length ? reqs.map(r => {
+    const s = r.spec || {}; const open = r.requirements.filter(q => q.author === 'team' && q.kind === 'question' && !q.resolved);
+    return `<div class="panel"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">${esc(r.title)}</h2><span class="badge ${['approved', 'ordered', 'closed'].includes(r.status) ? 'b-pass' : r.status === 'quoted' ? 'b-harbor' : ''}">${SLABEL[r.status]}</span></div>
+      ${steps(r.status)}<p class="sm">${EXPLAIN[r.status]}</p>
+      ${s.summary ? `<details><summary>Spec we are working from</summary><p>${esc(s.summary)}</p><div class="kv">${s.materials ? `<b>Materials</b><span>${list(s.materials)}</span>` : ''}${s.dimensions ? `<b>Dimensions</b><span>${esc(s.dimensions)}</span>` : ''}${s.colors ? `<b>Colors</b><span>${list(s.colors)}</span>` : ''}${s.features ? `<b>Features</b><span>${list(s.features)}</span>` : ''}${s.packaging ? `<b>Packaging</b><span>${esc(s.packaging)}</span>` : ''}${s.certifications?.length ? `<b>Certifications</b><span>${list(s.certifications)}</span>` : ''}${s.must_haves ? `<b>Must-haves</b><span>${list(s.must_haves)}</span>` : ''}${s.defects_to_watch ? `<b>QC will check for</b><span>${list(s.defects_to_watch)}</span>` : ''}<b>Quantity</b><span>${fmt(r.quantity, 0)}</span><b>Needed by</b><span>${dt(r.deadline)}</span></div><p class="sm mut">Something wrong or missing? Add it below and it becomes part of the spec and the inspection.</p></details>` : ''}
+      ${open.length ? `<h3>Questions from us</h3>${open.map(q => `<div class="card" style="border-color:var(--review)">${esc(q.body)}</div>`).join('')}` : ''}
+      ${r.candidates.length ? `<h3>Shortlisted factories</h3>${r.candidates.map(k => `<div class="card bar" style="justify-content:space-between"><div><b>${esc(k.name || 'Factory')}</b> <span class="sm mut">${esc(k.city || '')}</span></div><div>${k.is_verified_factory === true ? '<span class="badge b-pass">verified factory</span>' : k.is_verified_factory === false ? '<span class="badge b-fail">trader</span>' : '<span class="badge">verification pending</span>'} <span class="badge">${esc(k.status)}</span></div></div>`).join('')}` : ''}
+      ${r.quotes.length ? `<h3>Your quote${r.quotes.length > 1 ? 's' : ''}</h3>${r.quotes.map(q => `<div class="card"><div class="sm mut">${dt(q.created_at)} · ${esc(q.status)}</div>${quoteRows(q.breakdown || {})}${q.status === 'sent' ? `<div class="bar" style="margin-top:10px"><button class="btn primary" data-approve="${r.id}" data-q="${q.id}">Approve this quote</button><button class="btn" data-ask="${r.id}">Ask a question</button></div>` : ''}</div>`).join('')}` : ''}
+      ${r.orders.length ? `<h3>Order</h3>${r.orders.map(o => `<div class="card"><b>${esc(o.status)}</b> · ${fmt(o.qty, 0)} units · deposit ${o.deposit_paid ? 'paid' : 'pending'} · balance ${o.balance_paid ? 'paid' : 'held until inspection passes'}<div class="sm mut">Randomly sampled units are photo-inspected before the balance is released. The factory cannot choose which units are checked.</div></div>`).join('')}` : ''}
+      <h3>Your requirements &amp; notes</h3>
+      ${r.requirements.filter(q => !(q.author === 'team' && q.kind === 'question')).length ? r.requirements.filter(q => !(q.author === 'team' && q.kind === 'question')).map(q => `<div class="card" style="padding:7px 12px"><span class="badge ${q.kind === 'defect_to_watch' ? 'b-fail' : q.kind === 'approval' ? 'b-pass' : q.kind === 'question' ? 'b-rev' : ''}">${esc(q.kind.replace('_', ' '))}</span> <span class="sm mut">${q.author === 'client' ? 'you' : 'Defect Check'} · ${dt(q.created_at)}</span><div>${esc(q.body)}</div></div>`).join('') : '<p class="sm mut">None yet.</p>'}
+      <div class="bar" style="margin-top:10px"><select data-kind="${r.id}" class="btn sm" style="width:auto"><option value="requirement">Requirement</option><option value="defect_to_watch">Mistake to watch for</option><option value="question">Question</option></select><input data-body="${r.id}" placeholder="e.g. Logo must be centered within 2 mm; last supplier shipped scratched legs" style="flex:1;min-width:200px"><button class="btn sm primary" data-add="${r.id}">Add</button></div>
+    </div>`; }).join('') : '<p class="mut" style="margin-top:18px">No requests yet. Send your first one above.</p>'}`;
+  wire();
+}
+async function reload() { const { data: d, error } = await sb.rpc('portal_view', { p_token: token }); if (error || !d) { app.innerHTML = '<p>This portal link is not valid or has been turned off. Ask your Defect Check contact for a new one.</p>'; return false; } data = d; render(); return true; }
+function wire() {
+  $('nSend').onclick = async (e) => { const title = $('nTitle').value.trim(); if (!title) return toast('Tell us what you want made'); e.target.disabled = true;
+    const { error } = await sb.rpc('portal_new_request', { p_token: token, p_title: title, p_brief: $('nBrief').value, p_quantity: +$('nQty').value || null, p_target_price: +$('nTarget').value || null, p_deadline: $('nDead').value || null }); e.target.disabled = false; if (error) return toast(error.message); toast('Request sent'); await reload(); };
+  document.querySelectorAll('[data-add]').forEach(b => b.onclick = async () => { const id = b.dataset.add; const body = document.querySelector(`[data-body="${id}"]`).value.trim(); if (!body) return; const kind = document.querySelector(`[data-kind="${id}"]`).value; const { error } = await sb.rpc('portal_add_requirement', { p_token: token, p_request_id: id, p_kind: kind, p_body: body }); if (error) return toast(error.message); await reload(); });
+  document.querySelectorAll('[data-approve]').forEach(b => b.onclick = async () => { const { error } = await sb.rpc('portal_add_requirement', { p_token: token, p_request_id: b.dataset.approve, p_kind: 'approval', p_body: 'Quote approved by client (quote ' + b.dataset.q.slice(0, 8) + '). Please proceed.' }); if (error) return toast(error.message); toast('Approved. We will confirm the order.'); await reload(); });
+  document.querySelectorAll('[data-ask]').forEach(b => b.onclick = () => { const i = document.querySelector(`[data-body="${b.dataset.ask}"]`); document.querySelector(`[data-kind="${b.dataset.ask}"]`).value = 'question'; i.focus(); i.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+}
+(async () => {
+  if (!token) { app.innerHTML = '<p>Open this page from the link your Defect Check contact sent you.</p>'; return; }
+  if (!CFG.supabaseUrl || !window.supabase) { app.innerHTML = '<p>Setup needed: config.js is missing.</p>'; return; }
+  sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
+  if (await reload()) setInterval(reload, 30000);
+})();
+})();
+</script>
+</body></html>
