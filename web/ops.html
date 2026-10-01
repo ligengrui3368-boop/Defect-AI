@@ -257,7 +257,7 @@ function poState(po) {
 }
 function routeHtml(po, big) {
   const st = poState(po);
-  const when = [po.created_at, (st.ses.find(Boolean) || {}).created_at, st.stage >= 2 ? Math.max(...st.ses.map(s => new Date(s.finished_at || 0).getTime())) : null, st.lc && st.lc.checked_at, st.rc && st.rc.checked_at];
+  const when = [po.created_at, (st.ses.find(Boolean) || {}).created_at, st.stage >= 2 ? Math.max(0, ...st.ses.filter(Boolean).map(s => new Date(s.finished_at || 0).getTime())) : null, st.lc && st.lc.checked_at, st.rc && st.rc.checked_at];
   const pct = st.stage / 4 * 100;
   return `<div class="route ${big ? 'big' : 'compact'}" role="img" aria-label="Stage: ${STOPS[st.stage]}"><div class="fill" style="width:calc(${pct}% - ${pct ? 12 : 0}px)"></div>${STOPS.map((s, k) => {
     const cls = st.bad.has(k) ? 'bad' : k < st.stage || (k === 4 && st.stage === 4) ? 'done' : k === st.stage ? 'now' : '';
@@ -642,7 +642,7 @@ function live() { clearTimeout(rt); rt = setTimeout(async () => { await reloadAl
   const { data: codes } = await sb.from('defect_codes').select('*').order('sort'); S.codes = codes || [];
   await reloadAll();
   const ch = sb.channel('ops-' + S.ws);
-  ['purchase_orders', 'po_lines', 'loading_checks', 'receipts', 'factory_sessions', 'inspections'].forEach(t => ch.on('postgres_changes', { event: '*', schema: 'public', table: t, filter: 'workspace_id=eq.' + S.ws }, live));
+  ['purchase_orders', 'po_lines', 'loading_checks', 'receipts', 'factory_sessions', 'inspections', 'products', 'factory_links'].forEach(t => ch.on('postgres_changes', { event: '*', schema: 'public', table: t, filter: 'workspace_id=eq.' + S.ws }, live));
   ch.subscribe(st => { $('#sync').textContent = st === 'SUBSCRIBED' ? 'Live' : 'Reconnecting…'; });
   render();
 })();
