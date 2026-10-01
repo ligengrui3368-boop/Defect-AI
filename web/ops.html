@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Orders, Defect Check</title>
+<meta name="theme-color" content="#17222B">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil+Display:wght@700;800&display=swap" rel="stylesheet">
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+:root{--paper:#EDF0F0;--panel:#FFFFFF;--sunk:#E4E9EA;--ink:#17222B;--muted:#5B6870;--line:#DCE2E4;--line2:#C7D0D4;--harbor:#1F5F7A;--harbor-bg:#E1EEF3;--hivis:#F3C33A;--pass:#16794F;--fail:#B4271C;--review:#3F4FB0;--warn:#9A6700;--pass-bg:#E3F2EA;--fail-bg:#FBE7E4;--review-bg:#E8EAF8;--warn-bg:#FBF0D9;--focus:#2457C5;--stencil:"Big Shoulders Stencil Display","Archivo",Impact,"Arial Narrow",sans-serif;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--paper:#121A20;--panel:#1A242C;--sunk:#162027;--ink:#E6ECEF;--muted:#97A4AD;--line:#2A363E;--line2:#3A4751;--harbor:#6FB3D2;--harbor-bg:#17323F;--hivis:#F3C33A;--pass:#43BE8D;--fail:#F2695A;--review:#8E97F2;--warn:#E4AE35;--pass-bg:#1D3A2F;--fail-bg:#40211E;--review-bg:#262B4D;--warn-bg:#3A2F15;--focus:#7AA7FF;color-scheme:dark}}
+:root[data-theme="dark"]{--paper:#121A20;--panel:#1A242C;--sunk:#162027;--ink:#E6ECEF;--muted:#97A4AD;--line:#2A363E;--line2:#3A4751;--harbor:#6FB3D2;--harbor-bg:#17323F;--hivis:#F3C33A;--pass:#43BE8D;--fail:#F2695A;--review:#8E97F2;--warn:#E4AE35;--pass-bg:#1D3A2F;--fail-bg:#40211E;--review-bg:#262B4D;--warn-bg:#3A2F15;--focus:#7AA7FF;color-scheme:dark}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;min-height:100%;background:var(--paper);color:var(--ink);font-family:"Archivo",system-ui,-apple-system,"Segoe UI","PingFang SC","Noto Sans SC","Microsoft YaHei",Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+a{color:var(--harbor)}
+.shell{display:grid;grid-template-columns:216px 1fr;min-height:100vh}
+.rail{position:sticky;top:0;height:100vh;padding:20px 14px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:4px;background:var(--paper)}
+.brand{font-weight:800;font-stretch:118%;font-size:17px;padding:4px 10px 18px;display:flex;align-items:center;gap:8px}
+.brand i{width:12px;height:12px;border-radius:2px;background:var(--hivis);box-shadow:0 0 0 2px var(--ink)}
+.rail a{display:flex;justify-content:space-between;align-items:center;text-decoration:none;color:var(--ink);padding:9px 10px;border-radius:8px;font-weight:600}
+.rail a:hover{background:var(--sunk)}
+.rail a[aria-current="page"]{background:var(--panel);box-shadow:inset 3px 0 0 var(--harbor)}
+.rail a small{font-weight:700;color:var(--fail);font-size:12px}
+.rail .grow{flex:1}
+.rail .meta{font-size:12.5px;color:var(--muted);padding:0 10px}
+main{padding:28px 32px 80px;max-width:1240px;width:100%}
+.head{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.head h1{margin:0;font-size:26px;font-weight:800;font-stretch:112%;letter-spacing:-.01em;flex:1;min-width:220px}
+.head p{margin:2px 0 0;color:var(--muted)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line2);background:var(--panel);border-radius:8px;padding:9px 14px;font-weight:700;font-size:14.5px;cursor:pointer;text-decoration:none;color:var(--ink);min-height:40px;white-space:nowrap}
+.btn:hover{border-color:var(--ink)}
+.btn.primary{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.btn.blue{background:var(--harbor);color:#fff;border-color:var(--harbor)}
+.btn.small{padding:5px 10px;min-height:32px;font-size:13.5px}
+.btn.danger{color:var(--fail)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.chip{border:1px solid var(--line2);background:transparent;border-radius:999px;padding:5px 12px;font-weight:600;font-size:13.5px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.sec{margin-top:26px}
+.sec>h2{font-size:17px;font-weight:800;font-stretch:108%;margin:0 0 10px;display:flex;align-items:baseline;gap:10px}
+.sec>h2 span{font-size:13.5px;font-weight:500;color:var(--muted)}
+table{width:100%;border-collapse:collapse}
+th{font-weight:600;color:var(--muted);font-size:13px;text-align:left;padding:10px 14px;border-bottom:1px solid var(--line)}
+td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right}
+tr.click{cursor:pointer}
+tr.click:hover td{background:var(--sunk)}
+.tablewrap{overflow-x:auto}
+.po{font-family:var(--stencil);font-weight:800;font-size:22px;letter-spacing:.02em;line-height:1}
+.po.big{font-size:56px}
+.mut{color:var(--muted)}
+.sm{font-size:13px}
+.badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12.5px;font-weight:700;white-space:nowrap}
+.b-PASS{background:var(--pass-bg);color:var(--pass)}.b-FAIL{background:var(--fail-bg);color:var(--fail)}.b-REVIEW{background:var(--review-bg);color:var(--review)}.b-WAIT{background:var(--sunk);color:var(--muted)}.b-WARN{background:var(--warn-bg);color:var(--warn)}
+.route{display:grid;grid-template-columns:repeat(5,1fr);position:relative;min-width:240px}
+.route::before{content:"";position:absolute;left:6px;right:6px;top:5px;height:2px;background:var(--line2)}
+.route .fill{position:absolute;left:6px;top:5px;height:2px;background:var(--ink)}
+.route .stop{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.route .stop:last-child{align-items:flex-end}
+.route .dot{width:12px;height:12px;border-radius:50%;background:var(--panel);border:2px solid var(--line2);position:relative;z-index:1}
+.route .stop.done .dot{background:var(--ink);border-color:var(--ink)}
+.route .stop.now .dot{background:var(--hivis);border-color:var(--ink);box-shadow:0 0 0 3px color-mix(in srgb,var(--hivis) 35%,transparent)}
+.route .stop.bad .dot{background:var(--fail);border-color:var(--fail)}
+.route .lab{font-size:12px;color:var(--muted);white-space:nowrap}
+.route.compact .lab{display:none}
+.route.big{grid-template-columns:repeat(5,1fr);margin:26px 0 8px}
+.route.big::before,.route.big .fill{top:8px;height:3px}
+.route.big .dot{width:18px;height:18px}
+.route.big .lab{font-size:14px;color:var(--ink);font-weight:700}
+.route.big .when{font-size:12.5px;color:var(--muted);font-weight:500}
+.hero{padding:22px 24px}
+.hero .top{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
+.hero .id{flex:1;min-width:240px}
+.hero .facts{display:flex;gap:22px;flex-wrap:wrap;margin-top:10px;color:var(--muted);font-size:14px}
+.hero .facts b{color:var(--ink);font-weight:700}
+.acts{display:flex;gap:8px;flex-wrap:wrap}
+.att{display:flex;flex-direction:column;gap:6px;margin-top:14px}
+.att div{padding:8px 12px;border-radius:8px;font-size:14px}
+.att .FAIL{background:var(--fail-bg);color:var(--fail)}.att .REVIEW{background:var(--review-bg);color:var(--review)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.box{padding:16px 18px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:14px}
+.kv dt{color:var(--muted)}.kv dd{margin:0;font-weight:600}
+.ctn{font-family:var(--stencil);font-weight:800;font-size:34px;letter-spacing:.04em;line-height:1}
+.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px}
+.ph{margin:0;position:relative;border-radius:8px;overflow:hidden;background:var(--sunk);aspect-ratio:4/3;cursor:zoom-in}
+.ph img{width:100%;height:100%;object-fit:cover;display:block}
+.ph figcaption{position:absolute;left:0;right:0;bottom:0;padding:16px 8px 6px;font-size:12px;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.65))}
+.ph i{position:absolute;border:2px solid var(--hivis);border-radius:3px;box-shadow:0 0 0 1px rgba(0,0,0,.5)}
+.issues{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.issues li{padding:8px 12px;border-radius:8px;background:var(--sunk);font-size:14px;display:flex;gap:10px;align-items:baseline}
+.issues li.FAIL{background:var(--fail-bg)}.issues li.REVIEW{background:var(--review-bg)}
+.who{font-size:12px;font-weight:700;border-radius:4px;padding:1px 6px;background:var(--panel);white-space:nowrap}
+.checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px 18px;margin-top:10px;font-size:14px}
+.checks span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;background:var(--muted)}
+.checks .pass::before{background:var(--pass)}.checks .fail::before{background:var(--fail)}.checks .unclear::before{background:var(--warn)}
+.empty{padding:40px 24px;text-align:center}
+.empty h3{margin:0 0 6px;font-size:18px}
+.empty p{margin:0 auto 16px;color:var(--muted);max-width:52ch}
+label.f{display:flex;flex-direction:column;gap:5px;font-weight:600;font-size:13.5px}
+.i{border:1px solid var(--line2);background:var(--panel);border-radius:8px;padding:9px 11px;min-height:40px;width:100%}
+textarea.i{min-height:72px;resize:vertical}
+.form{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.form .w2{grid-column:span 2}.form .w4{grid-column:1/-1}
+.lines td{padding:8px 10px}
+.lines .i{min-height:36px;padding:6px 9px}
+.bars{display:flex;flex-direction:column;gap:7px}
+.bar{display:grid;grid-template-columns:minmax(150px,240px) 1fr 70px;gap:12px;align-items:center;font-size:14px}
+.bar .t{display:flex;gap:8px;align-items:baseline;min-width:0}
+.bar .t code{font-family:inherit;font-weight:800;font-stretch:112%;font-size:12.5px;background:var(--sunk);border-radius:4px;padding:1px 6px}
+.bar .t span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar .track{height:14px;background:var(--sunk);border-radius:3px;position:relative;overflow:hidden}
+.bar .track b{position:absolute;inset:0 auto 0 0;background:var(--harbor);border-radius:3px}
+.bar .track b.crit{background:var(--fail)}
+.bar .n{text-align:right;font-weight:700}
+.bar .n small{display:block;font-weight:500;color:var(--muted);font-size:12px}
+.stat{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.stat .panel{padding:14px 16px}
+.stat b{display:block;font-size:24px;font-weight:800;font-stretch:108%}
+.stat span{font-size:13px;color:var(--muted)}
+.steps{display:flex;flex-direction:column;gap:14px}
+.step{padding:16px 18px}
+.step h3{margin:0 0 10px;font-size:16px;display:flex;gap:10px;align-items:baseline}
+.step h3 em{font-style:normal;font-weight:800;width:24px;height:24px;border-radius:50%;background:var(--ink);color:var(--panel);display:inline-grid;place-items:center;font-size:13px;flex:none}
+.adds{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+.stepper{display:inline-flex;align-items:center;border:1px solid var(--line2);border-radius:8px;overflow:hidden}
+.stepper button{border:0;background:var(--sunk);width:36px;height:36px;font-weight:800;cursor:pointer}
+.stepper input{width:70px;border:0;text-align:center;height:36px;background:var(--panel)}
+.dmg{border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;grid-template-columns:1fr 120px 1fr auto;gap:10px;align-items:end;margin-top:10px}
+.dmg .photos{grid-column:1/-1}
+.thumbs{display:flex;gap:6px;flex-wrap:wrap}
+.thumbs .ph{width:84px;aspect-ratio:1}
+.thumbs .x{position:absolute;top:2px;right:2px;border:0;background:rgba(0,0,0,.6);color:#fff;border-radius:50%;width:22px;height:22px;cursor:pointer;line-height:1}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:10px 16px;border-radius:8px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s;z-index:50;max-width:90vw}
+#toast.on{opacity:1}
+.lb{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:40;padding:20px;cursor:zoom-out}
+.lb.on{display:flex}
+.lb .wrap{position:relative;max-width:100%;max-height:100%}
+.lb img{max-width:92vw;max-height:88vh;display:block}
+.lb i{position:absolute;border:3px solid var(--hivis)}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line2);border-top-color:var(--harbor);border-radius:50%;animation:sp 0.9s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}#toast{transition:none}}
+@media (max-width:900px){
+  .shell{grid-template-columns:1fr}
+  .rail{position:sticky;top:0;height:auto;flex-direction:row;align-items:center;overflow-x:auto;padding:8px 10px;border-right:0;border-bottom:1px solid var(--line);z-index:10}
+  .brand{padding:0 8px 0 2px}
+  .rail .grow,.rail .meta{display:none}
+  .rail a{white-space:nowrap}
+  main{padding:18px 14px 80px}
+  .grid2,.stat{grid-template-columns:1fr 1fr}
+  .form{grid-template-columns:1fr 1fr}
+  .po.big{font-size:40px}
+  .dmg{grid-template-columns:1fr 1fr}
+  .bar{grid-template-columns:1fr 70px}.bar .track{grid-column:1/-1;grid-row:2}
+}
+@media (max-width:560px){.grid2,.stat,.form{grid-template-columns:1fr}.form .w2{grid-column:auto}.route.big .lab{font-size:12px}.route.big .when{display:none}}
+</style></head><body>
+<div class="shell">
+  <nav class="rail" aria-label="Main">
+    <div class="brand"><i aria-hidden="true"></i>Defect Check</div>
+    <a href="#/orders" data-nav="orders">Orders <small id="navAtt"></small></a>
+    <a href="#/defects" data-nav="defects">Defects</a>
+    <a href="#/suppliers" data-nav="suppliers">Suppliers</a>
+    <a href="index.html">Products</a>
+    <div class="grow"></div>
+    <div class="meta" id="sync">Connecting…</div>
+  </nav>
+  <main id="app"><p class="mut">Loading…</p></main>
+</div>
+<div id="toast" role="status"></div>
+<div class="lb" id="lb"><div class="wrap"><img alt="Enlarged photo"></div></div>
+<input type="file" id="camIn" accept="image/*" capture="environment" hidden>
+<input type="file" id="libIn" accept="image/*" multiple hidden>
+<script>
+(() => {
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const app = $('#app');
+const CFG = window.DEFECT_CHECK_CONFIG || {};
+let sb = null;
+const S = { ws: null, products: [], pos: [], lines: [], links: [], sessions: [], loads: [], receipts: [], insps: [], findings: [], codes: [], filter: 'all', dfilter: { days: 90, stage: 'all', supplier: '' }, rx: null };
+const URLS = new Map();
+const STOPS = ['Ordered', 'In production', 'Inspected', 'Loaded', 'Received'];
+const LOAD_STEP_NAMES = { empty: 'Empty container', number: 'Container number', half: 'Half loaded', full: 'Fully loaded', marks: 'Carton marks', sealed: 'Doors sealed', seal: 'Seal close-up' };
+const ORIGIN = { factory: 'Factory', transit: 'Carrier', unclear: 'Unclear', loading: 'Factory', none: '' };
+
+// ---------- small helpers ----------
+function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('on'), 3200); }
+const fmtDate = d => d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+const fmtDT = d => d ? new Date(d).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+const n0 = v => (+v || 0).toLocaleString();
+const badge = (r, label) => `<span class="badge b-${esc(r || 'WAIT')}">${esc(label || ({ PASS: 'Passed', FAIL: 'Failed', REVIEW: 'Needs review' }[r] || r || 'Waiting'))}</span>`;
+const codeName = c => (S.codes.find(x => x.code === c) || {}).name_en || c;
+const prodName = id => (S.products.find(p => p.id === id) || {}).name || 'Product';
+const linesOf = po => S.lines.filter(l => l.po_id === po.id).sort((a, b) => a.seq - b.seq);
+const sessionOf = l => S.sessions.find(s => s.link_id === l.link_id && s.status !== 'cancelled');
+const loadingOf = po => S.loads.find(x => x.po_id === po.id && x.status !== 'cancelled');
+const receiptOf = po => S.receipts.find(x => x.po_id === po.id);
+const hubUrl = po => location.href.replace(/[#?].*$/, '').replace(/[^/]*$/, '') + 'po.html?t=' + po.token;
+async function sign(paths) {
+  const need = [...new Set(paths.filter(p => p && !URLS.has(p)))];
+  for (let i = 0; i < need.length; i += 100) {
+    const { data } = await sb.storage.from('photos').createSignedUrls(need.slice(i, i + 100), 60 * 60 * 6);
+    (data || []).forEach(x => { if (x.signedUrl && x.path) URLS.set(x.path, x.signedUrl); });
+  }
+}
+const url = p => URLS.get(p) || '';
+function photoFig(path, caption, boxes = []) {
+  const u = url(path);
+  return `<figure class="ph" data-zoom="${esc(path)}" data-boxes='${esc(JSON.stringify(boxes))}'>${u ? `<img src="${esc(u)}" alt="${esc(caption || 'Photo')}" loading="lazy">` : ''}${boxes.map(b => `<i style="left:${b[0] * 100}%;top:${b[1] * 100}%;width:${b[2] * 100}%;height:${b[3] * 100}%"></i>`).join('')}${caption ? `<figcaption>${esc(caption)}</figcaption>` : ''}</figure>`;
+}
+async function prepImage(file) {
+  let src; try { src = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch { src = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = URL.createObjectURL(file); }); }
+  const k = Math.min(1, 1600 / Math.max(src.width, src.height)), c = document.createElement('canvas');
+  c.width = Math.round(src.width * k); c.height = Math.round(src.height * k); c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+  return await new Promise(r => c.toBlob(r, 'image/jpeg', .86));
+}
+function pickFiles(camera) {
+  return new Promise(res => {
+    const inp = camera ? $('#camIn') : $('#libIn'); inp.value = '';
+    inp.onchange = () => res([...inp.files]); inp.click();
+  });
+}
+async function callQc(body) {
+  const { data: { session } } = await sb.auth.getSession();
+  const r = await fetch(CFG.supabaseUrl + '/functions/v1/qc', { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: CFG.supabaseAnonKey, Authorization: 'Bearer ' + (session ? session.access_token : CFG.supabaseAnonKey) }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('Request failed (' + r.status + ')'));
+  return j;
+}
+
+// ---------- PO status ----------
+function poState(po) {
+  const ls = linesOf(po), ses = ls.map(sessionOf), lc = loadingOf(po), rc = receiptOf(po);
+  let stage = 0; const bad = new Set();
+  if (ses.some(Boolean)) stage = 1;
+  if (ls.length && ses.every(s => s && s.status === 'done')) stage = 2;
+  if (lc && lc.status === 'done') stage = 3;
+  if (rc && rc.status === 'done') stage = 4;
+  const att = [];
+  ls.forEach((l, k) => { const s = ses[k]; if (s && s.status === 'done' && s.result !== 'PASS' && !s.buyer_decision) { att.push({ level: s.result, text: `${prodName(l.product_id)}: factory lot ${s.result === 'FAIL' ? 'failed' : 'needs review'}` }); bad.add(2); } });
+  if (lc && lc.status === 'done' && lc.result !== 'PASS') { att.push({ level: lc.result, text: `Container loading ${lc.result === 'FAIL' ? 'failed' : 'needs review'}` }); bad.add(3); }
+  if (lc && lc.status === 'error') att.push({ level: 'REVIEW', text: 'Loading check could not run: ' + (lc.error || '') });
+  if (rc && rc.status === 'done' && rc.result !== 'PASS') { att.push({ level: rc.result, text: `Receiving: ${(rc.ai && rc.ai.summary) || 'exceptions found'}` }); bad.add(4); }
+  if (rc && rc.status === 'error') att.push({ level: 'REVIEW', text: 'Receiving check could not run: ' + (rc.error || '') });
+  return { stage, att, bad, ls, ses, lc, rc };
+}
+function routeHtml(po, big) {
+  const st = poState(po);
+  const when = [po.created_at, (st.ses.find(Boolean) || {}).created_at, st.stage >= 2 ? Math.max(...st.ses.map(s => new Date(s.finished_at || 0).getTime())) : null, st.lc && st.lc.checked_at, st.rc && st.rc.checked_at];
+  const pct = st.stage / 4 * 100;
+  return `<div class="route ${big ? 'big' : 'compact'}" role="img" aria-label="Stage: ${STOPS[st.stage]}"><div class="fill" style="width:calc(${pct}% - ${pct ? 12 : 0}px)"></div>${STOPS.map((s, k) => {
+    const cls = st.bad.has(k) ? 'bad' : k < st.stage || (k === 4 && st.stage === 4) ? 'done' : k === st.stage ? 'now' : '';
+    return `<div class="stop ${cls}"><span class="dot"></span><span class="lab">${esc(s)}${big && when[k] && k <= st.stage ? `<br><span class="when">${esc(fmtDate(when[k]))}</span>` : ''}</span></div>`;
+  }).join('')}</div>`;
+}
+
+// ---------- views ----------
+function setNav(name) { document.querySelectorAll('[data-nav]').forEach(a => { if (a.dataset.nav === name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); }); }
+function ordersView() {
+  setNav('orders'); document.title = 'Orders · Defect Check';
+  const rows = S.pos.filter(p => !p.closed || S.filter === 'closed').map(po => ({ po, st: poState(po) }));
+  const f = S.filter;
+  const shown = rows.filter(({ po, st }) => f === 'all' ? !po.closed : f === 'att' ? st.att.length && !po.closed : f === 'prod' ? st.stage <= 2 && !po.closed : f === 'water' ? st.stage === 3 : f === 'recv' ? st.stage === 4 : f === 'closed' ? po.closed : true);
+  const count = k => rows.filter(({ po, st }) => k === 'att' ? st.att.length && !po.closed : true).length;
+  app.innerHTML = `<div class="head"><div style="flex:1"><h1>Purchase orders</h1><p>Every order from factory floor to your dock.</p></div><a class="btn primary" href="#/new">New purchase order</a></div>
+  <div class="chips" role="group" aria-label="Filter orders">${[['all', 'All open'], ['att', `Needs attention${count('att') ? ' (' + count('att') + ')' : ''}`], ['prod', 'At the factory'], ['water', 'Loaded'], ['recv', 'Received'], ['closed', 'Closed']].map(([k, t]) => `<button class="chip" data-a="filter" data-k="${k}" aria-pressed="${f === k}">${esc(t)}</button>`).join('')}</div>
+  ${S.pos.length ? (shown.length ? `<div class="panel tablewrap"><table><thead><tr><th>Order</th><th>Supplier</th><th class="num">SKUs</th><th class="num">Units</th><th style="min-width:260px">Progress</th><th>Status</th></tr></thead><tbody>
+  ${shown.map(({ po, st }) => `<tr class="click" data-go="#/po/${po.id}"><td><a class="po" href="#/po/${po.id}" style="color:inherit;text-decoration:none">${esc(po.po_number)}</a></td><td>${esc(po.supplier_name || '')}<div class="mut sm">${esc(po.supplier_city || '')}</div></td><td class="num">${st.ls.length}</td><td class="num">${n0(st.ls.reduce((a, l) => a + l.qty, 0))}</td><td>${routeHtml(po, false)}<div class="sm mut" style="margin-top:6px">${esc(STOPS[st.stage])}${po.eta ? `, ETA ${esc(fmtDate(po.eta))}` : ''}</div></td><td>${st.att.length ? st.att.slice(0, 2).map(a => `<div>${badge(a.level, a.text.length > 34 ? a.text.slice(0, 33) + '…' : a.text)}</div>`).join('') : badge(st.stage === 4 ? 'PASS' : 'WAIT', st.stage === 4 ? 'Received clean' : 'On track')}</td></tr>`).join('')}
+  </tbody></table></div>` : `<div class="panel empty"><h3>Nothing here</h3><p>No orders match this filter.</p></div>`)
+  : `<div class="panel empty"><h3>No purchase orders yet</h3><p>Create one for your next factory order. Your factory gets one link for the whole order: a random-sample inspection for each product, then a photo check while the container is loaded.</p><a class="btn primary" href="#/new">New purchase order</a></div>`}`;
+}
+
+function newView() {
+  setNav('orders'); document.title = 'New purchase order · Defect Check';
+  const d = S.newPo || (S.newPo = { po_number: '', supplier_name: '', supplier_city: '', ship_by: '', eta: '', notes: '', lines: [{ product_id: '', qty: '', upc: '', cartons: '' }] });
+  if (!S.products.length) {
+    app.innerHTML = `<div class="head"><h1>New purchase order</h1></div><div class="panel empty"><h3>Set up a product first</h3><p>Each order line is checked against a product's approved standard. Add your products (from the product page link or photos of a good unit), then come back here.</p><a class="btn primary" href="index.html">Set up products</a></div>`;
+    return;
+  }
+  const opts = id => `<option value="">Choose a product</option>${S.products.map(p => `<option value="${p.id}" ${p.id === id ? 'selected' : ''}>${esc(p.name)}${p.sku ? ' (' + esc(p.sku) + ')' : ''}</option>`).join('')}`;
+  app.innerHTML = `<div class="head"><div style="flex:1"><h1>New purchase order</h1><p>One line per product. Quantities set the inspection sample and the packing list for loading and receiving.</p></div><a class="btn" href="#/orders">Cancel</a></div>
+  <div class="panel box"><div class="form">
+    <label class="f">PO number<input class="i" data-n="po_number" value="${esc(d.po_number)}" placeholder="PO-24117" autocomplete="off"></label>
+    <label class="f w2">Supplier<input class="i" data-n="supplier_name" value="${esc(d.supplier_name)}" placeholder="Factory or trading company name" autocomplete="off"></label>
+    <label class="f">City<input class="i" data-n="supplier_city" value="${esc(d.supplier_city)}" placeholder="Ningbo"></label>
+    <label class="f">Ship by<input class="i" type="date" data-n="ship_by" value="${esc(d.ship_by)}"></label>
+    <label class="f">ETA at your warehouse<input class="i" type="date" data-n="eta" value="${esc(d.eta)}"></label>
+    <label class="f w2">Notes for the factory<input class="i" data-n="notes" value="${esc(d.notes)}" placeholder="Optional"></label>
+  </div></div>
+  <div class="sec"><h2>Products <span>Cartons are worked out from units per carton; change them if the packing list differs.</span></h2>
+  <div class="panel tablewrap"><table class="lines"><thead><tr><th>Product</th><th class="num">Units</th><th class="num">Units per carton</th><th class="num">Cartons</th><th></th></tr></thead><tbody>
+  ${d.lines.map((l, k) => `<tr><td style="min-width:240px"><select class="i" data-l="${k}" data-f="product_id">${opts(l.product_id)}</select></td><td><input class="i" inputmode="numeric" data-l="${k}" data-f="qty" value="${esc(l.qty)}" style="text-align:right"></td><td><input class="i" inputmode="numeric" data-l="${k}" data-f="upc" value="${esc(l.upc)}" style="text-align:right"></td><td><input class="i" inputmode="numeric" data-l="${k}" data-f="cartons" value="${esc(l.cartons)}" style="text-align:right"></td><td><button class="btn small" data-a="rmLine" data-k="${k}" aria-label="Remove line" ${d.lines.length < 2 ? 'disabled' : ''}>Remove</button></td></tr>`).join('')}
+  </tbody></table></div>
+  <div class="adds"><button class="btn" data-a="addLine">Add a product</button><span class="grow" style="flex:1"></span><button class="btn primary" data-a="createPo">Create order and factory link</button></div></div>`;
+}
+async function createPo() {
+  const d = S.newPo;
+  const po_number = d.po_number.trim();
+  if (!po_number) return toast('Enter a PO number.');
+  if (S.pos.some(p => p.po_number.toLowerCase() === po_number.toLowerCase())) return toast('That PO number already exists.');
+  const lines = d.lines.filter(l => l.product_id);
+  if (!lines.length) return toast('Add at least one product.');
+  if (new Set(lines.map(l => l.product_id)).size !== lines.length) return toast('Each product can appear once per order.');
+  for (const l of lines) {
+    const q = Math.floor(+l.qty), u = Math.floor(+l.upc), c = Math.floor(+l.cartons);
+    if (!(q > 0 && u > 0 && c > 0)) return toast(`Fill in units, units per carton and cartons for ${prodName(l.product_id)}.`);
+    if (q > c * u || q <= (c - 1) * u) return toast(`${prodName(l.product_id)}: ${c} cartons of ${u} can't hold ${q} units.`);
+  }
+  const btn = document.querySelector('[data-a="createPo"]'); btn.disabled = true; btn.textContent = 'Creating…';
+  try {
+    const { data: po, error } = await sb.from('purchase_orders').insert({ workspace_id: S.ws, po_number, supplier_name: d.supplier_name.trim() || null, supplier_city: d.supplier_city.trim() || null, ship_by: d.ship_by || null, eta: d.eta || null, notes: d.notes.trim() || null }).select().single();
+    if (error) throw error;
+    for (const [k, l] of lines.entries()) {
+      const { data: link, error: e1 } = await sb.from('factory_links').insert({ workspace_id: S.ws, product_id: l.product_id, lot: po_number, factory_name: d.supplier_name.trim() || null }).select().single();
+      if (e1) throw e1;
+      const { error: e2 } = await sb.from('po_lines').insert({ po_id: po.id, workspace_id: S.ws, seq: k + 1, product_id: l.product_id, qty: Math.floor(+l.qty), cartons: Math.floor(+l.cartons), units_per_carton: Math.floor(+l.upc), link_id: link.id });
+      if (e2) throw e2;
+    }
+    S.newPo = null; await reloadAll(); location.hash = '#/po/' + po.id; toast('Order created. Send the factory its link.');
+  } catch (e) { toast('Could not create the order: ' + (e.message || e)); btn.disabled = false; btn.textContent = 'Create order and factory link'; }
+}
+
+function poView(id) {
+  setNav('orders');
+  const po = S.pos.find(p => p.id === id);
+  if (!po) { app.innerHTML = `<div class="panel empty"><h3>Order not found</h3><p>It may have been deleted.</p><a class="btn" href="#/orders">Back to orders</a></div>`; return; }
+  document.title = po.po_number + ' · Defect Check';
+  const st = poState(po);
+  const lc = st.lc, rc = st.rc;
+  const fl = S.findings.filter(x => x.po_id === po.id && !x.in_spec);
+  app.innerHTML = `<p style="margin:0 0 10px"><a href="#/orders">Orders</a></p>
+  <div class="panel hero"><div class="top"><div class="id"><div class="po big">${esc(po.po_number)}</div>
+    <div class="facts"><span>Supplier <b>${esc(po.supplier_name || 'Not set')}</b>${po.supplier_city ? ', ' + esc(po.supplier_city) : ''}</span><span><b>${st.ls.length}</b> SKUs</span><span><b>${n0(st.ls.reduce((a, l) => a + l.qty, 0))}</b> units in <b>${n0(st.ls.reduce((a, l) => a + l.cartons, 0))}</b> cartons</span>${po.ship_by ? `<span>Ship by <b>${esc(fmtDate(po.ship_by))}</b></span>` : ''}${po.eta ? `<span>ETA <b>${esc(fmtDate(po.eta))}</b></span>` : ''}</div></div>
+    <div class="acts"><button class="btn blue" data-a="copyMsg" data-id="${po.id}">Copy message for factory</button><a class="btn" href="${esc(hubUrl(po))}" target="_blank" rel="noopener">Open factory page</a></div></div>
+    ${routeHtml(po, true)}
+    ${st.att.length ? `<div class="att">${st.att.map(a => `<div class="${esc(a.level)}">${esc(a.text)}</div>`).join('')}</div>` : ''}
+  </div>
+
+  <section class="sec"><h2>Factory inspection <span>Random AQL sample per product, photographed live at the factory</span></h2>
+  <div class="panel tablewrap"><table><thead><tr><th>Product</th><th class="num">Units</th><th class="num">Cartons</th><th>Sample</th><th>Result</th><th>Payment</th></tr></thead><tbody>
+  ${st.ls.map((l, k) => { const s = st.ses[k]; const done = s ? S.insps.filter(i => i.session_id === s.id && i.status === 'done').length : 0; const fails = s ? S.insps.filter(i => i.session_id === s.id && (i.final_result || i.verdict) === 'FAIL').length : 0;
+    return `<tr><td><b>${esc(prodName(l.product_id))}</b><div class="mut sm">${esc((S.products.find(p => p.id === l.product_id) || {}).sku || '')}</div></td><td class="num">${n0(l.qty)}</td><td class="num">${n0(l.cartons)}</td><td>${s ? `${done} of ${s.sample_size} checked${fails ? `, <b style="color:var(--fail)">${fails} failed</b>` : ''}<div class="mut sm">passes with ${s.accept_major} or fewer failed</div>` : '<span class="mut">Factory hasn\'t started</span>'}</td><td>${s ? (s.status === 'done' ? badge(s.result) : badge('WAIT', 'Sampling')) : badge('WAIT', 'Not started')}</td><td>${s && s.buyer_decision ? badge(s.buyer_decision === 'release' ? 'PASS' : 'FAIL', s.buyer_decision === 'release' ? 'Released' : 'On hold') : s && s.status === 'done' ? '<a href="index.html" class="sm">Review units</a>' : ''}</td></tr>`; }).join('')}
+  </tbody></table></div></section>
+
+  <section class="sec"><h2>Container loading <span>Photographed by the factory at each stage of loading</span></h2>${loadingHtml(po, st)}</section>
+  <section class="sec"><h2>Receiving <span>Seal, carton counts and damage at your dock</span></h2>${receivingHtml(po, st)}</section>
+  <section class="sec"><h2>Defects on this order <span>${fl.length ? fl.length + ' findings across all stages' : ''}</span></h2>${fl.length ? `<div class="panel box">${paretoHtml(fl, 8)}</div>` : '<p class="mut">No defects recorded yet.</p>'}</section>
+  <section class="sec"><div class="acts">${po.closed ? `<button class="btn" data-a="reopen" data-id="${po.id}">Reopen order</button>` : `<button class="btn" data-a="closePo" data-id="${po.id}">Close order</button>`}<button class="btn danger" data-a="delPo" data-id="${po.id}">Delete order</button></div></section>`;
+  const paths = [...(lc ? (lc.photos || []).map(p => p.path) : []), ...(rc ? [...(rc.photos || []).map(p => p.path), ...(rc.damage || []).flatMap(d => (d.photos || []).map(p => p.path))] : [])];
+  if (paths.some(p => !URLS.has(p))) sign(paths).then(() => { if (location.hash === '#/po/' + id) render(); });
+}
+function loadingHtml(po, st) {
+  const lc = st.lc;
+  if (!lc) return `<div class="panel box"><p style="margin:0">${st.stage >= 2 ? 'Products are inspected. The factory starts the loading check from its order page when the container arrives.' : 'The factory runs this from its order page when the container arrives: photos of the empty container, half loaded, fully loaded and sealed, the container and seal numbers, and the cartons loaded for each product.'}</p></div>`;
+  if (lc.status === 'open') return `<div class="panel box"><p style="margin:0"><span class="spin"></span> The factory started loading on ${esc(fmtDT(lc.started_at))}. Results appear here when they submit.</p></div>`;
+  if (lc.status === 'checking') return `<div class="panel box"><p style="margin:0"><span class="spin"></span> Checking the loading photos…</p></div>`;
+  if (lc.status === 'error') return `<div class="panel box"><p style="margin:0;color:var(--fail)">The check could not run: ${esc(lc.error || '')}</p><div class="adds"><button class="btn small" data-a="redoLoad" data-id="${lc.id}">Ask the factory to redo it</button></div></div>`;
+  const ai = lc.ai || {};
+  const byStep = {}; (lc.photos || []).forEach(p => (byStep[p.step] = byStep[p.step] || []).push(p));
+  const boxesFor = path => (ai.defects || []).filter(d => (ai.photos_used || [])[d.photo - 1] === path && d.box).map(d => d.box);
+  const order = ['empty', 'number', 'half', 'full', 'marks', 'sealed', 'seal'];
+  return `<div class="panel box"><div class="grid2"><div>
+    <div class="mut sm">Container</div><div class="ctn">${esc(lc.container_no || '—')}</div>
+    <div class="sm" style="margin-top:4px">${lc.container_no_valid ? '<span style="color:var(--pass)">Check digit valid</span>' : '<span style="color:var(--fail)">Check digit does not match</span>'}${lc.container_no_read && lc.container_no_read !== lc.container_no ? `, photo reads ${esc(lc.container_no_read)}` : lc.container_no_read ? ', matches the photo' : ''}</div>
+    <dl class="kv" style="margin-top:14px"><dt>Seal</dt><dd>${esc(lc.seal_no || '—')}${lc.seal_no_read && lc.seal_no_read !== lc.seal_no ? ` (photo reads ${esc(lc.seal_no_read)})` : ''}</dd><dt>Loaded</dt><dd>${esc(fmtDT(lc.submitted_at))}${lc.submitted_by ? ' by ' + esc(lc.submitted_by) : ''}</dd><dt>Result</dt><dd>${badge(lc.result)}</dd></dl>
+  </div><div>
+    <table><thead><tr><th>Product</th><th class="num">Ordered</th><th class="num">Loaded</th></tr></thead><tbody>${st.ls.map(l => { const n = (lc.counts || {})[l.id]; return `<tr><td>${esc(prodName(l.product_id))}</td><td class="num">${n0(l.cartons)}</td><td class="num" style="${n < l.cartons ? 'color:var(--fail);font-weight:800' : ''}">${n == null ? '—' : n0(n)}</td></tr>`; }).join('')}</tbody></table>
+  </div></div>
+  ${ai.summary ? `<p style="margin:16px 0 0">${esc(ai.summary)}</p>` : ''}
+  ${(ai.issues || []).length || (ai.defects || []).length ? `<ul class="issues" style="margin-top:12px">${(ai.issues || []).map(x => `<li class="${esc(x.level)}">${esc(x.en)}</li>`).join('')}${(ai.defects || []).map(d => `<li class="${d.severity === 'critical' ? 'FAIL' : 'REVIEW'}"><span class="who">${esc(d.code)}</span>${esc(d.type)}${d.where ? ', ' + esc(d.where) : ''} <span class="mut sm">(${esc(LOAD_STEP_NAMES[d.step] || 'photo ' + d.photo)}, ${esc(d.severity)})</span></li>`).join('')}</ul>` : ''}
+  ${(ai.checks || []).length ? `<div class="checks">${ai.checks.map(c => `<span class="${esc(c.result)}" title="${esc(c.note)}">${esc(c.item)}</span>`).join('')}</div>` : ''}
+  <div class="photos" style="margin-top:16px">${order.flatMap(k => (byStep[k] || []).map(p => photoFig(p.path, LOAD_STEP_NAMES[k], boxesFor(p.path)))).join('')}</div>
+  <div class="adds"><button class="btn small" data-a="redoLoad" data-id="${lc.id}">Ask the factory to redo it</button></div></div>`;
+}
+function receivingHtml(po, st) {
+  const rc = st.rc;
+  if (!rc) return `<div class="panel box"><p style="margin:0 0 10px">When the container reaches your dock, photograph the seal before cutting it, count cartons per product, and photograph any damaged cartons. Shortages and damage are traced back to the factory or the carrier.</p><a class="btn primary" href="#/po/${po.id}/receive">Start receiving</a></div>`;
+  if (rc.status === 'open') return `<div class="panel box"><p style="margin:0 0 10px">Receiving started ${esc(fmtDT(rc.created_at))} and isn't finished.</p><a class="btn primary" href="#/po/${po.id}/receive">Continue receiving</a></div>`;
+  if (rc.status === 'checking') return `<div class="panel box"><p style="margin:0"><span class="spin"></span> Checking the seal, counts and damaged cartons…</p></div>`;
+  if (rc.status === 'error') return `<div class="panel box"><p style="margin:0 0 10px;color:var(--fail)">The check could not run: ${esc(rc.error || '')}</p><a class="btn" href="#/po/${po.id}/receive">Open receiving</a></div>`;
+  const ai = rc.ai || {}, seal = ai.seal || {};
+  return `<div class="panel box"><div class="grid2"><div>
+    <dl class="kv"><dt>Result</dt><dd>${badge(rc.result, rc.result === 'PASS' ? 'Received clean' : rc.result === 'FAIL' ? 'Exceptions' : 'Needs review')}</dd>
+    <dt>Container</dt><dd>${esc(rc.container_no || '—')}</dd>
+    <dt>Seal at dock</dt><dd>${esc(seal.dock || rc.seal_no || '—')} ${rc.seal_match === true ? '<span style="color:var(--pass)">matches loading</span>' : rc.seal_match === false ? `<span style="color:var(--fail)">loading had ${esc(seal.loading)}</span>` : ''}</dd>
+    <dt>Seal condition</dt><dd>${rc.seal_intact === true ? 'Intact' : rc.seal_intact === false ? '<span style="color:var(--fail)">Broken or tampered</span>' : 'Not shown'}</dd>
+    <dt>Received</dt><dd>${esc(fmtDT(rc.checked_at))}${rc.received_by ? ' by ' + esc(rc.received_by) : ''}</dd></dl>
+    ${ai.summary ? `<p style="margin:12px 0 0">${esc(ai.summary)}</p>` : ''}
+  </div><div class="tablewrap"><table><thead><tr><th>Product</th><th class="num">Ordered</th><th class="num">Loaded</th><th class="num">Received</th><th class="num">Damaged</th></tr></thead><tbody>
+    ${(ai.lines || []).map(x => `<tr><td>${esc(x.name)}${x.short ? `<div class="sm" style="color:var(--fail)">${x.short} short, ${esc(ORIGIN[x.origin] || '')}</div>` : x.over ? `<div class="sm mut">${x.over} over</div>` : ''}</td><td class="num">${n0(x.ordered)}</td><td class="num">${x.loaded == null ? '—' : n0(x.loaded)}</td><td class="num">${n0(x.received)}</td><td class="num">${n0(x.damaged)}</td></tr>`).join('')}
+  </tbody></table></div></div>
+  ${(ai.issues || []).length ? `<ul class="issues" style="margin-top:14px">${ai.issues.map(x => `<li class="${esc(x.level)}"><span class="who">${esc(ORIGIN[x.origin] || 'Unclear')}</span>${esc(x.text)}</li>`).join('')}</ul>` : ''}
+  ${(rc.damage || []).map(dm => `<div style="margin-top:16px"><b>${esc(prodName((S.lines.find(l => l.id === dm.line_id) || {}).product_id))}${dm.carton ? ', carton ' + esc(dm.carton) : ''}</b> ${dm.ai ? `<span class="who" style="background:var(--sunk)">${esc(ORIGIN[dm.ai.origin] || 'Unclear')}</span> <span class="mut sm">${esc(dm.ai.origin_reason || '')}</span>` : ''}
+    ${dm.ai && dm.ai.defects ? `<div class="sm" style="margin:4px 0 8px">${dm.ai.defects.map(d => `${esc(d.code)} ${esc(d.type)}${d.where ? ' (' + esc(d.where) + ')' : ''}`).join('; ')}</div>` : ''}
+    <div class="photos">${(dm.photos || []).map((p, k) => photoFig(p.path, '', ((dm.ai && dm.ai.defects) || []).filter(d => d.photo === k + 1 && d.box).map(d => d.box))).join('')}</div></div>`).join('')}
+  <div class="adds" style="margin-top:16px"><button class="btn blue" data-a="copyClaim" data-id="${po.id}">Copy claim summary</button><a class="btn" href="#/po/${po.id}/receive">Edit and re-run</a></div></div>`;
+}
+function claimText(po) {
+  const rc = receiptOf(po), lc = loadingOf(po), ai = (rc && rc.ai) || {};
+  const L = [`Receiving report: PO ${po.po_number}${po.supplier_name ? ', supplier ' + po.supplier_name : ''}`, `Container ${rc.container_no || (lc && lc.container_no) || 'unknown'}, received ${fmtDT(rc.checked_at)}.`];
+  const seal = ai.seal || {};
+  L.push(`Seal at dock: ${seal.dock || 'not recorded'}${seal.loading ? `; seal at loading: ${seal.loading}` : ''}; condition: ${rc.seal_intact === false ? 'broken or tampered' : rc.seal_intact ? 'intact' : 'not shown'}.`);
+  const part = (who, title) => { const xs = (ai.issues || []).filter(x => x.origin === who); if (!xs.length) return; L.push('', title); xs.forEach(x => L.push('- ' + x.text)); };
+  part('factory', `For the supplier (${po.supplier_name || 'factory'}):`);
+  part('transit', 'For the freight carrier:');
+  part('unclear', 'Origin not determined:');
+  if (!(ai.issues || []).length) L.push('', 'No exceptions: all cartons received in good condition.');
+  if (lc && lc.status === 'done') L.push('', `Loading record: ${lc.container_no}, seal ${lc.seal_no}, loaded ${fmtDT(lc.submitted_at)}, ${Object.values(lc.counts || {}).reduce((a, b) => a + b, 0)} cartons reported loaded.`);
+  L.push('', 'Photos and timestamps are stored in Defect Check.');
+  return L.join('\n');
+}
+
+// ---------- receiving (dock) ----------
+async function receiveView(id) {
+  setNav('orders');
+  const po = S.pos.find(p => p.id === id); if (!po) return poView(id);
+  document.title = 'Receive ' + po.po_number + ' · Defect Check';
+  let rc = receiptOf(po);
+  if (!S.rx || S.rx.po !== po.id) {
+    if (!rc) {
+      const lc = loadingOf(po);
+      const { data, error } = await sb.from('receipts').insert({ po_id: po.id, workspace_id: S.ws, container_no: (lc && lc.container_no) || null }).select().single();
+      if (error) { app.innerHTML = `<div class="panel empty"><h3>Could not start receiving</h3><p>${esc(error.message)}</p></div>`; return; }
+      rc = data; S.receipts.unshift(rc);
+    }
+    S.rx = { po: po.id, id: rc.id, container_no: rc.container_no || '', seal_no: rc.seal_no || '', received_by: rc.received_by || '', photos: [...(rc.photos || [])], counts: JSON.parse(JSON.stringify(rc.counts || {})), damage: JSON.parse(JSON.stringify(rc.damage || [])) };
+    await sign([...S.rx.photos.map(p => p.path), ...S.rx.damage.flatMap(d => (d.photos || []).map(p => p.path))]);
+  }
+  const R = S.rx, ls = linesOf(po), lc = loadingOf(po);
+  const thumb = (p, act, extra) => `<figure class="ph" data-zoom="${esc(p.path)}">${url(p.path) ? `<img src="${esc(url(p.path))}" alt="">` : '<span class="spin" style="margin:30px"></span>'}<button class="x" data-a="${act}" ${extra} aria-label="Remove photo">×</button></figure>`;
+  app.innerHTML = `<p style="margin:0 0 10px"><a href="#/po/${po.id}">${esc(po.po_number)}</a></p>
+  <div class="head"><div style="flex:1"><h1>Receive ${esc(po.po_number)}</h1><p>${lc && lc.status === 'done' ? `Loaded in China on ${esc(fmtDate(lc.submitted_at))}: container ${esc(lc.container_no)}, seal ${esc(lc.seal_no)}.` : 'No loading check on record; counts are compared with the order.'}</p></div></div>
+  <div class="steps">
+  <div class="panel step"><h3><em>1</em>Seal, before you cut it</h3>
+    <div class="form"><label class="f w2">Container number<input class="i" data-r="container_no" value="${esc(R.container_no)}" autocomplete="off" style="text-transform:uppercase"></label>
+    <label class="f">Seal number<input class="i" data-r="seal_no" value="${esc(R.seal_no)}" autocomplete="off" style="text-transform:uppercase"></label>
+    <label class="f">Received by<input class="i" data-r="received_by" value="${esc(R.received_by)}" placeholder="Your name"></label></div>
+    <div class="adds"><div class="thumbs">${R.photos.filter(p => p.step === 'seal').map(p => thumb(p, 'rmRxPhoto', `data-p="${esc(p.path)}"`)).join('')}</div><button class="btn" data-a="rxPhoto" data-step="seal" data-cam="1">Photograph the seal</button><button class="btn small" data-a="rxPhoto" data-step="seal">Upload</button></div>
+  </div>
+  <div class="panel step"><h3><em>2</em>Count cartons</h3>
+    <div class="tablewrap"><table><thead><tr><th>Product</th><th class="num">Ordered</th>${lc && lc.status === 'done' ? '<th class="num">Loaded</th>' : ''}<th>Received</th><th>Damaged</th></tr></thead><tbody>
+    ${ls.map(l => { const c = R.counts[l.id] || {}; return `<tr><td><b>${esc(prodName(l.product_id))}</b></td><td class="num">${n0(l.cartons)}</td>${lc && lc.status === 'done' ? `<td class="num">${(lc.counts || {})[l.id] == null ? '—' : n0(lc.counts[l.id])}</td>` : ''}<td>${stepper(l.id, 'received', c.received)}</td><td>${stepper(l.id, 'damaged', c.damaged)}</td></tr>`; }).join('')}
+    </tbody></table></div>
+  </div>
+  <div class="panel step"><h3><em>3</em>Damaged cartons</h3><p class="mut sm" style="margin:-4px 0 6px">One entry per damaged carton, with close photos of the damage and the carton label.</p>
+    ${R.damage.map((d, k) => `<div class="dmg"><label class="f">Product<select class="i" data-d="${k}" data-f="line_id">${ls.map(l => `<option value="${l.id}" ${l.id === d.line_id ? 'selected' : ''}>${esc(prodName(l.product_id))}</option>`).join('')}</select></label>
+      <label class="f">Carton no.<input class="i" data-d="${k}" data-f="carton" value="${esc(d.carton || '')}" placeholder="Optional"></label>
+      <label class="f">Note<input class="i" data-d="${k}" data-f="note" value="${esc(d.note || '')}" placeholder="What you see"></label>
+      <button class="btn small danger" data-a="rmDmg" data-k="${k}">Remove</button>
+      <div class="photos"><div class="thumbs">${(d.photos || []).map(p => thumb(p, 'rmDmgPhoto', `data-k="${k}" data-p="${esc(p.path)}"`)).join('')}<button class="btn" data-a="dmgPhoto" data-k="${k}" data-cam="1" style="height:84px">Take photo</button><button class="btn small" data-a="dmgPhoto" data-k="${k}" style="height:84px">Upload</button></div></div></div>`).join('')}
+    <div class="adds"><button class="btn" data-a="addDmg">Add a damaged carton</button></div>
+  </div>
+  </div>
+  <div class="adds" style="margin-top:18px"><button class="btn primary" data-a="runRx">Run receiving check</button><a class="btn" href="#/po/${po.id}">Save and close</a><span class="mut sm">Uses AI to read the seal and judge each damaged carton.</span></div>`;
+}
+const stepper = (lid, k, v) => `<span class="stepper"><button data-a="step" data-l="${lid}" data-k="${k}" data-d="-1" aria-label="Less">−</button><input inputmode="numeric" data-cnt="${lid}" data-k="${k}" value="${v == null ? '' : esc(v)}" aria-label="${k}"><button data-a="step" data-l="${lid}" data-k="${k}" data-d="1" aria-label="More">+</button></span>`;
+let saveT = null;
+function saveRx(now) {
+  clearTimeout(saveT);
+  const go = async () => { const R = S.rx; if (!R) return; await sb.from('receipts').update({ container_no: R.container_no.toUpperCase().replace(/\s+/g, '') || null, seal_no: R.seal_no.toUpperCase().replace(/\s+/g, '') || null, received_by: R.received_by || null, photos: R.photos, counts: R.counts, damage: R.damage }).eq('id', R.id); };
+  if (now) return go(); saveT = setTimeout(go, 700);
+}
+async function addPhotos(files, folder, onEach) {
+  for (const f of files) {
+    try {
+      const blob = await prepImage(f);
+      const path = `${S.ws}/receiving/${S.rx.id}/${folder}-${crypto.randomUUID()}.jpg`;
+      const { error } = await sb.storage.from('photos').upload(path, blob, { contentType: 'image/jpeg' });
+      if (error) throw error;
+      await sign([path]); onEach({ path });
+    } catch (e) { toast('Photo upload failed: ' + (e.message || e)); }
+  }
+  saveRx(true); render();
+}
+async function runRx() {
+  const R = S.rx, po = S.pos.find(p => p.id === R.po), ls = linesOf(po);
+  if (!R.photos.some(p => p.step === 'seal')) { if (!confirm('No seal photo. Without it the seal can\'t be compared with loading. Run anyway?')) return; }
+  for (const l of ls) { const c = R.counts[l.id] || {}; if (c.received === undefined || c.received === '') return toast(`Enter cartons received for ${prodName(l.product_id)}.`); }
+  if (R.damage.some(d => !(d.photos || []).length)) return toast('Add at least one photo to each damaged carton, or remove it.');
+  await saveRx(true);
+  try { await callQc({ task: 'receipt_check', receipt_id: R.id }); S.rx = null; await reloadAll(); location.hash = '#/po/' + po.id; toast('Checking. Results appear in a minute.'); }
+  catch (e) { toast(e.message); }
+}
+
+// ---------- defects ----------
+function paretoHtml(rows, limit = 12) {
+  const by = new Map(); rows.forEach(r => { const o = by.get(r.code) || { code: r.code, n: 0, crit: 0 }; o.n++; if (r.severity === 'critical') o.crit++; by.set(r.code, o); });
+  const list = [...by.values()].sort((a, b) => b.n - a.n), total = rows.length, max = list.length ? list[0].n : 1;
+  let cum = 0;
+  return `<div class="bars">${list.slice(0, limit).map(o => { cum += o.n; return `<div class="bar"><div class="t"><code>${esc(o.code)}</code><span>${esc(codeName(o.code))}</span></div><div class="track" title="${o.n} findings"><b class="${o.crit ? 'crit' : ''}" style="width:${o.n / max * 100}%"></b></div><div class="n">${o.n}<small>${Math.round(cum / total * 100)}% cum.</small></div></div>`; }).join('')}</div>`;
+}
+function defectsView() {
+  setNav('defects'); document.title = 'Defects · Defect Check';
+  const F = S.dfilter, since = F.days ? Date.now() - F.days * 864e5 : 0;
+  const rows = S.findings.filter(x => !x.in_spec && new Date(x.created_at || 0).getTime() >= since && (F.stage === 'all' || (F.stage === 'factory' ? x.source === 'unit' && x.stage === 'factory' : F.stage === 'arrival' ? (x.source === 'unit' && x.stage === 'arrival') || x.source === 'receiving' : x.source === F.stage)) && (!F.supplier || (x.supplier || '') === F.supplier));
+  const units = S.insps.filter(i => i.status === 'done' && new Date(i.created_at).getTime() >= since && (F.stage === 'all' || F.stage === 'factory' ? i.stage === 'factory' : F.stage === 'arrival' ? i.stage === 'arrival' : false) && (!F.supplier || supplierOfInsp(i) === F.supplier));
+  const failed = units.filter(i => (i.final_result || i.verdict) === 'FAIL').length;
+  const suppliers = [...new Set(S.findings.map(x => x.supplier).filter(Boolean))].sort();
+  const crit = rows.filter(r => r.severity === 'critical').length;
+  const byProd = new Map(); rows.forEach(r => { if (!r.product_name) return; const o = byProd.get(r.product_name) || { n: 0, codes: new Map() }; o.n++; o.codes.set(r.code, (o.codes.get(r.code) || 0) + 1); byProd.set(r.product_name, o); });
+  app.innerHTML = `<div class="head"><div style="flex:1"><h1>Defects</h1><p>Every finding from factory checks, container loading and receiving, on one coded list.</p></div></div>
+  <div class="chips">${[[30, 'Last 30 days'], [90, 'Last 90 days'], [0, 'All time']].map(([d, t]) => `<button class="chip" data-a="dDays" data-k="${d}" aria-pressed="${F.days === d}">${t}</button>`).join('')}<span style="width:12px"></span>${[['all', 'All stages'], ['factory', 'Factory'], ['loading', 'Loading'], ['arrival', 'Arrival']].map(([k, t]) => `<button class="chip" data-a="dStage" data-k="${k}" aria-pressed="${F.stage === k}">${t}</button>`).join('')}
+  ${suppliers.length ? `<select class="i" data-a="dSup" style="width:auto;min-height:32px;padding:4px 10px;border-radius:999px"><option value="">All suppliers</option>${suppliers.map(s => `<option ${s === F.supplier ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>` : ''}</div>
+  <div class="stat"><div class="panel"><b>${rows.length}</b><span>Findings</span></div><div class="panel"><b>${crit}</b><span>Critical</span></div><div class="panel"><b>${units.length}</b><span>Units checked</span></div><div class="panel"><b>${units.length ? (failed / units.length * 100).toFixed(1) + '%' : '—'}</b><span>Units failed</span></div></div>
+  <section class="sec"><h2>Most frequent defects <span>Fix the top few and most of the problem goes away</span></h2>${rows.length ? `<div class="panel box">${paretoHtml(rows, 15)}</div>` : '<div class="panel empty"><h3>No findings in this view</h3><p>Defects appear here as factory, loading and receiving checks finish.</p></div>'}</section>
+  ${byProd.size ? `<section class="sec"><h2>By product</h2><div class="panel tablewrap"><table><thead><tr><th>Product</th><th class="num">Findings</th><th>Top defects</th></tr></thead><tbody>${[...byProd.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 20).map(([p, o]) => `<tr><td>${esc(p)}</td><td class="num">${o.n}</td><td>${[...o.codes.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c, n]) => `<span class="who" style="background:var(--sunk)">${esc(c)}</span> ${esc(codeName(c))} ×${n}`).join('&nbsp;&nbsp; ')}</td></tr>`).join('')}</tbody></table></div></section>` : ''}
+  <section class="sec"><h2>Defect codes <span>The AI tags every finding with one of these; factories see the Chinese names</span></h2><div class="panel tablewrap"><table><thead><tr><th>Code</th><th>Defect</th><th>中文</th><th>Applies to</th><th>Default severity</th></tr></thead><tbody>${S.codes.map(c => `<tr><td><b>${esc(c.code)}</b></td><td>${esc(c.name_en)}</td><td>${esc(c.name_zh)}</td><td class="mut">${esc(c.scope)}</td><td>${esc(c.default_severity)}</td></tr>`).join('')}</tbody></table></div></section>`;
+}
+function supplierOfInsp(i) { const l = S.links.find(x => x.id === i.factory_link_id); return l ? (l.factory_name || '') : ''; }
+
+// ---------- suppliers ----------
+function suppliersView() {
+  setNav('suppliers'); document.title = 'Suppliers · Defect Check';
+  const names = [...new Set([...S.pos.map(p => p.supplier_name), ...S.links.map(l => l.factory_name)].filter(Boolean))].sort();
+  const card = name => {
+    const pos = S.pos.filter(p => p.supplier_name === name), links = S.links.filter(l => l.factory_name === name).map(l => l.id);
+    const ses = S.sessions.filter(s => links.includes(s.link_id) && s.status === 'done');
+    const units = S.insps.filter(i => links.includes(i.factory_link_id) && i.status === 'done' && i.stage === 'factory');
+    const ufail = units.filter(i => (i.final_result || i.verdict) === 'FAIL').length;
+    const lcs = S.loads.filter(x => pos.some(p => p.id === x.po_id) && x.status === 'done');
+    const rcs = S.receipts.filter(x => pos.some(p => p.id === x.po_id) && x.status === 'done');
+    const shortF = rcs.reduce((a, r) => a + ((r.ai && r.ai.lines) || []).filter(x => x.origin === 'factory').reduce((b, x) => b + (x.short || 0), 0), 0);
+    const dmgF = rcs.reduce((a, r) => a + (r.damage || []).filter(d => d.ai && d.ai.origin === 'factory').length, 0);
+    const fl = S.findings.filter(x => x.supplier === name && !x.in_spec);
+    const top = [...fl.reduce((m, x) => m.set(x.code, (m.get(x.code) || 0) + 1), new Map()).entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+    const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+    return `<tr><td><b>${esc(name)}</b><div class="mut sm">${pos.length} order${pos.length === 1 ? '' : 's'}</div></td>
+      <td class="num">${ses.length ? pct(ses.filter(s => s.result === 'PASS').length, ses.length) : '—'}<div class="mut sm">${ses.length} lots</div></td>
+      <td class="num">${units.length ? (ufail / units.length * 100).toFixed(1) + '%' : '—'}<div class="mut sm">${units.length} units</div></td>
+      <td class="num">${lcs.length ? pct(lcs.filter(x => x.result === 'PASS').length, lcs.length) : '—'}<div class="mut sm">${lcs.length} containers</div></td>
+      <td class="num" style="${shortF ? 'color:var(--fail);font-weight:700' : ''}">${n0(shortF)}</td><td class="num">${n0(dmgF)}</td>
+      <td>${top.map(([c, n]) => `<span class="who" style="background:var(--sunk)">${esc(c)}</span> ${esc(codeName(c))} ×${n}`).join('<br>') || '<span class="mut">None</span>'}</td></tr>`;
+  };
+  app.innerHTML = `<div class="head"><div style="flex:1"><h1>Suppliers</h1><p>Each factory's record across every order you've run through Defect Check.</p></div></div>
+  ${names.length ? `<div class="panel tablewrap"><table><thead><tr><th>Supplier</th><th class="num">Lots passed</th><th class="num">Units failed</th><th class="num">Containers passed</th><th class="num">Cartons short (factory)</th><th class="num">Damage (factory)</th><th>Top defects</th></tr></thead><tbody>${names.map(card).join('')}</tbody></table></div>`
+  : `<div class="panel empty"><h3>No suppliers yet</h3><p>Suppliers appear here once you create an order with a supplier name.</p><a class="btn primary" href="#/new">New purchase order</a></div>`}`;
+}
+
+// ---------- router and events ----------
+function render() {
+  const h = location.hash || '#/orders', m = h.match(/^#\/po\/([0-9a-f-]{36})(\/receive)?$/);
+  if (!S.ws) return;
+  if (!(m && m[2])) S.rx = null;
+  if (m && m[2]) return receiveView(m[1]);
+  if (m) return poView(m[1]);
+  if (h === '#/new') return newView();
+  if (h === '#/defects') return defectsView();
+  if (h === '#/suppliers') return suppliersView();
+  return ordersView();
+}
+window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });
+app.addEventListener('input', e => {
+  const t = e.target;
+  if (t.dataset.n && S.newPo) S.newPo[t.dataset.n] = t.value;
+  if (t.dataset.l && S.newPo) { const l = S.newPo.lines[+t.dataset.l]; l[t.dataset.f] = t.value; if ((t.dataset.f === 'qty' || t.dataset.f === 'upc') && +l.qty > 0 && +l.upc > 0) { l.cartons = String(Math.ceil(+l.qty / +l.upc)); const c = app.querySelector(`[data-l="${t.dataset.l}"][data-f="cartons"]`); if (c) c.value = l.cartons; } }
+  if (t.dataset.r && S.rx) { S.rx[t.dataset.r] = t.value; saveRx(); }
+  if (t.dataset.cnt && S.rx) { const c = S.rx.counts[t.dataset.cnt] = S.rx.counts[t.dataset.cnt] || {}; c[t.dataset.k] = t.value === '' ? '' : Math.max(0, Math.floor(+t.value || 0)); saveRx(); }
+  if (t.dataset.d !== undefined && t.dataset.f && S.rx) { S.rx.damage[+t.dataset.d][t.dataset.f] = t.value; saveRx(); }
+});
+app.addEventListener('change', e => {
+  const t = e.target;
+  if (t.dataset.a === 'dSup') { S.dfilter.supplier = t.value; render(); }
+  if (t.tagName === 'SELECT' && t.dataset.l && S.newPo) S.newPo.lines[+t.dataset.l].product_id = t.value;
+  if (t.tagName === 'SELECT' && t.dataset.d !== undefined && S.rx) { S.rx.damage[+t.dataset.d].line_id = t.value; saveRx(); }
+});
+app.addEventListener('click', async e => {
+  const z = e.target.closest('[data-zoom]');
+  const b = e.target.closest('[data-a]');
+  if (z && !b) { const lb = $('#lb'), img = lb.querySelector('img'); img.src = url(z.dataset.zoom); lb.querySelector('.wrap').querySelectorAll('i').forEach(x => x.remove()); JSON.parse(z.dataset.boxes || '[]').forEach(bx => { const i = document.createElement('i'); Object.assign(i.style, { left: bx[0] * 100 + '%', top: bx[1] * 100 + '%', width: bx[2] * 100 + '%', height: bx[3] * 100 + '%' }); lb.querySelector('.wrap').appendChild(i); }); lb.classList.add('on'); return; }
+  const row = e.target.closest('tr[data-go]'); if (row && !b && !e.target.closest('a')) { location.hash = row.dataset.go; return; }
+  if (!b) return;
+  const a = b.dataset.a, k = b.dataset.k;
+  if (a === 'filter') { S.filter = k; render(); }
+  if (a === 'dDays') { S.dfilter.days = +k; render(); }
+  if (a === 'dStage') { S.dfilter.stage = k; render(); }
+  if (a === 'addLine') { S.newPo.lines.push({ product_id: '', qty: '', upc: '', cartons: '' }); render(); }
+  if (a === 'rmLine') { S.newPo.lines.splice(+k, 1); render(); }
+  if (a === 'createPo') createPo();
+  if (a === 'copyMsg') {
+    const po = S.pos.find(p => p.id === b.dataset.id), u = hubUrl(po);
+    const items = linesOf(po).map(l => `${prodName(l.product_id)}：${l.qty} 件 / ${l.cartons} 箱`).join('\n');
+    const msg = `您好，这是订单 ${po.po_number} 的验货链接（请用手机打开）：\n${u}\n\n${items}\n\n1. 每个产品生产完成后，打开链接按系统随机抽检拍照验货。\n2. 装柜时，在同一链接里做装柜检查：空箱、装到一半、装满、关门上封条，并填写集装箱号、封条号和每个产品的装箱数。\n照片需现场拍摄。谢谢！\n\nHello, this is the inspection link for PO ${po.po_number} (open it on a phone):\n${u}\n1. When each product is finished, open the link and photograph the units the system picks at random.\n2. When loading the container, use the same link for the loading check: empty, half loaded, full, doors sealed, plus the container number, seal number and cartons loaded per product.\nPhotos must be taken live. Thank you.`;
+    try { await navigator.clipboard.writeText(msg); toast('Copied. Paste it into WeChat or email.'); } catch { prompt('Copy this message:', msg); }
+  }
+  if (a === 'copyClaim') { const po = S.pos.find(p => p.id === b.dataset.id); const t = claimText(po); try { await navigator.clipboard.writeText(t); toast('Claim summary copied.'); } catch { prompt('Copy this summary:', t); } }
+  if (a === 'redoLoad') { if (!confirm('Cancel this loading check so the factory can do it again? The current result stays in the history.')) return; const { error } = await sb.from('loading_checks').update({ status: 'cancelled' }).eq('id', b.dataset.id); if (error) return toast(error.message); await reloadAll(); render(); toast('The factory can start the loading check again.'); }
+  if (a === 'closePo' || a === 'reopen') { await sb.from('purchase_orders').update({ closed: a === 'closePo' }).eq('id', b.dataset.id); await reloadAll(); render(); toast(a === 'closePo' ? 'Order closed. The factory link no longer works.' : 'Order reopened.'); }
+  if (a === 'delPo') {
+    const po = S.pos.find(p => p.id === b.dataset.id); if (!confirm(`Delete ${po.po_number}? Its loading and receiving records are deleted too. Factory inspection results stay under each product.`)) return;
+    const links = linesOf(po).map(l => l.link_id).filter(Boolean);
+    const { error } = await sb.from('purchase_orders').delete().eq('id', po.id); if (error) return toast(error.message);
+    if (links.length) await sb.from('factory_links').update({ active: false }).in('id', links);
+    await reloadAll(); location.hash = '#/orders'; toast('Order deleted.');
+  }
+  if (a === 'step' && S.rx) { const c = S.rx.counts[b.dataset.l] = S.rx.counts[b.dataset.l] || {}; c[b.dataset.k] = Math.max(0, (+c[b.dataset.k] || 0) + +b.dataset.d); const inp = app.querySelector(`[data-cnt="${b.dataset.l}"][data-k="${b.dataset.k}"]`); if (inp) inp.value = c[b.dataset.k]; saveRx(); }
+  if (a === 'rxPhoto') { const files = await pickFiles(!!b.dataset.cam); if (files.length) { b.disabled = true; b.textContent = 'Uploading…'; await addPhotos(files, b.dataset.step, p => S.rx.photos.push({ ...p, step: b.dataset.step })); } }
+  if (a === 'rmRxPhoto') { S.rx.photos = S.rx.photos.filter(p => p.path !== b.dataset.p); saveRx(true); render(); }
+  if (a === 'addDmg') { const ls = linesOf(S.pos.find(p => p.id === S.rx.po)); S.rx.damage.push({ id: crypto.randomUUID(), line_id: ls[0] ? ls[0].id : '', carton: '', note: '', photos: [] }); saveRx(true); render(); }
+  if (a === 'rmDmg') { S.rx.damage.splice(+k, 1); saveRx(true); render(); }
+  if (a === 'dmgPhoto') { const files = await pickFiles(!!b.dataset.cam); if (files.length) { b.disabled = true; b.textContent = 'Uploading…'; const d = S.rx.damage[+k]; await addPhotos(files, 'damage', p => (d.photos = d.photos || []).push(p)); } }
+  if (a === 'rmDmgPhoto') { const d = S.rx.damage[+k]; d.photos = d.photos.filter(p => p.path !== b.dataset.p); saveRx(true); render(); }
+  if (a === 'runRx') { b.disabled = true; b.textContent = 'Starting…'; await runRx(); b.disabled = false; b.textContent = 'Run receiving check'; }
+});
+$('#lb').addEventListener('click', () => $('#lb').classList.remove('on'));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#lb').classList.remove('on'); });
+
+// ---------- data ----------
+async function reloadAll() {
+  const ws = S.ws;
+  const q = (t, sel = '*', order = 'created_at', asc = false, lim = 1000) => sb.from(t).select(sel).eq('workspace_id', ws).order(order, { ascending: asc }).limit(lim);
+  const [pr, po, ln, lk, se, lc, rc, ins, fd] = await Promise.all([
+    q('products', 'id, name, sku', 'updated_at'), q('purchase_orders'), q('po_lines', '*', 'seq', true), q('factory_links', 'id, product_id, lot, factory_name, active'), q('factory_sessions'),
+    q('loading_checks', '*', 'started_at'), q('receipts'), q('inspections', 'id, product_id, factory_link_id, session_id, stage, status, verdict, final_result, created_at', 'created_at', false, 3000),
+    q('defect_findings', '*', 'created_at', false, 5000)]);
+  const err = [pr, po, ln, lk, se, lc, rc, ins, fd].find(r => r.error);
+  if (err) toast('Could not load everything: ' + err.error.message);
+  S.products = pr.data || []; S.pos = po.data || []; S.lines = ln.data || []; S.links = lk.data || []; S.sessions = se.data || [];
+  S.loads = lc.data || []; S.receipts = rc.data || []; S.insps = ins.data || []; S.findings = fd.data || [];
+  const att = S.pos.filter(p => !p.closed && poState(p).att.length).length; $('#navAtt').textContent = att ? att : '';
+}
+let rt = null;
+function live() { clearTimeout(rt); rt = setTimeout(async () => { await reloadAll(); const h = location.hash; if (!/\/receive$/.test(h) && h !== '#/new') render(); }, 400); }
+(async () => {
+  if (!CFG.supabaseUrl || !window.supabase) { app.innerHTML = '<p>Setup needed: add your Supabase URL and anon key to config.js.</p>'; return; }
+  sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
+  let { data: { session } } = await sb.auth.getSession();
+  if (!session) { const { data, error } = await sb.auth.signInAnonymously(); if (error) { app.innerHTML = `<p>Could not open your workspace: ${esc(error.message)}</p>`; return; } session = data.session; }
+  const { data: m } = await sb.from('workspace_members').select('workspace_id, workspaces(name)').eq('user_id', session.user.id).order('created_at').limit(1);
+  if (!m || !m.length) { app.innerHTML = '<p>No workspace found for this account.</p>'; return; }
+  S.ws = m[0].workspace_id;
+  const { data: codes } = await sb.from('defect_codes').select('*').order('sort'); S.codes = codes || [];
+  await reloadAll();
+  const ch = sb.channel('ops-' + S.ws);
+  ['purchase_orders', 'po_lines', 'loading_checks', 'receipts', 'factory_sessions', 'inspections'].forEach(t => ch.on('postgres_changes', { event: '*', schema: 'public', table: t, filter: 'workspace_id=eq.' + S.ws }, live));
+  ch.subscribe(st => { $('#sync').textContent = st === 'SUBSCRIBED' ? 'Live' : 'Reconnecting…'; });
+  render();
+})();
+})();
+</script>
+</body></html>
