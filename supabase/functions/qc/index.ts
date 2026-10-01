@@ -37,7 +37,9 @@ const cors = {
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
 type Img = { data: string; media_type: string };
-type Photo = { path: string; view?: string; part?: string; origin?: string; kind?: string; quality?: string };
+type Photo = { path: string; view?: string; part?: string; origin?: string; kind?: string; quality?: string; codes?: string[] };
+// deno-lint-ignore no-explicit-any
+declare const EdgeRuntime: any;
 type Before = { photos: Photo[]; sameUnit: boolean; origin: any; text: string[] };
 export const TRANSIT_WATCH = ["Crushed or torn carton", "Wet or stained packaging", "Punctures", "Dents", "Breakage", "Leaks", "Contents shifted or missing"];
 
@@ -148,6 +150,10 @@ export function inspectPrompt(p: any, refs: Photo[], units: Photo[], all: Photo[
   add("Allowed variation (do NOT flag these)", lines(s.allowed).join("; "));
   add("Watch especially for", [...new Set([...(s.watch ?? []), ...(arrival ? TRANSIT_WATCH : [])])].join(", "));
   add("Smallest rejectable defect", s.minDefectMm ? s.minDefectMm + " mm (smaller marks are acceptable; estimate size using the known product size)" : "");
+  add("Barcode (FNSKU, UPC or EAN) that must be on the product or its label", s.barcode);
+  add("Printed text that must appear on the product, label or packaging, spelled exactly", lines(s.labelText).join("; "));
+  const scanned = units.map((u, k) => (u.codes ?? []).filter((c) => !c.startsWith("DC:") && !c.startsWith("DC-")).length ? `photo ${k + 1}: ${(u.codes ?? []).filter((c) => !c.startsWith("DC:") && !c.startsWith("DC-")).join(", ")}` : "").filter(Boolean);
+  if (scanned.length) L.push("BARCODES READ BY THE PHONE'S SCANNER (exact): " + scanned.join("; ") + ".");
   const views: string[] = s.views ?? [];
   L.push(`RULES:
 - Compare the unit with the references and the standard. Ignore differences caused by lighting, angle, background, reflections or camera color.
@@ -155,7 +161,10 @@ export function inspectPrompt(p: any, refs: Photo[], units: Photo[], all: Photo[
 - If you see a possible defect but cannot be sure, the verdict is REVIEW. Never PASS when unsure.
 - FAIL if any defect is at or above the rejectable size, or a must-have feature is missing or wrong.
 - Photos cannot measure size precisely: mark size checks "unclear" unless something in the photo gives a scale.
-- Include one check for each must-have line, each in-the-box item and each watch-for item, plus color and finish.
+- Include one check for each must-have line, each in-the-box item and each watch-for item, plus color and finish.${s.barcode ? `
+- Add a check "Barcode": pass if a barcode or its printed digits visibly match ${s.barcode}; fail if a different code is visible (that is a major defect: wrong label); unclear if no barcode is visible.` : ""}${lines(s.labelText).length ? `
+- Add one check per required printed text line: pass if it appears spelled exactly, fail if it is missing or misspelled (a misprint is a major defect), unclear if that part is not shown.` : ""}
+- Measuring card: if a printed Defect Check card is visible (a ruler marked 0 to 100 mm with colour squares), use the ruler to measure sizes and defects in mm, so size checks can pass or fail instead of unclear, and use its white and grey squares to judge lighting before judging colour.
 - Extra photos: ${views.length ? `the seller has decided that ${views.join(", ")} views are enough for this product. ` : ""}Only ask for another photo when a must-have item or a possible defect genuinely cannot be judged from the photos given, and say exactly what to photograph and why. Never ask just for completeness. If you ask, the verdict cannot be PASS.${arrival ? `
 - Shipping condition counts: damaged packaging that the seller sells to customers (retail box, label, seal) is a defect. A crushed or wet outer shipping carton is a defect of severity minor unless the product inside is affected.
 - For every defect set "origin":
@@ -230,6 +239,37 @@ function refPool(photos: Photo[]) {
   return [...photos.filter((x) => x.origin !== "official"), ...photos.filter((x) => x.origin === "official" && !["spec_or_text", "document", "other"].includes(x.kind ?? ""))];
 }
 
+// ---------- scanner results: barcode and carton label (deterministic, on top of the AI) ----------
+const normCode = (c: string) => String(c ?? "").replace(/\s+/g, "").toUpperCase();
+export function applyCodeChecks(ai: any, spec: any, units: Photo[], pick: { carton: number } | null, sessionId: string | null) {
+  const codes = [...new Set(units.flatMap((u) => u.codes ?? []).map(String))];
+  const setCheck = (item: string, result: string, note: string) => {
+    ai.checks = (ai.checks ?? []).filter((c: any) => c.item.toLowerCase() !== item.toLowerCase());
+    ai.checks.unshift({ item, result, note });
+  };
+  const want = normCode(spec?.barcode ?? "");
+  const products = codes.filter((c) => !c.startsWith("DC:") && !c.startsWith("DC-"));
+  if (want && products.length) {
+    if (products.some((c) => normCode(c) === want)) setCheck("Barcode", "pass", `Scanner read ${want}.`);
+    else {
+      setCheck("Barcode", "fail", `Expected ${want}, scanner read ${products.join(", ")}.`);
+      ai.defects = [{ type: "Wrong barcode", where: "barcode label", photo: 1, box: null, size: null, severity: "major", inSpec: false, conf: 1 }, ...(ai.defects ?? [])];
+      ai.verdict = "FAIL";
+    }
+  }
+  const labels = codes.filter((c) => c.startsWith("DC:")).map((c) => c.split(":"));
+  if (pick && labels.length) {
+    const short = String(sessionId ?? "").slice(0, 8);
+    const ok = labels.some((x) => x[1] === short && +x[2] === pick.carton);
+    if (ok) setCheck("Carton label", "pass", `QR label confirms carton ${pick.carton}.`);
+    else {
+      const seen = labels.map((x) => (x[1] === short ? `carton ${x[2]}` : "a label from another lot")).join(", ");
+      setCheck("Carton label", "fail", `Asked for carton ${pick.carton}, QR label shows ${seen}.`);
+      if (ai.verdict === "PASS") ai.verdict = "REVIEW";
+    }
+  }
+}
+
 // ---------- factory evidence for arrival checks ----------
 const finalOf = (r: any) => r?.decision?.final ?? r?.verdict ?? "unchecked";
 function findingLine(r: any) {
@@ -287,6 +327,7 @@ async function taskInspect(sb: SupabaseClient, inspectionId: string) {
     const arrival = ins.stage === "arrival";
     const ev = arrival ? await factoryEvidence(sb, ins) : null;
     const pick = ins.pick_id ? (await sb.from("factory_picks").select("carton, unit_pos").eq("id", ins.pick_id).maybeSingle()).data : null;
+    // photos carry the codes the phone scanned
     const pool = refPool(product?.photos ?? []);
     const beforeCap = ev ? Math.min(ev.photos.length, 4) : 0;
     const refCap = Math.min(pool.length, arrival ? 3 : 4, MAX_IMAGES - beforeCap - 1), per = Math.max(1, MAX_IMAGES - refCap - beforeCap);
@@ -303,6 +344,7 @@ async function taskInspect(sb: SupabaseClient, inspectionId: string) {
       parts.push({ ai: normalize(r, batch.length, arrival), offset: i });
     }
     const ai = merge(parts);
+    applyCodeChecks(ai, p.spec, units, pick, ins.session_id);
     const extra: Record<string, unknown> = {};
     if (arrival) {
       extra.damage_origin = damageOrigin(ai);
@@ -417,7 +459,7 @@ async function latestSession(admin: SupabaseClient, link: any) {
   if (!data || !data.length) return null;
   let ses = data[0];
   if (ses.status === "sampling") {
-    const { count } = await admin.from("factory_picks").select("id", { count: "exact", head: true }).eq("session_id", ses.id).in("status", ["pending", "issued"]);
+    const { count } = await admin.from("factory_picks").select("id", { count: "exact", head: true }).eq("session_id", ses.id).in("status", ["pending", "issued", "checking"]);
     if (!count) return await finalize(admin, ses);
   }
   return await sessionState(admin, ses);
@@ -437,6 +479,16 @@ async function activeSession(admin: SupabaseClient, link: any) {
   if (!data || !data.length) throw new HttpError(409, "Start the inspection first: enter the lot size.");
   return data[0];
 }
+// Draw one more random unit that has not been picked yet (after a missed or unreadable pick).
+async function addReplacement(admin: SupabaseClient, ses: any, known?: any[]) {
+  const all = known ?? ((await admin.from("factory_picks").select("seq, carton, unit_pos").eq("session_id", ses.id)).data ?? []);
+  const used = new Set(all.map((x: any) => (x.carton - 1) * ses.units_per_carton + x.unit_pos));
+  if (used.size >= ses.total_units) return null;
+  let u = 0; do u = randInt(ses.total_units) + 1; while (used.has(u));
+  const seq = Math.max(0, ...all.map((x: any) => x.seq)) + 1;
+  const { data } = await admin.from("factory_picks").insert({ session_id: ses.id, workspace_id: ses.workspace_id, seq, carton: Math.floor((u - 1) / ses.units_per_carton) + 1, unit_pos: ((u - 1) % ses.units_per_carton) + 1 }).select().single();
+  return data;
+}
 // The issued pick, or the next one. A pick whose window ran out is recorded as missed and replaced by a new random unit.
 async function currentPick(admin: SupabaseClient, ses: any): Promise<any> {
   const { data: picks } = await admin.from("factory_picks").select("*").eq("session_id", ses.id).order("seq");
@@ -446,13 +498,8 @@ async function currentPick(admin: SupabaseClient, ses: any): Promise<any> {
     if (now <= new Date(pk.expires_at).getTime() + PICK_GRACE_S * 1000) return pk;
     await admin.from("factory_picks").update({ status: "missed", token: null }).eq("id", pk.id);
     pk.status = "missed";
-    const used = new Set(all.map((x: any) => (x.carton - 1) * ses.units_per_carton + x.unit_pos));
-    if (used.size < ses.total_units) {
-      let u = 0; do u = randInt(ses.total_units) + 1; while (used.has(u));
-      const seq = Math.max(...all.map((x: any) => x.seq)) + 1;
-      const { data: added } = await admin.from("factory_picks").insert({ session_id: ses.id, workspace_id: ses.workspace_id, seq, carton: Math.floor((u - 1) / ses.units_per_carton) + 1, unit_pos: ((u - 1) % ses.units_per_carton) + 1 }).select().single();
-      if (added) all.push(added);
-    }
+    const added = await addReplacement(admin, ses, all);
+    if (added) all.push(added);
   }
   const next = all.filter((x: any) => x.status === "pending").sort((a: any, b: any) => a.seq - b.seq)[0];
   if (!next) return null;
@@ -464,7 +511,7 @@ async function sessionState(admin: SupabaseClient, ses: any) {
   const { data: picks } = await admin.from("factory_picks").select("status, verdict").eq("session_id", ses.id);
   const c = (f: (x: any) => boolean) => (picks ?? []).filter(f).length;
   return { id: ses.id, total_units: ses.total_units, cartons: ses.cartons, units_per_carton: ses.units_per_carton, sample_size: ses.sample_size, window_seconds: ses.window_seconds,
-    status: ses.status, result: ses.result, done: c((x) => x.status === "done"), missed: c((x) => x.status === "missed"), failed: c((x) => x.status === "done" && x.verdict === "FAIL") };
+    status: ses.status, result: ses.result, done: c((x) => x.status === "done"), checking: c((x) => x.status === "checking"), missed: c((x) => x.status === "missed"), failed: c((x) => x.status === "done" && x.verdict === "FAIL") };
 }
 async function finalize(admin: SupabaseClient, ses: any) {
   if (ses.status === "sampling") {
@@ -495,7 +542,7 @@ async function factoryTask(task: string, body: any) {
     return {
       link: { lot: link.lot, factory_name: link.factory_name ?? "", expires_at: link.expires_at, max_units: link.max_units, prefix: linkPrefix(link) },
       product: { name: product.name, sku: product.sku ?? "", version: product.version,
-        spec: { material: s.material ?? "", colors: s.colors ?? "", finish: s.finish ?? "", dims: s.dims ?? {}, tol: s.tol ?? "", packaging: s.packaging ?? "", inBox: s.inBox ?? "", goodLooks: s.goodLooks ?? "", mustHave: s.mustHave ?? "", allowed: s.allowed ?? "", watch: s.watch ?? [], minDefectMm: s.minDefectMm ?? "", views: s.views ?? [] },
+        spec: { barcode: s.barcode ?? "", labelText: s.labelText ?? "", material: s.material ?? "", colors: s.colors ?? "", finish: s.finish ?? "", dims: s.dims ?? {}, tol: s.tol ?? "", packaging: s.packaging ?? "", inBox: s.inBox ?? "", goodLooks: s.goodLooks ?? "", mustHave: s.mustHave ?? "", allowed: s.allowed ?? "", watch: s.watch ?? [], minDefectMm: s.minDefectMm ?? "", views: s.views ?? [] },
         photos: refs.map((r) => ({ path: r.path, view: r.view ?? "", part: r.part ?? "", origin: r.origin ?? "unit" })) },
       units, urls, session: await latestSession(admin, link),
     };
@@ -518,7 +565,9 @@ async function factoryTask(task: string, body: any) {
   if (task === "factory_pick_next") {
     const ses = await activeSession(admin, link);
     const cur = await currentPick(admin, ses);
-    return cur ? { session: await sessionState(admin, ses), pick: publicPick(cur, ses) } : { session: await finalize(admin, ses) };
+    if (cur) return { session: await sessionState(admin, ses), pick: publicPick(cur, ses) };
+    const { count } = await admin.from("factory_picks").select("id", { count: "exact", head: true }).eq("session_id", ses.id).eq("status", "checking");
+    return { session: count ? await sessionState(admin, ses) : await finalize(admin, ses) };
   }
   const pickOf = async () => {
     const ses = await activeSession(admin, link);
@@ -544,7 +593,8 @@ async function factoryTask(task: string, body: any) {
   if (task === "factory_submit") {
     const { ses, pk, folder } = await pickOf();
     const photos = (Array.isArray(body.photos) ? body.photos : []).slice(0, MAX_FACTORY_PHOTOS)
-      .map((p: any) => ({ path: String(p?.path ?? ""), view: String(p?.view ?? "").slice(0, 30), part: String(p?.part ?? "").slice(0, 40), quality: String(p?.quality ?? "").slice(0, 20) }));
+      .map((p: any) => ({ path: String(p?.path ?? ""), view: String(p?.view ?? "").slice(0, 30), part: String(p?.part ?? "").slice(0, 40), quality: String(p?.quality ?? "").slice(0, 20),
+        codes: (Array.isArray(p?.codes) ? p.codes : []).slice(0, 6).map((c: any) => String(c).slice(0, 80)) }));
     if (!photos.length) throw new HttpError(400, "Take at least one photo.");
     if (photos.some((p: Photo) => !p.path.startsWith(folder) || p.path.includes(".."))) throw new HttpError(403, "Photo does not belong to this unit.");
     // Every photo must have been uploaded into this pick's folder after the pick was revealed.
@@ -558,18 +608,29 @@ async function factoryTask(task: string, body: any) {
       factory_link_id: link.id, submitted_by: String(body.worker ?? "").slice(0, 60) || null, session_id: ses.id, pick_id: pk.id,
     }).select().single();
     if (error || !row) throw new HttpError(500, "Could not save the check: " + (error?.message ?? ""));
-    await admin.from("factory_picks").update({ attempts: pk.attempts + 1, submitted_at: new Date().toISOString(), inspection_id: row.id }).eq("id", pk.id);
-    let done: any = row;
-    try { done = await taskInspect(admin, row.id); } catch { done = (await admin.from("inspections").select("*").eq("id", row.id).single()).data ?? row; }
-    const u = publicUnit(done);
-    let retake: any = null;
-    if (done.verdict === "RETAKE" && pk.attempts + 1 < 3) {
-      const { data: again } = await admin.from("factory_picks").update({ token: newToken(), issued_at: new Date().toISOString(), expires_at: new Date(Date.now() + ses.window_seconds * 1000).toISOString() }).eq("id", pk.id).select().single();
-      retake = again ? publicPick(again, ses) : null;
-    } else {
-      await admin.from("factory_picks").update({ status: "done", token: null, verdict: done.verdict ?? "ERROR" }).eq("id", pk.id);
+    // The unit is handed in: the factory can move to the next pick while the AI checks this one.
+    await admin.from("factory_picks").update({ status: "checking", token: null, attempts: pk.attempts + 1, submitted_at: new Date().toISOString(), inspection_id: row.id }).eq("id", pk.id);
+    const job = (async () => {
+      let done: any = row;
+      try { done = await taskInspect(admin, row.id); } catch { done = (await admin.from("inspections").select("*").eq("id", row.id).single()).data ?? row; }
+      const verdict = done?.verdict ?? "ERROR";
+      await admin.from("factory_picks").update({ status: "done", verdict }).eq("id", pk.id);
+      // Photos too poor to judge: draw a replacement random unit so the sample stays full size.
+      if (verdict === "RETAKE" || verdict === "ERROR") await addReplacement(admin, ses);
+      return done;
+    })();
+    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+      EdgeRuntime.waitUntil(job);
+      return { accepted: true, unit: publicUnit(row), urls: await signMap(admin, photos.map((p: Photo) => p.path)) };
     }
-    return { unit: u, urls: await signMap(admin, u.photos.map((p: any) => p.path)), retake, session: await sessionState(admin, ses) };
+    const done = await job;
+    return { accepted: true, unit: publicUnit(done), urls: await signMap(admin, photos.map((p: Photo) => p.path)) };
+  }
+  if (task === "factory_units") {
+    const ids = (Array.isArray(body.ids) ? body.ids : []).map(String).slice(0, 50);
+    if (!ids.length) return { units: [], session: await latestSession(admin, link) };
+    const { data: rows } = await admin.from("inspections").select("*").eq("factory_link_id", link.id).in("id", ids);
+    return { units: (rows ?? []).map(publicUnit), session: await latestSession(admin, link) };
   }
   if (task === "factory_retry") {
     const { data: r } = await admin.from("inspections").select("*").eq("id", String(body.id ?? "")).eq("factory_link_id", link.id).maybeSingle();
