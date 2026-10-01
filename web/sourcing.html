@@ -65,20 +65,20 @@ textarea{min-height:90px;resize:vertical}
 .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .empty{color:var(--muted);padding:18px 0;text-align:center}
 @media (max-width:900px){.shell{grid-template-columns:1fr}.rail{position:static;height:auto;flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line);padding:10px}.rail .brand{padding:6px 10px;width:100%}.rail .grow,.rail .meta,.rail .sect{display:none}.cols,.grid2,.grid3{grid-template-columns:1fr}main{padding:18px 14px 80px}.steps{grid-template-columns:repeat(4,1fr)}}
-</style><script>/* Browsers keep pages for up to 10 minutes. If the server has a newer copy, reload once. */(function(){try{fetch(location.pathname,{method:'HEAD',cache:'no-store'}).then(function(r){var lm=r.headers.get('last-modified');if(!lm)return;var k='dc-fresh:'+location.pathname;if(new Date(lm).getTime()-new Date(document.lastModified).getTime()>1000&&sessionStorage.getItem(k)!==lm){sessionStorage.setItem(k,lm);location.reload();}}).catch(function(){});}catch(e){}})();</script>
+</style><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="theme.css">
+<script>/* Browsers keep pages for up to 10 minutes. If the server has a newer copy, reload once. */(function(){try{fetch(location.pathname,{method:'HEAD',cache:'no-store'}).then(function(r){var lm=r.headers.get('last-modified');if(!lm)return;var k='dc-fresh:'+location.pathname;if(new Date(lm).getTime()-new Date(document.lastModified).getTime()>1000&&sessionStorage.getItem(k)!==lm){sessionStorage.setItem(k,lm);location.reload();}}).catch(function(){});}catch(e){}})();</script>
 </head><body>
 <div class="shell">
   <nav class="rail" aria-label="Main">
     <div class="brand"><i aria-hidden="true"></i>Defect Check</div>
     <a href="./">Home</a>
-    <div class="sect">Sourcing</div>
     <a href="#/requests" data-nav="requests">Requests <small id="navReq"></small></a>
+    <a href="ops.html#/orders">Orders</a>
+    <a href="app.html">Products</a>
     <a href="#/factories" data-nav="factories">Factories</a>
     <a href="#/clients" data-nav="clients">Clients</a>
     <a href="#/rates" data-nav="rates">Rate cards</a>
-    <div class="sect">Quality</div>
-    <a href="ops.html#/orders">Orders</a>
-    <a href="app.html">Products</a>
     <div class="grow"></div>
     <a class="quiet" href="site/">Website</a>
     <div class="meta" id="sync">Connecting…</div>
@@ -122,12 +122,10 @@ async function load() {
 function viewRequests() {
   const open = D.requests.filter(r => r.status !== 'closed');
   const counts = STATUSES.map(s => [s, D.requests.filter(r => r.status === s).length]);
-  return `<div class="hello"><div><h1>Sourcing requests</h1><p>What clients want made, where it stands, and who's doing it.</p></div>
+  return `<div class="hello"><div><h1>Requests</h1><p>What clients want made, and where each one stands.</p></div>
     <div class="bar"><a class="btn" href="#/clients">Clients</a><a class="btn primary" href="#/new">New request</a></div></div>
-  <div class="steps">${counts.map(([s, n]) => `<div class="${n ? 'on' : ''}">${SLABEL[s]} · ${n}</div>`).join('')}</div>
-  <div class="panel wrap">${open.length ? `<table><thead><tr><th>Request</th><th>Client</th><th>Stage</th><th class="right">Qty</th><th class="right">Target $</th><th>Deadline</th><th>Updated</th></tr></thead><tbody>
-    ${open.map(r => `<tr class="row" onclick="location.hash='#/request/${r.id}'"><td><b>${esc(r.title)}</b><div class="sm mut">${esc(r.spec?.category || r.spec?.product_name || '')}</div></td><td>${esc(r.clients?.company || r.clients?.name || '—')}</td><td><span class="badge ${['approved','ordered'].includes(r.status) ? 'b-pass' : r.status === 'intake' ? 'b-rev' : 'b-harbor'}">${SLABEL[r.status]}</span></td><td class="right">${fmt(r.quantity, 0)}</td><td class="right">${usd(r.target_unit_price)}</td><td>${dt(r.deadline)}</td><td>${dt(r.updated_at)}</td></tr>`).join('')}
-  </tbody></table>` : `<div class="empty">No requests yet. <a href="#/new">Create the first one</a>, or send a client their portal link and they can submit one.</div>`}</div>
+  <div class="steps">${counts.map(([s, n]) => `<div class="${n ? 'on' : ''}">${SLABEL[s]} ${n}</div>`).join('')}</div>
+  ${open.length ? `<ul class="rows" style="margin-top:18px">${open.map(r => `<li><a class="row" href="#/request/${r.id}"><span class="ring ${r.status === 'intake' && !r.spec?.intake_at ? '' : 'half'}"></span><span class="t"><b>${esc(r.title)}</b><small>${esc(SLABEL[r.status])}${r.quantity ? ', ' + fmt(r.quantity, 0) + ' units' : ''}${r.target_unit_price ? ', target ' + usd(r.target_unit_price) : ''}</small></span><span class="chips">${r.deadline ? `<span class="tag">${dt(r.deadline)}</span>` : ''}${r.clients ? `<span class="tag">${esc(r.clients.company || r.clients.name)}</span>` : ''}</span></a></li>`).join('')}</ul>` : `<div class="dc-empty" style="margin-top:18px">No requests yet. <a href="#/new">Create the first one</a>, or tell Operator on the <a href="./">Home page</a> what the client wants made.</div>`}
   ${D.requests.some(r => r.status === 'closed') ? `<p class="sm mut">${D.requests.filter(r => r.status === 'closed').length} closed.</p>` : ''}`;
 }
 
