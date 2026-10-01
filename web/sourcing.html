@@ -65,7 +65,8 @@ textarea{min-height:90px;resize:vertical}
 .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .empty{color:var(--muted);padding:18px 0;text-align:center}
 @media (max-width:900px){.shell{grid-template-columns:1fr}.rail{position:static;height:auto;flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line);padding:10px}.rail .brand{padding:6px 10px;width:100%}.rail .grow,.rail .meta,.rail .sect{display:none}.cols,.grid2,.grid3{grid-template-columns:1fr}main{padding:18px 14px 80px}.steps{grid-template-columns:repeat(4,1fr)}}
-</style></head><body>
+</style><script>/* Browsers keep pages for up to 10 minutes. If the server has a newer copy, reload once. */(function(){try{fetch(location.pathname,{method:'HEAD',cache:'no-store'}).then(function(r){var lm=r.headers.get('last-modified');if(!lm)return;var k='dc-fresh:'+location.pathname;if(new Date(lm).getTime()-new Date(document.lastModified).getTime()>1000&&sessionStorage.getItem(k)!==lm){sessionStorage.setItem(k,lm);location.reload();}}).catch(function(){});}catch(e){}})();</script>
+</head><body>
 <div class="shell">
   <nav class="rail" aria-label="Main">
     <div class="brand"><i aria-hidden="true"></i>Defect Check</div>
@@ -93,7 +94,7 @@ const $ = (id) => document.getElementById(id);
 const fmt = (n, d = 2) => n === null || n === undefined || isNaN(n) ? '—' : Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 const usd = (n, d = 2) => n === null || n === undefined ? '—' : '$' + fmt(n, d);
 const cny = (n) => n === null || n === undefined ? '—' : '¥' + fmt(n, 2);
-const dt = (s) => s ? new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—';
+const dt = (s) => s ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? s + 'T00:00' : s).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—';
 const STATUSES = ['intake', 'sourcing', 'shortlisted', 'negotiating', 'quoted', 'approved', 'ordered', 'closed'];
 const SLABEL = { intake: 'Intake', sourcing: 'Sourcing', shortlisted: 'Shortlist', negotiating: 'Negotiating', quoted: 'Quoted', approved: 'Approved', ordered: 'Ordered', closed: 'Closed' };
 let sb, ws, D = { requests: [], clients: [], factories: [], rates: [] };
