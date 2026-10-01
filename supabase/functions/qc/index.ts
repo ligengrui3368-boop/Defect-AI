@@ -13,6 +13,15 @@
 //                   lot size, the server draws a random AQL sample of carton/unit positions,
 //                   reveals them one at a time with a short capture window, and only accepts
 //                   photos uploaded to that pick's folder inside the window.
+//   po_*          – used by the factory through a PO hub link (one link per purchase order):
+//                   open the order (all SKU lines and their inspections), and run the
+//                   container loading check (live photos per stage, container and seal
+//                   numbers read by the AI and the ISO 6346 check digit, carton counts
+//                   against the packing list).
+//   receipt_check – dock receiving: reads the seal, compares it with loading, checks carton
+//                   counts against loading and the PO, classifies damaged cartons against the
+//                   loading photos, and says who is responsible for each gap.
+// Every finding carries a defect code from a shared list (public.defect_codes).
 // For every other task the caller's JWT is forwarded, so row level security applies.
 
 import { createClient, SupabaseClient } from "npm:@supabase/supabase-js@2";
@@ -28,6 +37,24 @@ const PICK_GRACE_S = 90; // upload and identify latency allowed past the window
 
 export const WATCH = ["Scratches", "Dents", "Cracks or chips", "Stains or marks", "Color mismatch", "Missing parts", "Loose or bent parts", "Logo or print errors", "Wrong label", "Packaging damage", "Rust or corrosion", "Burrs or sharp edges", "Loose threads", "Bubbles or warping"];
 export const VIEWS = ["Front", "Back", "Top", "Bottom", "Side", "Label", "Packaging", "Close-up"];
+// Shared defect vocabulary (mirrors public.defect_codes): [code, scope, English, Chinese, default severity]
+export const CODES: [string, string, string, string, string][] = [
+  ["SCR", "product", "Scratch", "划痕", "minor"], ["DNT", "product", "Dent", "凹痕", "major"], ["CRK", "product", "Crack or chip", "裂纹或缺口", "major"],
+  ["STN", "product", "Stain or mark", "污渍或印记", "minor"], ["CLR", "product", "Color mismatch", "颜色不符", "major"], ["MSP", "product", "Missing part", "缺件", "major"],
+  ["LSE", "product", "Loose or bent part", "松动或变形", "major"], ["ASM", "product", "Assembly fault", "装配不良", "major"], ["DIM", "product", "Wrong size", "尺寸不符", "major"],
+  ["PRT", "product", "Print or logo error", "印刷或标志错误", "major"], ["BUR", "product", "Burr or sharp edge", "毛刺或锋利边缘", "critical"], ["RST", "product", "Rust or corrosion", "生锈或腐蚀", "major"],
+  ["THR", "product", "Loose threads", "线头", "minor"], ["WRP", "product", "Bubbles or warping", "气泡或翘曲", "minor"], ["CON", "product", "Foreign matter or contamination", "异物或污染", "critical"],
+  ["FNC", "product", "Visible function fault", "功能不良", "major"], ["LBL", "label", "Wrong or missing label", "标签错误或缺失", "major"], ["BCD", "label", "Wrong or unreadable barcode", "条码错误或无法识别", "major"],
+  ["TXT", "label", "Required text missing or misspelled", "必需文字缺失或拼写错误", "major"], ["PKG", "packaging", "Retail packaging damaged", "销售包装损坏", "major"], ["PKW", "packaging", "Wrong packaging", "包装不符", "major"],
+  ["CTN", "carton", "Crushed or torn carton", "纸箱压坏或破损", "minor"], ["WET", "carton", "Wet or stained carton", "纸箱受潮或污染", "major"], ["PNC", "carton", "Puncture", "刺穿", "major"],
+  ["BRK", "carton", "Breakage", "破碎", "critical"], ["LEK", "carton", "Leak", "渗漏", "critical"], ["MRK", "carton", "Wrong carton marks", "箱唛错误", "major"],
+  ["QTY", "carton", "Wrong quantity in carton", "装箱数量不符", "major"], ["CNT", "container", "Container damage (holes, dents, broken doors)", "集装箱破损", "major"],
+  ["CND", "container", "Container not clean or not dry", "集装箱不干净或潮湿", "major"], ["SEL", "container", "Seal problem", "封条问题", "critical"],
+  ["STW", "container", "Poor stowage or bracing", "装载或固定不当", "major"], ["OTH", "product", "Other", "其他", "major"],
+];
+const CODE_SET = new Set(CODES.map((c) => c[0]));
+export const codeList = (scopes: string[]) => CODES.filter((c) => scopes.includes(c[1]) || c[0] === "OTH").map((c) => `${c[0]} = ${c[2]}`).join("; ");
+export const asCode = (c: unknown) => { const k = String(c ?? "").trim().toUpperCase().slice(0, 3); return CODE_SET.has(k) ? k : "OTH"; };
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -161,6 +188,7 @@ export function inspectPrompt(p: any, refs: Photo[], units: Photo[], all: Photo[
 - If you see a possible defect but cannot be sure, the verdict is REVIEW. Never PASS when unsure.
 - FAIL if any defect is at or above the rejectable size, or a must-have feature is missing or wrong.
 - Photos cannot measure size precisely: mark size checks "unclear" unless something in the photo gives a scale.
+- Every defect gets a "code" from this list (use the closest; OTH only if nothing fits): ${codeList(arrival ? ["product", "label", "packaging", "carton"] : ["product", "label", "packaging"])}.
 - Include one check for each must-have line, each in-the-box item and each watch-for item, plus color and finish.${s.barcode ? `
 - Add a check "Barcode": pass if a barcode or its printed digits visibly match ${s.barcode}; fail if a different code is visible (that is a major defect: wrong label); unclear if no barcode is visible.` : ""}${lines(s.labelText).length ? `
 - Add one check per required printed text line: pass if it appears spelled exactly, fail if it is missing or misspelled (a misprint is a major defect), unclear if that part is not shown.` : ""}
@@ -175,7 +203,7 @@ export function inspectPrompt(p: any, refs: Photo[], units: Photo[], all: Photo[
 - Photo authenticity: these photos were sent by the factory being inspected. Add a check "Photo authenticity": fail if any photo looks like a photo of a screen or of a printed picture, a product render or stock image, or digitally edited or composited; otherwise pass. If it fails, the verdict cannot be PASS (use REVIEW).` : ""}${pick ? `
 - Random sample: the system randomly chose carton ${pick.carton}, unit ${pick.unit_pos} for this check. Cartons are marked with their number. Add a check "Carton number": pass if a photo clearly shows carton number ${pick.carton}; fail if a photo shows a different carton number; unclear if no carton number is visible. If it is fail or unclear, the verdict cannot be PASS (use RETAKE if the number is simply not visible, REVIEW if it is a different number).` : ""}
 JSON:
-{"verdict":"PASS|FAIL|REVIEW|RETAKE","summary":"one or two plain sentences","photo_quality":{"ok":true,"issues":["..."]},"checks":[{"item":"...","result":"pass|fail|unclear","note":"short"}],"defects":[{"type":"short name","where":"plain location on the product","photo":1,"box":[x,y,w,h],"size_estimate_mm":null,"severity":"critical|major|minor","within_spec":false,"confidence":0.8${arrival ? ',"origin":"factory|transit|unclear","origin_reason":"short"' : ""}}],"more_photos":[{"part":"what to photograph","why":"what it would settle"}]${arrival ? ',"origin_summary":""' : ""}${zh ? ',"zh":{"summary":"","defects":[""],"more":[""]}' : ""}}
+{"verdict":"PASS|FAIL|REVIEW|RETAKE","summary":"one or two plain sentences","photo_quality":{"ok":true,"issues":["..."]},"checks":[{"item":"...","result":"pass|fail|unclear","note":"short"}],"defects":[{"code":"SCR","type":"short name","where":"plain location on the product","photo":1,"box":[x,y,w,h],"size_estimate_mm":null,"severity":"critical|major|minor","within_spec":false,"confidence":0.8${arrival ? ',"origin":"factory|transit|unclear","origin_reason":"short"' : ""}}],"more_photos":[{"part":"what to photograph","why":"what it would settle"}]${arrival ? ',"origin_summary":""' : ""}${zh ? ',"zh":{"summary":"","defects":[""],"more":[""]}' : ""}}
 ${zh ? `"zh" is for factory workers who read Chinese: zh.summary is the summary in simplified Chinese; zh.defects has one simplified-Chinese line per defect, same order, written as "问题 — 位置"; zh.more has one line per more_photos item, same order, written as "拍什么 — 原因".
 ` : ""}"photo" is the 1-based index among the UNIT photos only (never the reference or factory photos). "box" is the approximate region in that photo as fractions 0–1 (x, y = top-left), or null. Use [] when there are no defects and [] for more_photos when the photos are enough.`);
   return L.join("\n");
@@ -186,7 +214,7 @@ export function normalize(r: any, nUnits: number, arrival = false) {
   const V = ["PASS", "FAIL", "REVIEW", "RETAKE"]; let v = String(r?.verdict ?? "").toUpperCase(); if (!V.includes(v)) v = "REVIEW";
   const clamp = (n: number) => Math.min(1, Math.max(0, n));
   const defects = (Array.isArray(r?.defects) ? r.defects : []).slice(0, 12).map((d: any) => ({
-    type: String(d.type || "Defect"), where: String(d.where || ""), photo: Math.min(nUnits, Math.max(1, +d.photo || 1)),
+    code: asCode(d.code), type: String(d.type || "Defect"), where: String(d.where || ""), photo: Math.min(nUnits, Math.max(1, +d.photo || 1)),
     box: Array.isArray(d.box) && d.box.length === 4 && d.box.every((n: any) => isFinite(n)) ? d.box.map((n: any) => clamp(+n)) : null,
     size: d.size_estimate_mm == null ? null : +d.size_estimate_mm, severity: ["critical", "major", "minor"].includes(d.severity) ? d.severity : "major",
     inSpec: !!d.within_spec, conf: clamp(+d.confidence || 0),
@@ -253,7 +281,7 @@ export function applyCodeChecks(ai: any, spec: any, units: Photo[], pick: { cart
     if (products.some((c) => normCode(c) === want)) setCheck("Barcode", "pass", `Scanner read ${want}.`);
     else {
       setCheck("Barcode", "fail", `Expected ${want}, scanner read ${products.join(", ")}.`);
-      ai.defects = [{ type: "Wrong barcode", where: "barcode label", photo: 1, box: null, size: null, severity: "major", inSpec: false, conf: 1 }, ...(ai.defects ?? [])];
+      ai.defects = [{ code: "BCD", type: "Wrong barcode", where: "barcode label", photo: 1, box: null, size: null, severity: "major", inSpec: false, conf: 1 }, ...(ai.defects ?? [])];
       ai.verdict = "FAIL";
     }
   }
@@ -642,14 +670,305 @@ async function factoryTask(task: string, body: any) {
   throw new HttpError(400, "Unknown task");
 }
 
+// ---------- purchase orders: factory hub, container loading check, dock receiving ----------
+// ISO 6346 container number: 4 letters (owner + category), 6 digits, 1 check digit.
+export function iso6346(raw: string) {
+  const s = String(raw ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!/^[A-Z]{4}\d{7}$/.test(s)) return { number: s, valid: false };
+  const val = (ch: string) => { if (/\d/.test(ch)) return +ch; let v = 10; for (let c = 65; c < ch.charCodeAt(0); c++) { v++; if (v % 11 === 0) v++; } return v; };
+  let sum = 0; for (let i = 0; i < 10; i++) sum += val(s[i]) * 2 ** i;
+  return { number: s, valid: (sum % 11) % 10 === +s[10] };
+}
+const normSeal = (x: unknown) => String(x ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+export const LOAD_STEPS = [
+  { key: "empty", en: "Empty container, inside, doors open", zh: "空箱内部（开门拍）", required: true },
+  { key: "number", en: "Container number on the door", zh: "箱门上的集装箱号", required: true },
+  { key: "half", en: "Half loaded", zh: "装到一半", required: true },
+  { key: "full", en: "Fully loaded, doors still open", zh: "装满（关门前）", required: true },
+  { key: "marks", en: "Carton shipping marks", zh: "箱唛", required: false },
+  { key: "sealed", en: "Doors closed with the seal on", zh: "关门并上封条", required: true },
+  { key: "seal", en: "Seal number close-up", zh: "封条号码特写", required: true },
+];
+const LOAD_WINDOW_H = 12; // a loading check must be finished within this many hours of starting
+
+async function openPo(admin: SupabaseClient, token: string) {
+  if (!/^[a-f0-9]{48,80}$/.test(token)) throw new HttpError(404, "This link is not valid.");
+  const { data: po } = await admin.from("purchase_orders").select("*").eq("token", token).maybeSingle();
+  if (!po || !po.token_active) throw new HttpError(404, "This link is not valid or the buyer has closed it.");
+  if (po.closed) throw new HttpError(410, "The buyer has closed this order.");
+  const { data: lines } = await admin.from("po_lines").select("*").eq("po_id", po.id).order("seq");
+  const pids = (lines ?? []).map((l: any) => l.product_id), lids = (lines ?? []).map((l: any) => l.link_id).filter(Boolean);
+  const [{ data: prods }, { data: links }, { data: sess }] = await Promise.all([
+    pids.length ? admin.from("products").select("id, name, sku, photos, spec").in("id", pids) : Promise.resolve({ data: [] as any[] }),
+    lids.length ? admin.from("factory_links").select("id, token, active, expires_at").in("id", lids) : Promise.resolve({ data: [] as any[] }),
+    lids.length ? admin.from("factory_sessions").select("*").in("link_id", lids).neq("status", "cancelled").order("created_at", { ascending: false }) : Promise.resolve({ data: [] as any[] }),
+  ]);
+  return { po, lines: lines ?? [], prods: prods ?? [], links: links ?? [], sess: sess ?? [] };
+}
+async function latestLoading(admin: SupabaseClient, poId: string) {
+  const { data } = await admin.from("loading_checks").select("*").eq("po_id", poId).neq("status", "cancelled").order("started_at", { ascending: false }).limit(1);
+  return data && data.length ? data[0] : null;
+}
+const loadPrefix = (lc: any) => `${lc.workspace_id}/loading/${lc.id}/`;
+function publicLoading(lc: any) {
+  if (!lc) return null;
+  return { id: lc.id, status: lc.status, result: lc.result, container_no: lc.container_no ?? "", seal_no: lc.seal_no ?? "", container_no_read: lc.container_no_read ?? "", seal_no_read: lc.seal_no_read ?? "",
+    container_no_valid: lc.container_no_valid, counts: lc.counts ?? {}, photos: lc.photos ?? [], error: lc.status === "error" ? lc.error : null, started_at: lc.started_at, submitted_at: lc.submitted_at,
+    expires_at: new Date(new Date(lc.started_at).getTime() + LOAD_WINDOW_H * 3600e3).toISOString(),
+    ai: lc.ai ? { summary: lc.ai.summary ?? "", zh: lc.ai.zh ?? null, issues: lc.ai.issues ?? [], checks: lc.ai.checks ?? [], defects: lc.ai.defects ?? [] } : null };
+}
+
+function loadingPrompt(po: any, lines: any[], prods: any[], steps: string[], lc: any) {
+  const name = (pid: string) => prods.find((p: any) => p.id === pid)?.name ?? "product";
+  const L: string[] = [];
+  L.push(`You are a container loading supervisor working for a US importer. The factory loaded a shipping container for purchase order ${po.po_number}${po.supplier_name ? ` from ${po.supplier_name}` : ""} and photographed each stage. Check that the container was sound, that the right goods went in, that they were loaded properly, and that the container was sealed.`);
+  L.push(`The ${steps.length} photos, numbered 1 to ${steps.length}, are in this order: ${steps.map((k, i) => `photo ${i + 1} = ${LOAD_STEPS.find((x) => x.key === k)?.en ?? k}`).join("; ")}.`);
+  L.push("PACKING LIST (what should be in the container):");
+  lines.forEach((l: any) => L.push(`- ${name(l.product_id)}: ${l.qty} units in ${l.cartons} cartons of ${l.units_per_carton}; factory says ${lc.counts?.[l.id] ?? "?"} cartons loaded.`));
+  L.push(`The factory typed container number "${lc.container_no ?? ""}" and seal number "${lc.seal_no ?? ""}".`);
+  L.push(`RULES:
+- Read the container number exactly as painted on the door or side (4 letters, 6 digits, 1 check digit, often with the check digit in a box). Read the seal number exactly as printed on the seal. Use "" if you cannot read it.
+- Empty container: look for holes (daylight through walls or roof), dents that reduce space, broken doors or door seals, wet or dirty floor, rust, smells you cannot judge (ignore), old labels or debris.
+- Loading: cartons stacked squarely, heavy on the bottom, no crushed or torn cartons, gaps braced or filled, nothing leaning against the doors.
+- Carton marks: if visible, they should name this buyer's PO or products. Marks for a different order or product are a problem.
+- Half loaded and fully loaded photos must show the same container as the empty photo (same interior, same door markings when visible). If they look like different containers, say so.
+- Doors closed with a bolt or cable seal through the door locking bar; the seal looks intact.
+- Photo authenticity: fail if any photo looks like a photo of a screen or print, a stock image or render, or edited.
+- Each problem is a defect with a "code" from this list: ${codeList(["container", "carton"])}.
+- Judge only what the photos show. Use "unclear" when a photo does not show something.
+JSON:
+{"container_no_read":"","seal_no_read":"","summary":"one or two plain sentences","checks":[{"item":"Container sound and clean","result":"pass|fail|unclear","note":"short"},{"item":"Same container in every photo","result":"pass|fail|unclear","note":""},{"item":"Loading and stowage","result":"pass|fail|unclear","note":""},{"item":"Carton marks","result":"pass|fail|unclear","note":""},{"item":"Doors sealed","result":"pass|fail|unclear","note":""},{"item":"Photo authenticity","result":"pass|fail|unclear","note":""}],"defects":[{"code":"CNT","type":"short name","where":"plain location","photo":1,"box":[0.1,0.2,0.3,0.3],"severity":"critical|major|minor","confidence":0.8}],"zh":{"summary":"the summary in simplified Chinese","defects":["one Chinese line per defect, same order, as 问题 — 位置"]}}
+"box" is the region in that photo as fractions 0–1 (x, y = top-left), or null. Use [] when there are no defects.`);
+  return L.join("\n");
+}
+
+async function runLoadingCheck(admin: SupabaseClient, lcId: string) {
+  const { data: lc } = await admin.from("loading_checks").select("*").eq("id", lcId).single();
+  const { data: po } = await admin.from("purchase_orders").select("*").eq("id", lc.po_id).single();
+  const { data: lines } = await admin.from("po_lines").select("*").eq("po_id", po.id).order("seq");
+  const pids = (lines ?? []).map((l: any) => l.product_id);
+  const { data: prods } = pids.length ? await admin.from("products").select("id, name").in("id", pids) : { data: [] as any[] };
+  try {
+    // At most 2 photos per stage, in stage order, within the per-call image limit.
+    const chosen: any[] = [];
+    for (const st of LOAD_STEPS) chosen.push(...(lc.photos ?? []).filter((p: any) => p.step === st.key).slice(0, 2));
+    const use = chosen.slice(0, MAX_IMAGES);
+    const r = await askJson(loadingPrompt(po, lines ?? [], prods ?? [], use.map((p) => p.step), lc), await loadImages(admin, use.map((p) => p.path)), MODEL_INSPECT, 4000);
+    const clamp = (n: number) => Math.min(1, Math.max(0, n));
+    const defects = (Array.isArray(r?.defects) ? r.defects : []).slice(0, 12).map((d: any) => ({
+      code: asCode(d.code), type: String(d.type || "Problem"), where: String(d.where || ""), photo: Math.min(use.length, Math.max(1, +d.photo || 1)), step: use[Math.min(use.length, Math.max(1, +d.photo || 1)) - 1]?.step ?? "",
+      box: Array.isArray(d.box) && d.box.length === 4 && d.box.every((n: any) => isFinite(n)) ? d.box.map((n: any) => clamp(+n)) : null,
+      severity: ["critical", "major", "minor"].includes(d.severity) ? d.severity : "major", conf: clamp(+d.confidence || 0) }));
+    const checks = (Array.isArray(r?.checks) ? r.checks : []).slice(0, 12).map((c: any) => ({ item: String(c.item || ""), result: ["pass", "fail", "unclear"].includes(c.result) ? c.result : "unclear", note: String(c.note || "").slice(0, 200) }));
+    // Deterministic checks on top of the AI.
+    const issues: { level: "FAIL" | "REVIEW"; en: string; zh: string }[] = [];
+    const typed = iso6346(lc.container_no ?? ""), read = iso6346(r?.container_no_read ?? "");
+    if (!typed.valid) issues.push({ level: "REVIEW", en: `Container number ${typed.number || "(blank)"} fails the ISO 6346 check digit. It was probably typed wrong.`, zh: `集装箱号 ${typed.number || "（空）"} 校验位不正确，可能输入错误。` });
+    if (read.number && typed.number && read.number !== typed.number) issues.push({ level: "REVIEW", en: `Typed container number ${typed.number}, but the photo reads ${read.number}.`, zh: `输入的箱号为 ${typed.number}，照片上为 ${read.number}。` });
+    if (!read.number) issues.push({ level: "REVIEW", en: "The container number could not be read from the photos.", zh: "照片上看不清集装箱号。" });
+    const sealT = normSeal(lc.seal_no), sealR = normSeal(r?.seal_no_read);
+    if (!sealR) issues.push({ level: "REVIEW", en: "The seal number could not be read from the photos.", zh: "照片上看不清封条号。" });
+    else if (sealT && sealR !== sealT) issues.push({ level: "REVIEW", en: `Typed seal ${sealT}, but the photo reads ${sealR}.`, zh: `输入的封条号为 ${sealT}，照片上为 ${sealR}。` });
+    const name = (pid: string) => (prods ?? []).find((p: any) => p.id === pid)?.name ?? "product";
+    for (const l of lines ?? []) {
+      const n = Math.floor(+(lc.counts?.[l.id] ?? NaN));
+      if (!isFinite(n)) issues.push({ level: "REVIEW", en: `No carton count entered for ${name(l.product_id)}.`, zh: `${name(l.product_id)} 未填写装箱数。` });
+      else if (n < l.cartons) issues.push({ level: "FAIL", en: `Short shipment: ${name(l.product_id)} has ${n} of ${l.cartons} cartons loaded.`, zh: `少装：${name(l.product_id)} 装了 ${n} 箱，应为 ${l.cartons} 箱。` });
+      else if (n > l.cartons) issues.push({ level: "REVIEW", en: `Over shipment: ${name(l.product_id)} has ${n} cartons loaded, the order is ${l.cartons}.`, zh: `多装：${name(l.product_id)} 装了 ${n} 箱，订单为 ${l.cartons} 箱。` });
+    }
+    // The goods themselves should have passed their sampled inspection before loading.
+    const lids = (lines ?? []).map((l: any) => l.link_id).filter(Boolean);
+    const { data: sess } = lids.length ? await admin.from("factory_sessions").select("link_id, status, result").in("link_id", lids).neq("status", "cancelled") : { data: [] as any[] };
+    for (const l of lines ?? []) {
+      const s = (sess ?? []).find((x: any) => x.link_id === l.link_id && x.status === "done");
+      if (!s) issues.push({ level: "REVIEW", en: `${name(l.product_id)} was loaded before its factory inspection finished.`, zh: `${name(l.product_id)} 在验货完成前已装柜。` });
+      else if (s.result !== "PASS") issues.push({ level: "REVIEW", en: `${name(l.product_id)} was loaded although its factory inspection result is ${s.result}.`, zh: `${name(l.product_id)} 验货结果为 ${s.result}，但已装柜。` });
+    }
+    let result: "PASS" | "REVIEW" | "FAIL" = "PASS";
+    if (issues.some((x) => x.level === "REVIEW") || checks.some((c: any) => c.result !== "pass") || defects.some((d: any) => d.severity === "major")) result = "REVIEW";
+    if (issues.some((x) => x.level === "FAIL") || defects.some((d: any) => d.severity === "critical")) result = "FAIL";
+    const zh = r?.zh && typeof r.zh === "object" ? { summary: String(r.zh.summary ?? "").slice(0, 400), defects: (Array.isArray(r.zh.defects) ? r.zh.defects : []).slice(0, defects.length).map((t: any) => String(t).slice(0, 200)) } : null;
+    const ai = { summary: String(r?.summary ?? "").slice(0, 600), zh, checks, defects, issues, photos_used: use.map((p) => p.path) };
+    await admin.from("loading_checks").update({ status: "done", result, ai, container_no_read: read.number || null, seal_no_read: sealR || null,
+      container_no_valid: typed.valid || (read.valid && read.number === typed.number), checked_at: new Date().toISOString(), error: null }).eq("id", lcId);
+  } catch (e) {
+    await admin.from("loading_checks").update({ status: "error", error: String((e as Error).message ?? e).slice(0, 500) }).eq("id", lcId);
+  }
+}
+
+async function poTask(task: string, body: any) {
+  if (!SERVICE_KEY) throw new HttpError(500, "Server is missing SUPABASE_SERVICE_ROLE_KEY.");
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, SERVICE_KEY, { auth: { persistSession: false } });
+  const { po, lines, prods, links, sess } = await openPo(admin, String(body?.token ?? ""));
+  if (task === "po_open") {
+    const lc = await latestLoading(admin, po.id);
+    const thumbs: string[] = [];
+    const outLines = lines.map((l: any) => {
+      const p = prods.find((x: any) => x.id === l.product_id) ?? {};
+      const link = links.find((x: any) => x.id === l.link_id);
+      const s = sess.find((x: any) => x.link_id === l.link_id);
+      const ref = refPool(p.photos ?? [])[0]; if (ref) thumbs.push(ref.path);
+      return { id: l.id, seq: l.seq, name: p.name ?? "", sku: p.sku ?? "", qty: l.qty, cartons: l.cartons, units_per_carton: l.units_per_carton, thumb: ref?.path ?? "",
+        link_token: link && link.active && new Date(link.expires_at).getTime() > Date.now() ? link.token : "",
+        inspection: s ? { status: s.status, result: s.result, sample_size: s.sample_size } : null };
+    });
+    const pub = publicLoading(lc);
+    const urls = await signMap(admin, [...thumbs, ...(pub?.photos ?? []).map((p: any) => p.path)]);
+    return { po: { po_number: po.po_number, supplier_name: po.supplier_name ?? "", ship_by: po.ship_by, notes: po.notes ?? "" }, lines: outLines, loading: pub, steps: LOAD_STEPS, urls };
+  }
+  if (task === "po_load_start") {
+    const cur = await latestLoading(admin, po.id);
+    if (cur && cur.status === "open" && Date.now() < new Date(cur.started_at).getTime() + LOAD_WINDOW_H * 3600e3) return { loading: publicLoading(cur) };
+    if (cur && ["checking", "done"].includes(cur.status)) throw new HttpError(409, "This container has already been checked. Ask the buyer if it needs to be checked again.");
+    if (cur && cur.status === "open") await admin.from("loading_checks").update({ status: "cancelled" }).eq("id", cur.id);
+    const { data: lc, error } = await admin.from("loading_checks").insert({ po_id: po.id, workspace_id: po.workspace_id }).select().single();
+    if (error || !lc) throw new HttpError(500, "Could not start the loading check: " + (error?.message ?? ""));
+    return { loading: publicLoading(lc) };
+  }
+  const openLc = async () => {
+    const lc = await latestLoading(admin, po.id);
+    if (!lc || lc.status !== "open") throw new HttpError(409, "Start the loading check first.");
+    if (Date.now() > new Date(lc.started_at).getTime() + LOAD_WINDOW_H * 3600e3) throw new HttpError(409, `A loading check must be finished within ${LOAD_WINDOW_H} hours. Start again.`);
+    return lc;
+  };
+  if (task === "po_load_upload") {
+    const lc = await openLc();
+    const step = String(body.step ?? "");
+    if (!LOAD_STEPS.some((s) => s.key === step)) throw new HttpError(400, "Unknown step.");
+    const path = `${loadPrefix(lc)}${step}-${crypto.randomUUID()}.jpg`;
+    const { data, error } = await admin.storage.from("photos").createSignedUploadUrl(path);
+    if (error || !data) throw new HttpError(500, "Could not prepare the upload: " + (error?.message ?? ""));
+    return { path, token: data.token };
+  }
+  if (task === "po_load_submit") {
+    const lc = await openLc();
+    const pre = loadPrefix(lc);
+    const photos = (Array.isArray(body.photos) ? body.photos : []).slice(0, 40).map((p: any) => ({ path: String(p?.path ?? ""), step: String(p?.step ?? "") }));
+    if (photos.some((p: any) => !p.path.startsWith(pre) || p.path.includes("..") || !LOAD_STEPS.some((s) => s.key === p.step) || !p.path.slice(pre.length).startsWith(p.step + "-"))) throw new HttpError(403, "Photo does not belong to this loading check.");
+    const missing = LOAD_STEPS.filter((s) => s.required && !photos.some((p: any) => p.step === s.key));
+    if (missing.length) throw new HttpError(400, "缺少照片 Missing photos: " + missing.map((s) => `${s.zh} (${s.en})`).join(", "));
+    // Every photo must have been taken after this loading check started.
+    const { data: listed } = await admin.storage.from("photos").list(pre.replace(/\/$/, ""), { limit: 200 });
+    const made = new Map((listed ?? []).map((o: any) => [pre + o.name, new Date(o.created_at).getTime()]));
+    const since = new Date(lc.started_at).getTime() - 5000;
+    if (photos.some((p: any) => !made.has(p.path) || (made.get(p.path) as number) < since)) throw new HttpError(403, "Photos must be taken live during this loading check.");
+    const counts: Record<string, number> = {};
+    for (const l of lines) { const n = Math.floor(+(body.counts?.[l.id] ?? NaN)); if (!(n >= 0 && n <= 1000000)) throw new HttpError(400, "请填写每个产品的装箱数 Enter the cartons loaded for every product."); counts[l.id] = n; }
+    const container = iso6346(String(body.container_no ?? "")).number, seal = normSeal(body.seal_no);
+    if (!container || !seal) throw new HttpError(400, "请填写集装箱号和封条号 Enter the container number and seal number.");
+    await admin.from("loading_checks").update({ status: "checking", photos, counts, container_no: container, seal_no: seal, submitted_by: String(body.worker ?? "").slice(0, 60) || null, submitted_at: new Date().toISOString() }).eq("id", lc.id);
+    const job = runLoadingCheck(admin, lc.id);
+    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(job); else await job;
+    return { accepted: true, loading: publicLoading((await admin.from("loading_checks").select("*").eq("id", lc.id).single()).data) };
+  }
+  throw new HttpError(400, "Unknown task");
+}
+
+// ---------- dock receiving (buyer JWT; row level security applies) ----------
+function sealPrompt(expected: string) {
+  return `These photos were taken at a US warehouse dock before a shipping container was opened. Read the seal number exactly as printed on the bolt or cable seal, and say whether the seal looks intact (not cut, broken, re-glued or tampered with) and properly through the door locking bar.${expected ? ` The seal recorded at loading in China was ${expected}.` : ""}
+JSON: {"seal_no_read":"","intact":true,"note":"one short sentence"}
+Use "" for seal_no_read and null for intact if the photos do not show it.`;
+}
+function damagePrompt(nRef: number, nDmg: number, product: string, note: string) {
+  return `You are checking damaged cartons received at a US warehouse from a factory in China. ${nRef ? `Images 1 to ${nRef} were taken by the factory while the container was being loaded and sealed; they show how the goods looked when they left. ` : "There are no loading photos. "}Images ${nRef + 1} to ${nRef + nDmg} show the damaged carton${product ? ` of "${product}"` : ""} as received${note ? ` (dock note: ${note})` : ""}.
+Describe each problem, give it a "code" from this list: ${codeList(["carton", "packaging", "product"])}, and decide where it most likely happened:
+"factory" if the loading photos show the same damage, or it is a manufacturing or packing fault shipping cannot cause (wrong marks, wrong quantity, wrong or missing product, poor packing);
+"transit" if the loading photos show the cartons clean and well stowed and this is typical shipping damage (crush, puncture, water, breakage, leak);
+"unclear" if you cannot tell. Loading photos show the load, not every carton, so be honest about uncertainty.
+JSON: {"summary":"one or two plain sentences","product_affected":true,"origin":"factory|transit|unclear","origin_reason":"short","defects":[{"code":"CTN","type":"short name","where":"plain location","photo":1,"box":[0.1,0.2,0.3,0.3],"severity":"critical|major|minor","confidence":0.8}]}
+"photo" is the 1-based index among the DAMAGE photos only. "box" is fractions 0–1 or null.`;
+}
+async function runReceiptCheck(sb: SupabaseClient, rid: string) {
+  const { data: rc } = await sb.from("receipts").select("*").eq("id", rid).single();
+  try {
+    const { data: po } = await sb.from("purchase_orders").select("*").eq("id", rc.po_id).single();
+    const { data: lines } = await sb.from("po_lines").select("*").eq("po_id", po.id).order("seq");
+    const pids = (lines ?? []).map((l: any) => l.product_id);
+    const { data: prods } = pids.length ? await sb.from("products").select("id, name").in("id", pids) : { data: [] as any[] };
+    const name = (pid: string) => (prods ?? []).find((p: any) => p.id === pid)?.name ?? "product";
+    const { data: lcs } = await sb.from("loading_checks").select("*").eq("po_id", po.id).eq("status", "done").order("started_at", { ascending: false }).limit(1);
+    const lc = lcs && lcs.length ? lcs[0] : null;
+    const loadSeal = normSeal(lc?.seal_no_read || lc?.seal_no || "");
+    // 1. Seal
+    const sealPhotos = (rc.photos ?? []).filter((p: any) => p.step === "seal").slice(0, 3);
+    let seal: any = { read: "", intact: null, note: "No seal photo." };
+    if (sealPhotos.length) {
+      const r = await askJson(sealPrompt(loadSeal), await loadImages(sb, sealPhotos.map((p: any) => p.path)), MODEL_INSPECT, 800);
+      seal = { read: normSeal(r?.seal_no_read), intact: typeof r?.intact === "boolean" ? r.intact : null, note: String(r?.note ?? "").slice(0, 200) };
+    }
+    const dockSeal = normSeal(rc.seal_no) || seal.read;
+    const sealMatch = loadSeal && dockSeal ? dockSeal === loadSeal : null;
+    // 2. Damaged cartons, a few at a time, each compared with the loading photos.
+    const refs = lc ? (lc.photos ?? []).filter((p: any) => ["full", "marks", "half"].includes(p.step)).slice(0, 4) : [];
+    const refImgs = refs.length ? await loadImages(sb, refs.map((p: any) => p.path)) : [];
+    const damage = Array.isArray(rc.damage) ? rc.damage.slice(0, 30) : [];
+    for (let i = 0; i < damage.length; i += 4) {
+      await Promise.all(damage.slice(i, i + 4).map(async (dm: any) => {
+        const ph = (dm.photos ?? []).slice(0, 6);
+        if (!ph.length) { dm.ai = { summary: "No photos.", origin: "unclear", defects: [] }; return; }
+        const line = (lines ?? []).find((l: any) => l.id === dm.line_id);
+        const r = await askJson(damagePrompt(refImgs.length, ph.length, line ? name(line.product_id) : "", String(dm.note ?? "").slice(0, 200)), [...refImgs, ...await loadImages(sb, ph.map((p: any) => p.path))], MODEL_INSPECT, 2000);
+        const clamp = (n: number) => Math.min(1, Math.max(0, n));
+        dm.ai = { summary: String(r?.summary ?? "").slice(0, 400), product_affected: !!r?.product_affected, origin: ["factory", "transit", "unclear"].includes(r?.origin) ? r.origin : "unclear", origin_reason: String(r?.origin_reason ?? "").slice(0, 200),
+          defects: (Array.isArray(r?.defects) ? r.defects : []).slice(0, 8).map((d: any) => ({ code: asCode(d.code), type: String(d.type || "Damage"), where: String(d.where || ""), photo: Math.min(ph.length, Math.max(1, +d.photo || 1)),
+            box: Array.isArray(d.box) && d.box.length === 4 && d.box.every((n: any) => isFinite(n)) ? d.box.map((n: any) => clamp(+n)) : null, severity: ["critical", "major", "minor"].includes(d.severity) ? d.severity : "major", conf: clamp(+d.confidence || 0) })) };
+      }));
+    }
+    // 3. Counts and who is responsible for each gap.
+    const issues: { level: string; text: string; origin: string }[] = [];
+    if (seal.intact === false) issues.push({ level: "FAIL", text: "The seal looks cut, broken or tampered with.", origin: "transit" });
+    if (sealMatch === false) issues.push({ level: "FAIL", text: `Seal ${dockSeal} does not match the seal recorded at loading (${loadSeal}).`, origin: "transit" });
+    if (!lc) issues.push({ level: "REVIEW", text: "No loading check on record, so carton counts are compared with the purchase order only.", origin: "unclear" });
+    const sealOk = seal.intact !== false && sealMatch !== false;
+    const outLines = (lines ?? []).map((l: any) => {
+      const c = rc.counts?.[l.id] ?? {};
+      const received = Math.max(0, Math.floor(+c.received || 0)), damaged = Math.max(0, Math.floor(+c.damaged || 0));
+      const loaded = lc && isFinite(+lc.counts?.[l.id]) ? +lc.counts[l.id] : null;
+      const expected = l.cartons;
+      const out: any = { line_id: l.id, name: name(l.product_id), ordered: expected, loaded, received, damaged, short: 0, over: 0, origin: "none", why: "" };
+      if (received < expected) {
+        out.short = expected - received;
+        const factoryShort = loaded !== null ? Math.max(0, expected - loaded) : 0;
+        const lostAfter = loaded !== null ? Math.max(0, loaded - received) : out.short;
+        if (loaded !== null && factoryShort >= out.short) { out.origin = "factory"; out.why = `Only ${loaded} of ${expected} cartons were loaded at the factory.`; }
+        else if (loaded === null) { out.origin = "unclear"; out.why = "No loading count on record."; }
+        else if (sealOk) { out.origin = "factory"; out.why = `${loaded} cartons were reported loaded, but the container arrived with ${sealMatch ? "the same, intact seal" : "an intact seal"}, so ${lostAfter} carton${lostAfter > 1 ? "s were" : " was"} most likely never loaded.`; }
+        else { out.origin = "transit"; out.why = `${loaded} cartons were loaded and the seal was not intact on arrival, so ${lostAfter} carton${lostAfter > 1 ? "s were" : " was"} most likely lost or taken in transit.`; }
+        issues.push({ level: "FAIL", text: `${out.name}: ${out.short} carton${out.short > 1 ? "s" : ""} short (ordered ${expected}, received ${received}). ${out.why}`, origin: out.origin });
+      } else if (received > expected) {
+        out.over = received - expected;
+        issues.push({ level: "REVIEW", text: `${out.name}: ${out.over} carton${out.over > 1 ? "s" : ""} over the order.`, origin: "factory" });
+      }
+      const logged = damage.filter((d: any) => d.line_id === l.id).length;
+      if (damaged > logged) issues.push({ level: "REVIEW", text: `${out.name}: ${damaged} damaged cartons counted, ${logged} photographed.`, origin: "unclear" });
+      return out;
+    });
+    for (const dm of damage) {
+      const sev = (dm.ai?.defects ?? []).map((d: any) => d.severity);
+      const line = outLines.find((x: any) => x.line_id === dm.line_id);
+      issues.push({ level: sev.includes("critical") || sev.includes("major") || dm.ai?.product_affected ? "FAIL" : "REVIEW",
+        text: `${line?.name ?? "Carton"}${dm.carton ? ` carton ${dm.carton}` : ""}: ${dm.ai?.summary ?? "damaged"}`, origin: dm.ai?.origin ?? "unclear" });
+    }
+    const result = issues.some((x) => x.level === "FAIL") ? "FAIL" : issues.some((x) => x.level === "REVIEW") ? "REVIEW" : "PASS";
+    const tot = (k: string) => outLines.reduce((a: number, x: any) => a + (x[k] || 0), 0);
+    const summary = result === "PASS" ? `All ${tot("received")} cartons received against the order, seal ${loadSeal ? "matches loading" : "checked"}, no damage logged.`
+      : `${tot("short") ? `${tot("short")} cartons short. ` : ""}${damage.length ? `${damage.length} damaged carton${damage.length > 1 ? "s" : ""} logged. ` : ""}${sealMatch === false || seal.intact === false ? "Seal problem. " : ""}`.trim();
+    await sb.from("receipts").update({ status: "done", result, seal_no_read: seal.read || null, seal_intact: seal.intact, seal_match: sealMatch, damage,
+      ai: { summary, issues, lines: outLines, seal: { ...seal, loading: loadSeal, dock: dockSeal }, loading_check_id: lc?.id ?? null }, checked_at: new Date().toISOString(), error: null }).eq("id", rid);
+  } catch (e) {
+    await sb.from("receipts").update({ status: "error", error: String((e as Error).message ?? e).slice(0, 500) }).eq("id", rid);
+  }
+}
+
 // ---------- handler ----------
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
   let body: any; try { body = await req.json(); } catch { return json({ error: "Body must be JSON" }, 400); }
   const task = String(body?.task ?? "");
-  if (task.startsWith("factory_")) {
-    try { return json(await factoryTask(task, body)); }
+  if (task.startsWith("factory_") || task.startsWith("po_")) {
+    try { return json(task.startsWith("po_") ? await poTask(task, body) : await factoryTask(task, body)); }
     catch (e) { return json({ error: String((e as Error).message ?? e) }, e instanceof HttpError ? e.status : 500); }
   }
   const auth = req.headers.get("Authorization") ?? "";
@@ -657,6 +976,16 @@ Deno.serve(async (req) => {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return json({ error: "Sign in first" }, 401);
   try {
+    if (task === "receipt_check") {
+      const rid = String(body.receipt_id ?? "");
+      const { data: rc } = await sb.from("receipts").select("id, status").eq("id", rid).maybeSingle();
+      if (!rc) return json({ error: "Receipt not found" }, 404);
+      if (rc.status === "checking") return json({ error: "This receipt is already being checked" }, 409);
+      await sb.from("receipts").update({ status: "checking", error: null }).eq("id", rid);
+      const job = runReceiptCheck(sb, rid);
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(job); else await job;
+      return json({ accepted: true });
+    }
     if (task === "inspect") return json({ inspection: await taskInspect(sb, String(body.inspection_id)) });
     if (task === "identify") return json({ photos: await identifyPaths(sb, body.product, (body.paths ?? []).map(String)) });
     if (task === "describe") {
