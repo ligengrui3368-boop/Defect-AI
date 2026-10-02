@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sign in · Lathe</title>
+<meta name="theme-color" content="#F7F7F5">
+<link rel="manifest" href="manifest.webmanifest">
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="i18n.js?v=1"></script>
+<link rel="stylesheet" href="theme.css?v=4">
+<style>
+/* Signed-out screen: nothing but the brand and the sign-in card. The app is only shown after sign-in. */
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*,*:before,*:after{box-sizing:inherit}
+html,body{height:100%;margin:0}
+body{background:var(--paper,#F7F7F5);color:var(--ink,#1D1D1F);font-family:var(--sans,system-ui,sans-serif);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px 18px}
+.mark{display:flex;align-items:center;gap:10px;font-weight:800;font-size:22px;letter-spacing:-.02em;margin-bottom:22px}
+.mark i{width:12px;height:12px;border-radius:50%;background:var(--accent,#F2B705)}
+.card{width:100%;max-width:400px;background:var(--panel,#fff);border:1px solid var(--line,#ECECE9);border-radius:20px;padding:28px 26px 24px;box-shadow:0 10px 40px rgba(0,0,0,.05)}
+h1{font-size:22px;margin:0 0 6px;letter-spacing:-.02em}
+.sub{color:var(--muted,#86868B);font-size:14.5px;line-height:1.5;margin:0 0 20px}
+.sub b{color:var(--ink,#1D1D1F)}
+label{display:block;font-size:12.5px;font-weight:700;color:var(--muted,#86868B);margin:14px 0 6px}
+input{width:100%;font:inherit;font-size:15px;padding:11px 13px;border:1px solid var(--line2,#E2E2DF);border-radius:12px;background:var(--panel,#fff);color:var(--ink,#1D1D1F);outline:none}
+input:focus{border-color:var(--harbor,#2F7BF5);box-shadow:0 0 0 3px var(--harbor-bg,#EAF2FF)}
+input:disabled{background:var(--sunk,#F1F1EF);color:var(--muted,#86868B)}
+button{font:inherit;cursor:pointer}
+.b{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;border-radius:999px;padding:12px 16px;font-size:15px;font-weight:650;border:1px solid var(--line2,#E2E2DF);background:var(--panel,#fff);color:var(--ink,#1D1D1F);transition:filter .15s,transform .1s}
+.b:hover{filter:brightness(.97)}.b:active{transform:scale(.98)}
+.b.dark{background:var(--ink,#1D1D1F);color:var(--panel,#fff);border-color:var(--ink,#1D1D1F)}
+.b[disabled]{opacity:.55;cursor:default}
+.b svg{width:18px;height:18px}
+.row{display:flex;gap:10px;margin-top:18px}.row .b{flex:1}
+.or{display:flex;align-items:center;gap:10px;color:var(--muted,#86868B);font-size:12.5px;margin:20px 0 2px}.or:before,.or:after{content:'';flex:1;height:1px;background:var(--line,#ECECE9)}
+.link{background:none;border:0;padding:0;color:var(--harbor,#2F7BF5);font-weight:600;font-size:inherit}
+.foot{color:var(--muted,#86868B);font-size:13px;margin:16px 0 0;text-align:center}
+.msg{display:none;margin-top:16px;padding:11px 13px;border-radius:12px;font-size:14px;line-height:1.45}
+.msg.ok{display:block;background:var(--pass-bg,#E7F6EE);color:var(--pass,#1F9D57)}.msg.err{display:block;background:var(--fail-bg,#FDECE9);color:var(--fail,#D9432F)}
+.legal{color:var(--muted,#86868B);font-size:12px;margin-top:22px;text-align:center}
+.hide{display:none!important}
+</style>
+</head><body>
+<div class="mark"><i aria-hidden="true"></i>Lathe</div>
+<main class="card" id="card" aria-live="polite">
+  <h1 id="title">Sign in to Lathe</h1>
+  <p class="sub" id="sub">Source products from Chinese factories, from spec to order.</p>
+  <button class="b hide" id="google" type="button"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.6 13.2l7.9 6.2C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.7c4.3-4 6.9-9.9 6.9-17z"/><path fill="#FBBC05" d="M10.5 28.6c-.5-1.4-.8-2.9-.8-4.6s.3-3.2.8-4.6l-7.9-6.2C1 16.6 0 20.2 0 24s1 7.4 2.6 10.8l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.3-8.5 2.3-6.3 0-11.6-4.1-13.5-9.9l-7.9 6.2C6.6 42.6 14.6 48 24 48z"/></svg>Continue with Google</button>
+  <div class="or hide" id="or">or with email</div>
+  <form id="form" novalidate>
+    <label for="email">Email</label><input id="email" type="email" autocomplete="email" required>
+    <label for="pass">Password</label><input id="pass" type="password" autocomplete="current-password" placeholder="at least 8 characters" required>
+    <div class="row"><button class="b dark" id="signin" type="submit">Sign in</button><button class="b" id="signup" type="button">Create account</button></div>
+  </form>
+  <p class="foot">Forgot your password? <button class="link" id="magic" type="button">Email me a sign-in link</button></p>
+  <div class="msg" id="msg" role="status"></div>
+</main>
+<p class="legal">Lathe · your data is private to your workspace</p>
+<script>
+(async () => {
+  const $ = (id) => document.getElementById(id);
+  const CFG = window.DEFECT_CHECK_CONFIG || {};
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const say = (text, ok) => { const m = $('msg'); m.className = 'msg ' + (ok ? 'ok' : 'err'); m.textContent = text; };
+  if (!CFG.supabaseUrl || !window.supabase) { say('Setup needed: add the Supabase URL and key to config.js.'); return; }
+  const sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
+  const SITE = new URL('./', location.href).href.split('?')[0].split('#')[0];
+  const params = new URLSearchParams(location.search);
+  const join = (params.get('join') || '').replace(/[^0-9a-f]/g, '');
+  const safeNext = (n) => (n && /^(index\.html|sourcing\.html)?(#\/[\w\/-]*)?$/.test(n) ? n : '');
+  const next = safeNext(params.get('next') || '') || './';
+  const afterLogin = (t) => { try { localStorage.setItem('lathe-after-login', t); } catch (e) {} };
+
+  // already signed in: go straight to the app
+  const { data: { session } } = await sb.auth.getSession();
+  if (session && !session.user.is_anonymous) { location.replace(join ? 'sourcing.html#/join/' + join : next); return; }
+
+  // an invite link: show who invited you, lock the email
+  if (join) {
+    const { data } = await sb.rpc('invite_preview', { p_token: join }); const inv = (data || [])[0];
+    if (!inv) { $('title').textContent = 'This invite link isn’t valid'; $('sub').textContent = 'It may have been cancelled. Ask for a new one, or sign in below.'; }
+    else if (inv.accepted) { $('title').textContent = 'This invite has been used'; $('sub').textContent = 'If it was yours, just sign in.'; $('email').value = inv.email; }
+    else {
+      $('title').textContent = `Join ${inv.workspace_name || 'a workspace'} on Lathe`;
+      $('sub').innerHTML = `${inv.inviter_email ? esc(inv.inviter_email) + ' invited ' : 'This invite is for '}<b>${esc(inv.email)}</b>. Sign in or create your account with that email.`;
+      $('email').value = inv.email; $('email').disabled = true; $('pass').placeholder = 'choose a password (8+ characters)';
+    }
+  }
+
+  // show Google only when it's switched on in Supabase
+  try { const st = await fetch(CFG.supabaseUrl + '/auth/v1/settings', { headers: { apikey: CFG.supabaseAnonKey } }).then((r) => r.json()); if (st?.external?.google) { $('google').classList.remove('hide'); $('or').classList.remove('hide'); } } catch (e) {}
+
+  const friendly = (e) => {
+    const m = e?.message || String(e);
+    if (m === 'Invalid login credentials') return 'Wrong email or password.';
+    if (/not authorized/i.test(m)) return 'Lathe can’t send email to that address yet. Use a password' + ($('google').classList.contains('hide') ? '.' : ' or Google.');
+    if (/already registered|already been registered/i.test(m)) return 'That email already has an account. Press Sign in instead.';
+    if (/Email not confirmed/i.test(m)) return 'Confirm your email first: open the link we sent you.';
+    return m;
+  };
+  const busy = (b, on) => { b.disabled = on; };
+  // after signing in: accept the invite if there is one, then open the app
+  const enter = async () => {
+    if (join) {
+      const { data: wsId, error } = await sb.rpc('accept_invite', { p_token: join });
+      if (!error && wsId) { try { localStorage.setItem('lathe-ws', wsId); } catch (e) {} location.replace('./'); return; }
+      location.replace('sourcing.html#/join/' + join); return;
+    }
+    location.replace(next);
+  };
+  const creds = () => ({ email: $('email').value.trim(), password: $('pass').value });
+
+  $('form').onsubmit = async (e) => {
+    e.preventDefault(); const { email, password } = creds();
+    if (!email || !password) return say('Enter your email and password.');
+    busy($('signin'), true); const { error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) { busy($('signin'), false); return say(friendly(error)); }
+    enter();
+  };
+  $('signup').onclick = async () => {
+    const { email, password } = creds();
+    if (!email || password.length < 8) return say('Enter your email and a password of at least 8 characters.');
+    busy($('signup'), true); const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: SITE } });
+    if (error) { busy($('signup'), false); return say(friendly(error)); }
+    if (data.session) return enter();
+    afterLogin(join ? 'sourcing.html#/join/' + join : next); busy($('signup'), false);
+    say('Almost there: open the confirmation email we sent to ' + email + ', then you’re in.', true);
+  };
+  $('magic').onclick = async () => {
+    const { email } = creds(); if (!email) return say('Enter your email first.');
+    const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: SITE } });
+    if (error) return say(friendly(error));
+    afterLogin(join ? 'sourcing.html#/join/' + join : next); say('Check your email for a sign-in link.', true);
+  };
+  $('google').onclick = async () => {
+    afterLogin(join ? 'sourcing.html#/join/' + join : next);
+    const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: SITE, queryParams: { prompt: 'select_account' } } });
+    if (error) say(friendly(error));
+  };
+  (join && $('email').disabled ? $('pass') : $('email')).focus();
+})();
+</script>
+</body></html>
