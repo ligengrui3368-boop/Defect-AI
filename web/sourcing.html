@@ -116,6 +116,11 @@ textarea{min-height:90px;resize:vertical}
 .rq .t{min-width:0}.prog{display:flex;gap:4px;margin-top:8px;width:200px;max-width:100%}.prog i{flex:1;height:5px;border-radius:3px;background:var(--line)}.prog i.done{background:var(--harbor)}.prog i.on{background:var(--ink)}
 .nxt{margin-left:auto;text-align:right;flex-shrink:0;max-width:260px;padding-left:10px}.nxt small{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}.nxt b{font-size:13.5px;font-weight:600}
 @media (max-width:700px){.nxt{display:none}.rqimg{width:52px;height:52px}}
+.signin{max-width:420px;margin:56px auto;text-align:center}.signin h2{margin:6px 0 4px}.signin .mut{margin-bottom:18px}
+.signin label{text-align:left}.signin .btn{width:100%;justify-content:center}.signin .bar .btn{width:auto;flex:1}
+.gbtn{display:flex;align-items:center;justify-content:center;gap:10px;background:#fff;color:#1f1f1f;border:1px solid var(--line);font-weight:600;padding:11px 14px}
+.gbtn:hover{background:#f7f7f7}.gbtn svg{width:18px;height:18px}
+.orline{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12.5px;margin:18px 0 6px}.orline:before,.orline:after{content:'';flex:1;height:1px;background:var(--line)}
 .warnbox{background:var(--harbor-bg);border-radius:10px;padding:12px 14px;margin:6px 0 4px;font-size:14px;line-height:1.5}
 .prow{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--line);padding:9px 0;flex-wrap:wrap}
 .glance{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px;margin:12px 0 4px}
@@ -259,6 +264,36 @@ const SITE = new URL('./', location.href).href.split('?')[0].split('#')[0];
 const joinUrl = (token) => SITE + 'sourcing.html#/join/' + token;
 const afterLogin = (target) => { try { localStorage.setItem('lathe-after-login', target); } catch (e) {} };
 const useWorkspace = (id) => { try { if (id) localStorage.setItem('lathe-ws', id); else localStorage.removeItem('lathe-ws'); } catch (e) {} };
+// ---------- signed out: sign-in screen and invite page ----------
+const GLOGO = '<svg viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.6 13.2l7.9 6.2C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.7c4.3-4 6.9-9.9 6.9-17z"/><path fill="#FBBC05" d="M10.5 28.6c-.5-1.4-.8-2.9-.8-4.6s.3-3.2.8-4.6l-7.9-6.2C1 16.6 0 20.2 0 24s1 7.4 2.6 10.8l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.3-8.5 2.3-6.3 0-11.6-4.1-13.5-9.9l-7.9 6.2C6.6 42.6 14.6 48 24 48z"/></svg>';
+function signInBox(title, sub, email, lockEmail) {
+  return `<div class="panel signin"><h2>${title}</h2><p class="mut">${sub}</p>
+    <button class="btn gbtn" id="siGoogle">${GLOGO}Continue with Google</button>
+    <div class="orline">or with email</div>
+    <label>Email</label><input id="siEmail" type="email" autocomplete="email" value="${esc(email || '')}" ${lockEmail ? 'disabled' : ''}>
+    <label>Password</label><input id="siPass" type="password" autocomplete="current-password" placeholder="at least 8 characters">
+    <div class="bar" style="margin-top:14px"><button class="btn primary" id="siIn">Sign in</button><button class="btn" id="siUp">Create account</button></div>
+    <p class="sm mut" style="margin:12px 0 0">Forgot your password? <button id="siLink" style="background:none;border:0;padding:0;color:var(--harbor);cursor:pointer;font-weight:600">Email me a sign-in link</button></p></div>`;
+}
+async function showSignedOut() {
+  const h = location.hash || ''; const token = (h.match(/^#\/join\/([0-9a-f]+)/) || [])[1];
+  let inv = null;
+  if (token) { const { data } = await sb.rpc('invite_preview', { p_token: token }); inv = (data || [])[0] || null; }
+  $('sync').textContent = 'Not signed in';
+  if (token && !inv) app.innerHTML = `<div class="panel signin"><h2>This invite link isn't valid</h2><p class="mut">It may have been cancelled. Ask for a new one.</p></div>`;
+  else if (inv && inv.accepted) app.innerHTML = signInBox('This invite has been used', 'If it was yours, sign in to open the workspace.', inv.email, false);
+  else if (inv) app.innerHTML = signInBox(`Join ${esc(inv.workspace_name || 'a workspace')} on Lathe`, `${inv.inviter_email ? esc(inv.inviter_email) + ' invited ' : 'Invite for '}<b>${esc(inv.email)}</b>. Sign in with that email, or with Google if it's a Google account.`, inv.email, true);
+  else app.innerHTML = signInBox('Sign in to Lathe', 'Sourcing from China, from spec to order.', '', false);
+  const next = token ? 'sourcing.html#/join/' + token : 'sourcing.html#/requests';
+  const authErr = (err) => toast(/not authorized/i.test(err.message) ? 'Lathe can\u2019t send email to that address yet. Use Google or a password.' : /provider is not enabled|Unsupported provider/i.test(err.message) ? 'Google sign-in isn\u2019t switched on yet. Use email and password for now.' : err.message === 'Invalid login credentials' ? 'Wrong email or password' : err.message);
+  const creds = () => ({ email: ($('siEmail').value || '').trim(), password: $('siPass').value || '' });
+  const done = () => { location.hash = next.split('sourcing.html')[1]; location.reload(); };
+  $('siGoogle').onclick = async () => { afterLogin(next); const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: SITE, queryParams: { prompt: 'select_account' } } }); if (error) authErr(error); };
+  $('siIn').onclick = async (e) => { const { email, password } = creds(); if (!email || !password) return toast('Enter your email and password'); busy(e.target, true); const { error } = await sb.auth.signInWithPassword({ email, password }); if (error) { busy(e.target, false); return authErr(error); } done(); };
+  $('siUp').onclick = async (e) => { const { email, password } = creds(); if (!email || password.length < 8) return toast('Enter your email and a password of at least 8 characters'); busy(e.target, true); const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: SITE } }); if (error) { busy(e.target, false); return authErr(error); } if (data.session) return done(); afterLogin(next); busy(e.target, false); toast('Check your email and click the confirmation link to finish.'); };
+  $('siLink').onclick = async () => { const { email } = creds(); if (!email) return toast('Enter your email first'); const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: SITE } }); if (error) return authErr(error); afterLogin(next); toast('Check your email for a sign-in link.'); };
+  ['siEmail', 'siPass'].forEach(k => $(k).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('siIn').click(); }));
+}
 async function viewAccount() {
   const { data: { user } } = await sb.auth.getUser(); ME = user;
   const anon = !user || user.is_anonymous;
@@ -269,6 +304,7 @@ async function viewAccount() {
   return `<div class="hello"><div><h1>Account &amp; team</h1><p>Who you're signed in as, and who can work in this workspace.</p></div></div>
   <div class="panel" style="max-width:780px"><h2>Your account</h2>
     ${anon ? `<div class="warnbox"><b>You're not signed in.</b> Your work is saved in the cloud, but only this browser can open it. Sign in with an email and password so it's safe and works on any device.</div>
+      <button class="btn gbtn" id="aGoogle" style="max-width:320px;margin:10px 0 4px">${GLOGO}Sign in with Google</button><div class="orline" style="max-width:320px">or with email</div>
       <div class="grid2"><div><label>Email</label><input id="aEmail" type="email" autocomplete="email"></div><div><label>Password <span class="mut">(at least 8 characters)</span></label><input id="aPass" type="password" autocomplete="current-password"></div></div>
       <div class="bar" style="margin-top:12px"><button class="btn primary" id="aSave">Create account and keep this workspace</button><button class="btn" id="aIn">Sign in to my existing account</button></div>
       <p class="sm mut" style="margin-top:8px">No password, or forgot it? <button class="link" id="aLink" style="background:none;border:0;padding:0;color:var(--harbor);cursor:pointer;font-weight:600">Email me a sign-in link</button></p>`
@@ -296,7 +332,7 @@ async function viewJoin(token) {
   const head = `<h2>Join ${esc(inv.workspace_name || 'a workspace')} on Lathe</h2><p class="mut">${inv.inviter_email ? esc(inv.inviter_email) + ' invited ' : 'Invite for '}<b>${esc(inv.email)}</b>.</p>`;
   if (!anon && (user.email || '').toLowerCase() === inv.email.toLowerCase()) return wrap(head + `<button class="btn primary" id="jJoin" data-t="${esc(token)}">Join workspace</button>`);
   if (!anon) return wrap(head + `<p>You're signed in as <b>${esc(user.email)}</b>, but this invite is for <b>${esc(inv.email)}</b>.</p><button class="btn" id="jOut">Sign out and switch</button>`);
-  return wrap(head + `<label>Email</label><input id="jEmail" type="email" value="${esc(inv.email)}" disabled>
+  return wrap(head + `<button class="btn gbtn" id="jGoogle" data-t="${esc(token)}" style="width:100%">${GLOGO}Continue with Google</button><div class="orline">or with email</div><label>Email</label><input id="jEmail" type="email" value="${esc(inv.email)}" disabled>
     <label>Password <span class="mut">(new: choose one, at least 8 characters)</span></label><input id="jPass" type="password" autocomplete="new-password">
     <div class="bar" style="margin-top:14px"><button class="btn primary" id="jUp" data-t="${esc(token)}">Create my account and join</button><button class="btn" id="jIn" data-t="${esc(token)}">I already have an account</button></div>
     <p class="sm mut" style="margin-top:10px">Or <button id="jLink" data-t="${esc(token)}" style="background:none;border:0;padding:0;color:var(--harbor);cursor:pointer;font-weight:600">email me a sign-in link</button> instead.</p>`);
@@ -681,9 +717,10 @@ function wire(page, id) {
       const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: SITE } }); if (error) return authErr(error);
       afterLogin('sourcing.html#/requests'); toast('Check your email for a sign-in link.');
     };
+    if ($('aGoogle')) $('aGoogle').onclick = async () => { afterLogin('sourcing.html#/requests'); const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: SITE, queryParams: { prompt: 'select_account' } } }); if (error) toast(/not enabled|Unsupported provider/i.test(error.message) ? 'Google sign-in isn\u2019t switched on yet.' : error.message); };
     if ($('aPw')) $('aPw').onclick = () => { $('pwRow').style.display = 'flex'; $('newPw').focus(); };
     if ($('pwSave')) $('pwSave').onclick = async () => { const p = $('newPw').value; if (p.length < 8) return toast('At least 8 characters'); const { error } = await sb.auth.updateUser({ password: p }); if (error) return toast(error.message); toast('Password saved'); $('pwRow').style.display = 'none'; };
-    if ($('aOut')) $('aOut').onclick = async () => { if (!await confirmBox({ title: 'Sign out?', body: 'Your work stays saved. Sign in again with your email to get back to it.', confirmLabel: 'Sign out' })) return; await sb.auth.signOut(); useWorkspace(null); location.hash = '#/account'; location.reload(); };
+    if ($('aOut')) $('aOut').onclick = async () => { if (!await confirmBox({ title: 'Sign out?', body: 'Your work stays saved. Sign in again with your email to get back to it.', confirmLabel: 'Sign out' })) return; await sb.auth.signOut(); useWorkspace(null); location.hash = '#/login'; location.reload(); };
     if ($('wsRename')) $('wsRename').onclick = async () => { const name = $('wsName').value.trim(); if (!name) return; const { error } = await sb.from('workspaces').update({ name }).eq('id', ws); if (error) return toast(error.message); $('sync').textContent = name; toast('Renamed'); };
     on('[data-wsw]', 'click', (e) => { useWorkspace(e.currentTarget.dataset.wsw); location.hash = '#/requests'; location.reload(); });
     on('[data-rmm]', 'click', async (e) => { const b = e.currentTarget; if (!await confirmBox({ title: 'Remove from workspace?', body: `<b>${esc(b.dataset.em)}</b> will lose access to this workspace. Their past work stays.`, confirmLabel: 'Remove' })) return; const { error } = await sb.from('workspace_members').delete().eq('workspace_id', ws).eq('user_id', b.dataset.rmm); if (error) return toast(error.message); toast('Removed'); render(); });
@@ -701,6 +738,7 @@ function wire(page, id) {
     const authErr = (err) => toast(/not authorized/i.test(err.message) ? 'Lathe can\u2019t send email to that address yet. Ask the person who invited you to finish email setup, or use a password.' : err.message);
     if ($('jJoin')) $('jJoin').onclick = (e) => joinNow(e.currentTarget.dataset.t);
     if ($('jOut')) $('jOut').onclick = async () => { await sb.auth.signOut(); useWorkspace(null); location.reload(); };
+    if ($('jGoogle')) $('jGoogle').onclick = async (e) => { afterLogin('sourcing.html#/join/' + e.currentTarget.dataset.t); const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: SITE, queryParams: { prompt: 'select_account' } } }); if (error) toast(/not enabled|Unsupported provider/i.test(error.message) ? 'Google sign-in isn\u2019t switched on yet.' : error.message); };
     if ($('jUp')) $('jUp').onclick = async (e) => {
       const t = e.currentTarget.dataset.t, email = $('jEmail').value, password = $('jPass').value; if (password.length < 8) return toast('Choose a password of at least 8 characters');
       busy(e.target, true); const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: SITE } });
@@ -889,7 +927,8 @@ function wire(page, id) {
   if (!CFG.supabaseUrl || !window.supabase) { app.innerHTML = '<p>Setup needed: add your Supabase URL and anon key to config.js.</p>'; return; }
   sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
   let { data: { session } } = await sb.auth.getSession();
-  if (!session) { const { data, error } = await sb.auth.signInAnonymously(); if (error) { app.innerHTML = `<p>Could not open your workspace: ${esc(error.message)}</p>`; return; } session = data.session; }
+  if (!session) { await showSignedOut(); window.addEventListener('hashchange', () => showSignedOut()); return; }
+  if (/^#\/login/.test(location.hash)) location.hash = '#/requests';
   ME = session.user;
   const { data: m } = await sb.from('workspace_members').select('workspace_id, workspaces(name)').eq('user_id', session.user.id).order('created_at');
   if (!m || !m.length) { app.innerHTML = '<p>No workspace found for this account. Open the <a href="./">home page</a> once first.</p>'; return; }
