@@ -24,7 +24,7 @@
     '.lang-float{position:fixed;right:16px;bottom:16px;z-index:50}';
   document.head.appendChild(css);
 
-  var D = {};
+  var D = {}, SB, AK;
   var MON = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12, January: 1, February: 2, March: 3, April: 4, June: 6, July: 7, August: 8, September: 9, October: 10, November: 11, December: 12 };
   var WD = { Mon: '周一', Tue: '周二', Wed: '周三', Thu: '周四', Fri: '周五', Sat: '周六', Sun: '周日', Monday: '星期一', Tuesday: '星期二', Wednesday: '星期三', Thursday: '星期四', Friday: '星期五', Saturday: '星期六', Sunday: '星期日' };
   var M = '(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|June|July|August|September|October|November|December)';
@@ -86,12 +86,44 @@
     }
     return false;
   }
+  // Anything the dictionary doesn't cover (names, notes, AI-written specs) is machine-translated once by
+  // the sourcing function and cached, in this browser and in the database.
+  var MTK = 'lathe-mt', MT = {}, pending = {}, mtTimer = null;
+  try { MT = JSON.parse(localStorage.getItem(MTK) || '{}'); } catch (e) {}
+  var KEEP = /^(Lathe|SUNNYPRO|HTS|MOQ|FOB|MPF|HMF|QC|AQL|VAT|FX|RFQ|USD|CNY|AI|EN|PO|DDP|FBA|Amazon|Apify|WeChat|OK|ID|URL|PDF|CSV|UPC|EAN|FNSKU|Gary)$/;
+  function needsMT(s) {
+    var w = s.match(/[A-Za-z]{2,}/g); if (!w) return false;
+    for (var i = 0; i < w.length; i++) if (!KEEP.test(w[i]) && !/^[A-Z0-9]{1,6}$/.test(w[i])) return true;
+    return false;
+  }
+  function queue(src, apply) {
+    if (MT[src]) { apply(MT[src]); return; }
+    (pending[src] = pending[src] || []).push(apply);
+    if (!mtTimer) mtTimer = setTimeout(flush, 150);
+  }
+  function flush() {
+    mtTimer = null; var all = Object.keys(pending); if (!all.length) return;
+    var batch = all.slice(0, 60), cbs = {};
+    batch.forEach(function (k) { cbs[k] = pending[k]; delete pending[k]; });
+    if (all.length > 60) mtTimer = setTimeout(flush, 50);
+    var tok = null;
+    try { Object.keys(localStorage).forEach(function (k) { if (/^sb-.*-auth-token$/.test(k)) { var v = JSON.parse(localStorage.getItem(k)); if (v && v.access_token) tok = v.access_token; } }); } catch (e) {}
+    var portal = (location.search.match(/[?&]c=([^&#]+)/) || [])[1];
+    if (!tok && !portal) return;
+    fetch(SB + '/functions/v1/sourcing', { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: AK, Authorization: 'Bearer ' + (tok || AK) }, body: JSON.stringify({ task: 'translate', texts: batch, portal_token: portal || undefined }) })
+      .then(function (r) { return r.json(); }).then(function (d) {
+        var z = (d && d.zh) || {};
+        Object.keys(z).forEach(function (k) { MT[k] = z[k]; (cbs[k] || []).forEach(function (f) { try { f(z[k]); } catch (e) {} }); });
+        try { var ks = Object.keys(MT); if (ks.length > 4000) ks.slice(0, ks.length - 4000).forEach(function (k) { delete MT[k]; }); localStorage.setItem(MTK, JSON.stringify(MT)); } catch (e) {}
+      }).catch(function () {});
+  }
   function doText(n) {
     var raw = n.nodeValue; if (!raw || !/[A-Za-z]/.test(raw)) return;
     var t = raw.trim(); if (!t || skipped(n.parentNode)) return;
-    var out = tr(t); if (out == null || out === t) return;
     var lead = raw.match(/^\s*/)[0], tail = raw.match(/\s*$/)[0];
-    n.nodeValue = lead + out + tail;
+    var out = tr(t), shown = out != null ? out : t;
+    if (out != null && out !== t) n.nodeValue = lead + out + tail;
+    if (needsMT(shown)) queue(t, function (z) { if (n.nodeValue && n.nodeValue.trim() === shown) n.nodeValue = lead + z + tail; });
   }
   var ATTRS = ['placeholder', 'title', 'aria-label'];
   function doEl(el) {
@@ -99,10 +131,11 @@
     if (el.tagName === 'TEXTAREA' ? (el.parentNode && el.parentNode.nodeType === 1 && skipped(el.parentNode)) : skipped(el)) return;
     for (var i = 0; i < ATTRS.length; i++) {
       var v = el.getAttribute(ATTRS[i]); if (!v || !/[A-Za-z]/.test(v)) continue;
-      var out = tr(v.trim()); if (out) el.setAttribute(ATTRS[i], out);
+      var out = tr(v.trim()), shownA = out || v.trim(); if (out) el.setAttribute(ATTRS[i], out);
+      if (needsMT(shownA)) (function (name, cur) { queue(v.trim(), function (z) { if (el.getAttribute(name) === cur) el.setAttribute(name, z); }); })(ATTRS[i], out || v);
     }
     if (el.tagName === 'INPUT' && (el.type === 'button' || el.type === 'submit') && el.value) { var o2 = tr(el.value.trim()); if (o2) el.value = o2; }
-    if (el.tagName === 'OPTION' && el.textContent) { var o3 = tr(el.textContent.trim()); if (o3) el.textContent = o3; }
+    if (el.tagName === 'OPTION' && el.textContent) { var ot = el.textContent.trim(), o3 = tr(ot); if (o3) el.textContent = o3; if (needsMT(o3 || ot)) queue(ot, function (z) { el.textContent = z; }); }
   }
   function walk(rootNode) {
     if (!rootNode) return;
@@ -193,12 +226,14 @@
     new MutationObserver(function () { if (!document.querySelector('.lang-switch')) placeSwitch(); placeBack(); }).observe(document.body, { childList: true, subtree: true });
   });
   if (!zh) return;
+  // Pop-up boxes (prompt, alert, confirm) use the same dictionary.
+  ['prompt', 'alert', 'confirm'].forEach(function (f) { var orig = window[f]; if (!orig) return; window[f] = function (msg) { var a = Array.prototype.slice.call(arguments); if (typeof msg === 'string') a[0] = tr(msg) || MT[msg] || msg; return orig.apply(window, a); }; });
   var cacheKey = 'lathe-zh-dict';
   try { var c = JSON.parse(localStorage.getItem(cacheKey) || 'null'); if (c && c.d) D = c.d; } catch (e) {}
   var haveCache = Object.keys(D).length > 0;
   if (haveCache) ready(start);
   // The dictionary lives in the database (table translations), so wording can be fixed without a code change.
-  var SB = 'https://jkgevzgfacfqcjqxosnm.supabase.co', AK = (window.DEFECT_CHECK_CONFIG && window.DEFECT_CHECK_CONFIG.supabaseAnonKey) || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImprZ2V2emdmYWNmcWNqcXhvc25tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4MDMxNjcsImV4cCI6MjEwNjM3OTE2N30.8oH74iljLIfeXa6Gua2OcqmKufU-U8OHhshjxpb90PM';
+  SB = 'https://jkgevzgfacfqcjqxosnm.supabase.co'; AK = (window.DEFECT_CHECK_CONFIG && window.DEFECT_CHECK_CONFIG.supabaseAnonKey) || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImprZ2V2emdmYWNmcWNqcXhvc25tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4MDMxNjcsImV4cCI6MjEwNjM3OTE2N30.8oH74iljLIfeXa6Gua2OcqmKufU-U8OHhshjxpb90PM';
   fetch(SB + '/rest/v1/translations?select=body&lang=eq.zh', { headers: { apikey: AK, Authorization: 'Bearer ' + AK } }).then(function (r) { return r.json(); }).then(function (rows) {
     var d = rows && rows[0] && rows[0].body; if (!d) throw new Error('no dictionary');
     D = d; try { localStorage.setItem(cacheKey, JSON.stringify({ d: d })); } catch (e) {}
