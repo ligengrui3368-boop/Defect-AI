@@ -86,7 +86,7 @@ main{background:var(--panel)}
 .dc-sec{margin:34px 0 12px;font-size:14px;font-weight:600;color:var(--muted)}
 
 /* Operator panel */
-.op{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;background:var(--panel)}
+aside.op{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;background:var(--panel)}
 .op-head{height:60px;display:flex;align-items:center;gap:10px;padding:0 20px;border-bottom:1px solid var(--line);font-weight:600}
 .op-head .sp{flex:1}
 .op-log{flex:1;overflow-y:auto;padding:22px 22px 12px;display:flex;flex-direction:column;gap:20px}
@@ -109,7 +109,7 @@ main{background:var(--panel)}
 .op-box button:disabled{opacity:.3;cursor:default}
 .op-box button svg{width:17px;height:17px}
 
-@media (max-width:1180px){.dc-shell{grid-template-columns:220px minmax(0,1fr)}.op{position:static;height:auto;grid-column:1/-1;border-top:1px solid var(--line)}.op-log{max-height:420px}}
+@media (max-width:1180px){.dc-shell{grid-template-columns:220px minmax(0,1fr)}aside.op{position:static;height:auto;grid-column:1/-1;border-top:1px solid var(--line)}.op-log{max-height:420px}}
 @media (max-width:760px){.dc-shell{grid-template-columns:1fr}.dc-shell>.rail{position:static!important;height:auto!important;flex-direction:row!important;flex-wrap:wrap;border-right:0!important;border-bottom:1px solid var(--line)!important}.dc-shell>.rail .sect,.dc-shell>.rail .grow,.dc-shell>.rail .meta,.dc-shell>.rail .clients{display:none!important}.dc-shell>.rail .brand{width:100%;margin-bottom:6px!important}.row{flex-wrap:wrap}.row .chips{width:100%;padding-left:34px}.dc-bar,.dc-wrap{padding-left:16px;padding-right:16px}}
 
 /* Progress pills on Sourcing and the client portal */
@@ -133,7 +133,7 @@ body.shell .bottom{left:248px!important}
 .dc-shell{background:var(--bg);grid-template-columns:248px minmax(0,1fr) 400px;gap:10px;padding:10px 10px 10px 0}
 .dc-main{margin:0;border-right:0!important;overflow:clip}
 .dc-bar{border-radius:18px 18px 0 0}
-.op{margin:0;height:calc(100vh - 20px);top:10px;border-radius:18px;box-shadow:0 0 0 1px var(--line),0 10px 30px -12px rgba(20,20,30,.10);overflow:hidden}
+aside.op{margin:0;height:calc(100vh - 20px);top:10px;border-radius:18px;box-shadow:0 0 0 1px var(--line),0 10px 30px -12px rgba(20,20,30,.10);overflow:hidden}
 main .panel{box-shadow:none}
 
 /* ===== Sidebar: grouped menu with clear "you are here" ===== */
@@ -181,7 +181,7 @@ main .panel{box-shadow:none}
 .op-box button:not(:disabled):hover{transform:scale(1.08)}
 .op-box button{transition:transform .15s ease,opacity .15s ease}
 
-@media (max-width:1180px) and (min-width:901px){.dc-shell{grid-template-columns:248px minmax(0,1fr)}.op{grid-column:2;height:auto;position:static;max-height:none}.op-log{max-height:460px}}
+@media (max-width:1180px) and (min-width:901px){.dc-shell{grid-template-columns:248px minmax(0,1fr)}aside.op{grid-column:2;height:auto;position:static;max-height:none}.op-log{max-height:460px}}
 
 /* ===== Small screens: sidebar becomes a scrolling bar ===== */
 @media (max-width:900px){
@@ -193,6 +193,6 @@ main .panel{box-shadow:none}
   .rail .grp .gl{display:contents}
   .rail a.nv{flex-shrink:0}
   .rail a.nv[aria-current="page"]::before{display:none}
-  .shell>main,body.shell>main,.dc-main,.op{margin:8px;border-radius:16px}
-  .op{height:auto;position:static}
+  .shell>main,body.shell>main,.dc-main,aside.op{margin:8px;border-radius:16px}
+  aside.op{height:auto;position:static}
 }
