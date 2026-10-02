@@ -365,13 +365,13 @@ async function startJob(id, kind, args, btn) {
   await refresh();
 }
 const photoSearch = (id, body, btn) => startJob(id, 'search_photo', { filters: QF, ...body }, btn);
-const DROP_WORDS = { already_seen: 'already shown', trader: 'traders', service: 'low service score', reviews: 'weak reviews', repeat: 'low repeat rate', years: 'too new' };
+const DROP_WORDS = { design: 'a different design', no_photo: 'without a photo', already_seen: 'already shown', trader: 'traders', service: 'low service score', reviews: 'weak reviews', repeat: 'low repeat rate', years: 'too new' };
 function jobToast(j) {
   const rq = D.requests.find(x => x.id === j.request_id), name = rq ? rq.title : 'your request', x = j.result || {};
   if (j.status === 'failed') return toast(`${j.label || 'Search'} for ${name} didn't work: ${j.error || 'unknown error'}`);
   const dropped = Object.entries(x.dropped || {}).map(([k, n]) => n + ' ' + (DROP_WORDS[k] || k)).join(', ');
   toast(j.kind === 'refresh_search' ? `${name}: replaced ${x.replaced ?? 0} with ${x.new_candidates ?? 0} new listings from different factories`
-    : `${name}: scanned ${x.scanned ?? x.listings ?? 0}, kept ${x.kept ?? x.listings ?? 0} well-rated${dropped ? ` (dropped ${dropped})` : ''} · ${x.new_candidates ?? 0} new`);
+    : `${name}: scanned ${x.scanned ?? x.listings ?? 0}, kept ${x.kept ?? x.listings ?? 0} ${x.design_checked ? 'matching your design' : 'well-rated'}${dropped ? ` (dropped ${dropped})` : ''} · ${x.new_candidates ?? 0} new`);
 }
 async function fetchContacts(body) {
   if (CONTACTS.running) return toast('Already looking up contacts');
@@ -511,6 +511,7 @@ const when = (d) => { const t = new Date(d), m = (Date.now() - t) / 60000; retur
 const actItem = (a) => `<li><time>${when(a.at)}</time><span>${esc(a.body)}</span><small>${esc(who(a.actor))}</small></li>`;
 const ago = (d) => { const m = Math.round((Date.now() - new Date(d).getTime()) / 60000); return m < 1 ? 'just now' : m === 1 ? '1 min ago' : m + ' min ago'; };
 let LIST_FILTER = 'all', FLOW_NOW = null, OLINKS = {}, OSESS = {};
+const INTAKE_BUSY = new Set(); // requests whose spec the AI is reading right now (from the New request form)
 // ---------- the Order step: milestones, the factory inspection, shipping ----------
 const OSTEPS = [['deposit', 'Deposit'], ['production', 'Production'], ['qc', 'Inspection'], ['balance', 'Balance'], ['shipped', 'Shipped'], ['arrived', 'Delivered'], ['closed', 'Closed']];
 const inspUrl = (token) => SITE + 'app.html?f=' + token;
@@ -573,7 +574,8 @@ async function viewRequest(id) {
   } else { OLINKS = {}; OSESS = {}; }
   FLOW_NOW = fx.data || null;
   const cands = c.data || [], negs = n.data || [], quotes = q.data || [], reqs = req.data || [], orders = o.data || [];
-  const active = cands.filter(k => k.status !== 'rejected'), rejected = cands.filter(k => k.status === 'rejected');
+  const dm = (k) => k.listing_data?.designMatch ?? -1;
+  const active = cands.filter(k => k.status !== 'rejected').sort((a, b) => (dm(b) - dm(a)) || ((a.rank ?? 999) - (b.rank ?? 999))), rejected = cands.filter(k => k.status === 'rejected');
   const untouched = active.filter(k => k.status === 'candidate' && !k.released_to_client).length;
   const s = r.spec || {}; const client = D.clients.find(x => x.id === r.client_id);
   // long AI wording: keep the main phrase, grey out the parenthetical detail
@@ -589,7 +591,7 @@ async function viewRequest(id) {
   return `<div class="hello"><div><a class="sm" href="#/requests">← Requests</a><h1>${esc(r.title)}</h1><p>${esc(client ? (client.company || client.name) : 'No client')} · created ${dt(r.created_at)}${r.hts_code ? ` · HTS ${esc(r.hts_code)}` : ''}</p></div>
     <div class="bar"><select id="stSel" class="btn" style="width:auto">${STATUSES.map(x => `<option value="${x}" ${x === r.status ? 'selected' : ''}>${SLABEL[x]}</option>`).join('')}</select>${client ? `<a class="btn" target="_blank" href="portal.html?c=${esc(client.portal_token)}">Client portal ↗</a>` : ''}<button class="btn danger" id="delReq">Delete</button></div></div>
   ${phaseBar(r.status, tab)}
-  ${(() => { const n = flowNext(FLOW_NOW); if (!n.t) return ''; if (n.working) return `<div class="nextbar working"><div><small>Working on it</small><b>${esc(n.t)}</b><span>${n.h}</span></div><span class="spin" aria-label="Working"></span></div>`; return `<div class="nextbar"><div><small>Next step</small><b>${esc(n.t)}</b>${n.h ? `<span>${n.h}</span>` : ''}</div>${n.b ? `<div class="bar">${n.b2 ? `<button class="btn" id="nextGo2" data-act="${n.act2}">${esc(n.b2)}</button>` : ''}<button class="btn primary" id="nextGo" data-act="${n.act}" data-arg="${esc(n.arg || '')}">${esc(n.b)} →</button></div>` : ''}</div>`; })()}
+  ${(() => { const n = INTAKE_BUSY.has(r.id) ? { t: 'Reading the spec…', h: 'The AI is structuring the spec' + ((r.spec?.photos || []).length ? ', reading your photos' : '') + ' and writing the Chinese 1688 search terms. About 20 seconds.', working: true } : flowNext(FLOW_NOW); if (!n.t) return ''; if (n.working) return `<div class="nextbar working"><div><small>Working on it</small><b>${esc(n.t)}</b><span>${n.h}</span></div><span class="spin" aria-label="Working"></span></div>`; return `<div class="nextbar"><div><small>Next step</small><b>${esc(n.t)}</b>${n.h ? `<span>${n.h}</span>` : ''}</div>${n.b ? `<div class="bar">${n.b2 ? `<button class="btn" id="nextGo2" data-act="${n.act2}">${esc(n.b2)}</button>` : ''}<button class="btn primary" id="nextGo" data-act="${n.act}" data-arg="${esc(n.arg || '')}">${esc(n.b)} →</button></div>` : ''}</div>`; })()}
   <div class="tabbed" data-show="${tab}" id="tabbed">
   <div>
     <div class="panel" data-tab="intake"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">1 · Spec</h2><div class="bar"><button class="btn sm" id="editSpec">Edit</button><button class="btn sm primary" id="runIntake">${s.intake_at ? 'Re-run intake' : 'Run intake agent'}</button></div></div>
@@ -636,7 +638,7 @@ async function viewRequest(id) {
       </div>
       <p class="sm mut">Agent searches 1688 with the Chinese terms from the spec, saves each supplier as a factory, and scores listings against the spec. Release the ones you want the client to see.</p>
       ${active.length ? `<div class="wrap"><table><thead><tr><th>#</th><th>Listing</th><th>Supplier</th><th class="right">¥</th><th class="right">MOQ</th><th>Fit</th><th></th></tr></thead><tbody>
-      ${active.map(k => `<tr><td><span class="score">${k.rank ?? '·'}</span></td><td>${k.listing_data?.imageUrl ? `<img class="lthumb" src="${esc(k.listing_data.imageUrl)}" referrerpolicy="no-referrer" loading="lazy" alt="">` : ''}<a href="${esc(k.listing_url || '#')}" target="_blank">${esc(k.listing_title || 'Listing')}</a>${k.listing_data?.fromPhoto ? ` <span class="badge">photo match${k.listing_data.imageRank ? ' #' + k.listing_data.imageRank : ''}</span>` : ''}${qualityBits(k.listing_data)}<div class="sm mut">${esc(k.notes || '')}</div></td><td>${k.factories ? `<a href="#/factory/${k.factory_id}">${esc(k.factories.name)}</a><div class="sm mut">${esc(k.factories.city || '')}${k.factories.is_verified_factory === true ? ' · <span class="badge b-pass">verified</span>' : k.factories.is_verified_factory === false ? ' · <span class="badge b-fail">trader</span>' : ''}</div>${histBadge(k.factory_id, id)}${contactBits(k.factories, false)}` : '—'}</td><td class="right">${cny(k.price_cny)}</td><td class="right">${fmt(k.moq, 0)}</td><td>${k.match_score != null ? `<b>${fmt(k.match_score, 0)}</b>` : '—'} <span class="badge">${esc(k.status)}</span></td>
+      ${active.map(k => `<tr><td><span class="score">${k.rank ?? '·'}</span></td><td>${k.listing_data?.imageUrl ? `<img class="lthumb" src="${esc(k.listing_data.imageUrl)}" referrerpolicy="no-referrer" loading="lazy" alt="">` : ''}<a href="${esc(k.listing_url || '#')}" target="_blank">${esc(k.listing_title || 'Listing')}</a>${k.listing_data?.fromPhoto ? ` <span class="badge">photo match${k.listing_data.imageRank ? ' #' + k.listing_data.imageRank : ''}</span>` : ''}${k.listing_data?.designMatch != null ? `<div class="sm" style="margin-top:4px"><span class="badge ${k.listing_data.designMatch >= 85 ? 'b-pass' : k.listing_data.designMatch >= 70 ? 'b-harbor' : ''}">design match ${k.listing_data.designMatch}%</span> <span class="mut">${esc(k.listing_data.designNote || '')}</span></div>` : ''}${qualityBits(k.listing_data)}<div class="sm mut">${esc(k.notes || '')}</div></td><td>${k.factories ? `<a href="#/factory/${k.factory_id}">${esc(k.factories.name)}</a><div class="sm mut">${esc(k.factories.city || '')}${k.factories.is_verified_factory === true ? ' · <span class="badge b-pass">verified</span>' : k.factories.is_verified_factory === false ? ' · <span class="badge b-fail">trader</span>' : ''}</div>${histBadge(k.factory_id, id)}${contactBits(k.factories, false)}` : '—'}</td><td class="right">${cny(k.price_cny)}</td><td class="right">${fmt(k.moq, 0)}</td><td>${k.match_score != null ? `<b>${fmt(k.match_score, 0)}</b>` : '—'} <span class="badge">${esc(k.status)}</span></td>
         <td class="right"><div class="bar" style="justify-content:flex-end"><button class="btn sm" data-neg="${k.id}" data-fac="${k.factory_id || ''}">Negotiate</button><button class="btn sm" data-rel="${k.id}" data-on="${k.released_to_client ? 0 : 1}">${k.released_to_client ? 'Hide' : 'Release'}</button><button class="btn sm" data-rej="${k.id}">✕</button></div></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">${rejected.length ? 'No candidates left. Press Refresh results or Search 1688.' : 'No candidates yet.'}</div>`}
       ${rejected.length ? `<details class="sm" style="margin-top:10px"><summary>Rejected or replaced (${rejected.length}) · these factories won't be suggested again for this request</summary>${rejected.map(k => `<div class="bar" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0"><span><a href="${esc(k.listing_url || '#')}" target="_blank">${esc(k.listing_title || 'Listing')}</a> <span class="mut">· ${esc(k.factories?.name || '')} · ${cny(k.price_cny)}</span></span><button class="btn sm" data-restore="${k.id}">Restore</button></div>`).join('')}</details>` : ''}
       <div class="panel-foot"><button class="btn" data-goto="negotiating">Next: negotiate →</button></div>
@@ -861,14 +863,21 @@ function wire(page, id) {
         }
         if (paths.length) await sb.from('sourcing_requests').update({ spec: { photos: paths } }).eq('id', data.id);
       } catch (err) { toast('Photo upload failed: ' + (err.message || err)); }
-      try { status(paths.length ? 'Reading the spec and photos…' : 'Reading the spec…'); await call('intake', { request_id: data.id, set_title: !userTitle }); }
-      catch (err) { toast('Saved. Intake failed: ' + err.message); }
-      if (paths.length && $('nPhotoSearch').checked) {
-        try { status('Starting the photo search…'); await call('start_job', { request_id: data.id, kind: 'search_photo', args: { paths: paths.slice(0, 3), filters: QF } }); toast('Searching 1688 with your photos in the background. Results appear on the request.'); VIEW_TAB[data.id] = 'sourcing'; }
-        catch (err) { toast('Intake done. Photo search: ' + err.message); }
-      }
+      // open the new request straight away; the AI reads the spec (and the photo search starts) in the background
+      const rid = data.id, photoSearchToo = paths.length && $('nPhotoSearch').checked;
       NEW_FILES.forEach(f => URL.revokeObjectURL(f.url)); NEW_FILES = []; NEW_FORM = {};
-      await load(); location.hash = '#/request/' + data.id;
+      INTAKE_BUSY.add(rid); VIEW_TAB[rid] = 'intake';
+      await load(); location.hash = '#/request/' + rid;
+      (async () => {
+        try { await call('intake', { request_id: rid, set_title: !userTitle }); toast('Spec is ready.'); }
+        catch (err) { toast('Couldn\u2019t read the spec: ' + err.message + '. Press Run intake to try again.'); }
+        INTAKE_BUSY.delete(rid);
+        if (photoSearchToo) {
+          try { await call('start_job', { request_id: rid, kind: 'search_photo', args: { paths: paths.slice(0, 3), filters: QF } }); toast('Searching 1688 with your photos. Only listings matching your design are kept.'); VIEW_TAB[rid] = 'sourcing'; }
+          catch (err) { toast('Photo search: ' + err.message); }
+        }
+        await refresh();
+      })();
     };
   }
   if (page === 'request') {
