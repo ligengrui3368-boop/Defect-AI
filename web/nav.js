@@ -34,6 +34,10 @@
   var group = function (g, label, icon, items) {
     return '<div class="grp" data-g="' + g + '"><div class="gh">' + svg(icon) + '<span>' + label + '</span></div><div class="gl">' + items + '</div></div>';
   };
+  // The Quality (QC) pages are kept in the codebase but hidden while Lathe focuses on sourcing.
+  // Flip this to true to bring the Quality section back.
+  var SHOW_QC = false;
+  window.LATHE_SHOW_QC = SHOW_QC;
   rail.dataset.dc = '1';
   rail.innerHTML =
     '<a class="brand" href="./"><i aria-hidden="true"></i>Lathe</a>' +
@@ -41,15 +45,15 @@
     group('src', 'Sourcing', 'src',
       link('requests', 'sourcing.html#/requests', 'Requests', 'req', keep.navReq ? 'navReq' : '') +
       link('factories', 'sourcing.html#/factories', 'Factories', 'fac') +
-      link('clients', 'sourcing.html#/clients', 'Clients', 'cli') +
-      link('rates', 'sourcing.html#/rates', 'Rate cards', 'rate')) +
-    group('qc', 'Quality', 'qc',
+      link('clients', 'sourcing.html#/clients', 'Clients', 'cli')) +
+    (SHOW_QC ? group('qc', 'Quality', 'qc',
       link('orders', 'ops.html#/orders', 'Orders', 'ord', keep.navAtt ? 'navAtt' : '') +
       link('products', 'app.html', 'Products', 'prod') +
       link('defects', 'ops.html#/defects', 'Defects', 'def') +
-      link('suppliers', 'ops.html#/suppliers', 'Suppliers', 'sup')) +
+      link('suppliers', 'ops.html#/suppliers', 'Suppliers', 'sup')) : '') +
     (keep.navClients ? '<div class="sect">Your clients</div><div class="clients" id="navClients"></div><a class="nv quiet" href="sourcing.html#/clients">' + svg('plus') + '<span>Add a client</span></a>' : '') +
     '<div class="grow"></div>' +
+    '<a class="nv quiet" data-k="rates" href="sourcing.html#/rates">' + svg('rate') + '<span>Rate cards</span></a>' +
     '<a class="nv quiet" href="site/">' + svg('web') + '<span>Website</span></a>' +
     '<div class="meta"' + (keep.sync ? ' id="sync"' : '') + '>' + (syncText || '') + '</div>';
 
