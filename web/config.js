@@ -1,4 +1,4 @@
-// Supabase project: defect-check (us-east-1)
+// Supabase project: lathe (us-east-1)
 // The anon key is public by design; row level security protects the data.
 window.DEFECT_CHECK_CONFIG = {
   supabaseUrl: "https://jkgevzgfacfqcjqxosnm.supabase.co",
