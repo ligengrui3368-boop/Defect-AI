@@ -445,7 +445,10 @@ Only use numbers and terms that appear in the message or screenshot for the fact
   if (offer !== null) patch.current_offer_cny = offer;
   if (agreed) patch.agreed_cny = offer;
   for (const k of ["moq", "lead_time_days"]) if (num(out?.[k]) !== null) patch[k] = Math.round(num(out?.[k])!);
-  for (const k of ["payment_terms", "incoterm"]) if (out?.[k]) patch[k] = String(out[k]).slice(0, 200);
+  if (out?.payment_terms) patch.payment_terms = String(out.payment_terms).slice(0, 200);
+  // an incoterm is only recorded if the factory actually wrote one (models like to assume FOB)
+  const inc = String(out?.incoterm ?? "").toUpperCase().match(/\b(EXW|FCA|FAS|FOB|CFR|CIF|CPT|CIP|DAP|DPU|DDP)\b/)?.[1];
+  if (inc && (!text || new RegExp(`\\b${inc}\\b`, "i").test(text))) patch.incoterm = inc;
   const { error: e2 } = await sb.from("negotiations").update(patch).eq("id", g.id);
   if (e2) throw new HttpError(500, e2.message);
   return { ok: true, offer_cny: offer, agreed, moq: patch.moq ?? null, lead_time_days: patch.lead_time_days ?? null, ...last_reply };
