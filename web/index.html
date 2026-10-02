@@ -6,6 +6,18 @@
 // Factory links (?f=) and website demos (?demo=) open the product app directly. Sign-in links land here.
 (function () { var s = location.search; if (/[?&](f|demo)=/.test(s)) location.replace('app.html' + s + location.hash); })();
 </script>
+<script>
+// Signed-out visitors go to the login page before anything of the app is drawn.
+(function () {
+  var s = location.search, h = location.hash;
+  if (/[?&](f|demo)=/.test(s) || /access_token=|error_description=|[?&]code=/.test(s + h)) return;
+  var ok = false;
+  try { for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (/^sb-.*-auth-token$/.test(k)) { var t = JSON.parse(localStorage.getItem(k) || 'null'); ok = !!(t && t.refresh_token && !(t.user && t.user.is_anonymous)); } } } catch (e) {}
+  if (ok) return;
+  var m = h.match(/^#\/join\/([0-9a-f]+)/), page = location.pathname.split('/').pop();
+  location.replace('login.html' + (m ? '?join=' + m[1] : (page && page !== 'index.html' ? '?next=' + encodeURIComponent(page + h) : '')));
+})();
+</script>
 <style>
 .op-sug .sh{display:flex;align-items:center;justify-content:space-between;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:2px 2px 0}
 .op-sug .sh button{border:0;background:none;padding:2px 6px;font-size:14px;color:var(--muted);cursor:pointer;border-radius:8px;text-transform:none;letter-spacing:0}
@@ -266,10 +278,10 @@ drawLog(false);
   if (!CFG.supabaseUrl || !window.supabase) { app.innerHTML = '<p>Setup needed: add your Supabase URL and anon key to config.js.</p>'; return; }
   sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
   let { data: { session } } = await sb.auth.getSession();
-  if (!session) { location.replace('sourcing.html#/login'); return; }
+  if (!session || session.user.is_anonymous) { location.replace('login.html'); return; }
   // after an email sign-in link, continue to where the person was going (account page, an invite, …)
   let next = null; try { next = localStorage.getItem('lathe-after-login'); } catch (e) {}
-  if (next && !session.user.is_anonymous) { try { localStorage.removeItem('lathe-after-login'); } catch (e) {} location.replace(next); return; }
+  if (next && !/^(\.\/|index\.html)?$/.test(next) && !session.user.is_anonymous) { try { localStorage.removeItem('lathe-after-login'); } catch (e) {} location.replace(next); return; }
   const { data: m0 } = await sb.from('workspace_members').select('workspace_id, workspaces(name)').eq('user_id', session.user.id).order('created_at');
   if (!m0 || !m0.length) { app.innerHTML = '<p>No workspace found for this account.</p>'; return; }
   let pref = null; try { pref = localStorage.getItem('lathe-ws'); } catch (e) {}
