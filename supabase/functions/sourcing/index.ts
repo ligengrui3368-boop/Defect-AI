@@ -25,6 +25,8 @@
 //                 registered phone, email, website and address, plus business scope, registered capital
 //                 and insured staff for the factory-vs-trader check. Only fills empty fields; results are
 //                 kept on the factory so each company is paid for once (force: true re-checks).
+//   portal_answers – (client portal, no sign-in; checked against the portal link's token) save the client's
+//                 answers to the intake questions and re-run intake on that request
 //   parse_reply – read a factory's reply (pasted text or a screenshot): price, MOQ, lead time, terms; update the
 //                 negotiation and draft the counter-offer in Chinese
 //   start_job   – run search_1688 / search_photo / refresh_search in the background (jobs table, live updates)
@@ -401,6 +403,31 @@ Return a JSON array of {i, score, reason} with a one-sentence reason each (Engli
   return { ranked: order.length, top: order.slice(0, 5).map((o) => ({ id: o.c.id, title: o.c.listing_title, score: o.s, why: o.why })) };
 }
 
+// ---------- client portal: answers to the intake questions ----------
+// Called from the client's portal with their private link token (no Lathe sign-in). The token is checked
+// with the service key, and only that client's own request can be touched.
+async function portalAnswers(body: Any) {
+  if (!SERVICE_KEY) throw new HttpError(500, "Service key missing");
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, SERVICE_KEY, { auth: { persistSession: false } });
+  const token = String(body.token ?? "");
+  if (token.length < 16) throw new HttpError(403, "Invalid portal link");
+  const { data: c } = await admin.from("clients").select("id, workspace_id").eq("portal_token", token).eq("portal_active", true).maybeSingle();
+  if (!c) throw new HttpError(403, "Invalid portal link");
+  const { data: r } = await admin.from("sourcing_requests").select("*").eq("id", body.request_id).eq("client_id", c.id).maybeSingle();
+  if (!r) throw new HttpError(404, "Request not found");
+  const qs: string[] = Array.isArray(r.spec?.questions) ? r.spec.questions.map(String) : [];
+  const answers = (Array.isArray(body.answers) ? body.answers : []).map((a: Any) => ({ q: String(a?.q ?? "").slice(0, 500), a: String(a?.a ?? "").trim().slice(0, 2000) }))
+    .filter((a: Any) => a.a && qs.includes(a.q)).slice(0, 12);
+  if (!answers.length) throw new HttpError(400, "Write at least one answer.");
+  await admin.from("client_requirements").insert(answers.map((a: Any) => ({ workspace_id: r.workspace_id, request_id: r.id, kind: "answer", body: `${a.q}\n→ ${a.a}`, author: "client" })));
+  const now = new Date().toISOString();
+  const spec = { ...(r.spec ?? {}), client_answers: [...(r.spec?.client_answers ?? []), ...answers.map((a: Any) => ({ ...a, at: now }))].slice(-40) };
+  await admin.from("sourcing_requests").update({ spec }).eq("id", r.id);
+  // re-read the spec with the answers; new questions (if any) go back to the portal
+  const out: Any = await intake(admin, { request_id: r.id, answers: answers.map((a: Any) => `Q: ${a.q}\nA: ${a.a}`).join("\n\n") });
+  return { ok: true, questions: out?.spec?.questions ?? [] };
+}
+
 // ---------- factory replies ----------
 // Paste what the factory sent (or a screenshot of the WeChat / 1688 chat). Claude reads the numbers and terms,
 // the negotiation is updated, and a counter-offer is drafted in Chinese for the user to send.
@@ -640,7 +667,9 @@ async function operatorContext(sb: SupabaseClient, ws: string | null) {
       last_activity: String(r.updated_at ?? "").slice(0, 10),
     };
   });
-  return { clients: (clients ?? []).map((c: Any) => ({ name: c.name, company: c.company })), open };
+  const { data: acts } = await scope(sb.from("activity").select("at, actor, body, request_id")).order("at", { ascending: false }).limit(15);
+  const recent_activity = (acts ?? []).map((a: Any) => ({ at: String(a.at).slice(0, 16).replace("T", " "), who: a.actor, what: a.body, request: (reqs ?? []).find((r: Any) => r.id === a.request_id)?.title ?? null }));
+  return { clients: (clients ?? []).map((c: Any) => ({ name: c.name, company: c.company })), open, recent_activity };
 }
 async function loadMemory(sb: SupabaseClient, ws: string | null) {
   if (!ws) return null;
@@ -686,7 +715,7 @@ async function operator(sb: SupabaseClient, body: Any) {
   const past = (mem?.messages ?? []) as Any[];
   const histSrc = past.length ? past.map((m: Any) => ({ role: m.role === "op" ? "operator" : "user", text: m.text })) : (Array.isArray(body.history) ? body.history : []);
   const history = histSrc.slice(-10).map((h: Any) => `${h.role === "operator" ? "Operator" : "User"}: ${String(h.text ?? "").slice(0, 800)}`).join("\n");
-  const { clients, open } = await operatorContext(sb, ws);
+  const { clients, open, recent_activity } = await operatorContext(sb, ws);
   const today = new Date().toISOString().slice(0, 10);
   const lang = body.lang === "zh" ? "Simplified Chinese" : "English";
   const out = await askJson(`You are Operator, the assistant inside Lathe. Gary runs it: US brands tell him what they want made, he sources it from Chinese factories (1688), negotiates himself, quotes the full landed cost, and places the order.
@@ -695,6 +724,7 @@ Your memory of what this person is working on (your own notes from earlier conve
 ${mem?.notes?.trim() || "(nothing yet)"}
 Clients: ${JSON.stringify(clients)}
 Open requests (newest activity first) with their stage, best factories, offers and quotes: ${JSON.stringify(open)}
+Recent activity across the workspace (newest first; who did what): ${JSON.stringify(recent_activity)}
 Conversation so far:
 ${history || "(none)"}
 User: ${message}
@@ -800,6 +830,9 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
   let body: Any; try { body = await req.json(); } catch { return json({ error: "Body must be JSON" }, 400); }
   const auth = req.headers.get("Authorization") ?? "";
+  if (String(body.task ?? "") === "portal_answers") {
+    try { return json(await portalAnswers(body)); } catch (e) { return json({ error: String((e as Error).message ?? e) }, e instanceof HttpError ? e.status : 500); }
+  }
   if (String(body.task ?? "") === "translate") {
     try { return json(await translate(body, auth)); } catch (e) { return json({ error: String((e as Error).message ?? e) }, e instanceof HttpError ? e.status : 500); }
   }
