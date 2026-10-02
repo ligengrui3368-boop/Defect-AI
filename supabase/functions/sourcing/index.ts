@@ -25,6 +25,8 @@
 //                 registered phone, email, website and address, plus business scope, registered capital
 //                 and insured staff for the factory-vs-trader check. Only fills empty fields; results are
 //                 kept on the factory so each company is paid for once (force: true re-checks).
+//   parse_reply – read a factory's reply (pasted text or a screenshot): price, MOQ, lead time, terms; update the
+//                 negotiation and draft the counter-offer in Chinese
 //   start_job   – run search_1688 / search_photo / refresh_search in the background (jobs table, live updates)
 //   operator_suggest – fresh suggested prompts for the Operator panel, from current work and memory
 //   operator    – the Home page assistant: reads the workspace's clients and open requests,
@@ -399,6 +401,111 @@ Return a JSON array of {i, score, reason} with a one-sentence reason each (Engli
   return { ranked: order.length, top: order.slice(0, 5).map((o) => ({ id: o.c.id, title: o.c.listing_title, score: o.s, why: o.why })) };
 }
 
+// ---------- factory replies ----------
+// Paste what the factory sent (or a screenshot of the WeChat / 1688 chat). Claude reads the numbers and terms,
+// the negotiation is updated, and a counter-offer is drafted in Chinese for the user to send.
+async function parseReply(sb: SupabaseClient, body: Any) {
+  const text = String(body.text ?? "").trim().slice(0, 6000);
+  const path = typeof body.photo_path === "string" ? body.photo_path : "";
+  if (!text && !path) throw new HttpError(400, "Paste the factory's message or add a screenshot.");
+  const { data: g, error } = await sb.from("negotiations").select("*, factories(name, city)").eq("id", body.negotiation_id).single();
+  if (error || !g) throw new HttpError(404, "Negotiation not found");
+  const r = await getRequest(sb, g.request_id);
+  let images: string[] = [];
+  if (path) { const { data } = await sb.storage.from("photos").createSignedUrl(path, 600); if (data?.signedUrl) images = [data.signedUrl]; }
+  const recent = (g.log ?? []).slice(-6).map((l: Any) => `${String(l.at).slice(0, 10)}: ${l.note}${l.offer_cny ? ` (¥${l.offer_cny})` : ""}`).join("\n");
+  const out = await askJson(`You help a China sourcing agent negotiate with a factory on 1688 / WeChat.
+Request: ${specText(r)}
+Factory: ${g.factories?.name ?? "unknown"} ${g.factories?.city ?? ""}
+Where the negotiation stands: offer ${g.current_offer_cny ?? "none yet"} CNY, our target ${g.target_cny ?? r.spec?.estimated_factory_price_cny ?? "unknown"} CNY, MOQ ${g.moq ?? "?"}, lead time ${g.lead_time_days ?? "?"} days, payment ${g.payment_terms ?? "?"}.
+Recent log:
+${recent || "(nothing yet)"}
+${text ? `The factory's latest message:\n"""${text}"""` : ""}${images.length ? "\nA screenshot of the chat is attached; read the factory's latest messages from it." : ""}
+
+Return JSON:
+{ "offer_cny": number|null (their unit price for the requested quantity; if tiered, the price for our quantity),
+  "tiers": [{ "qty": number, "price_cny": number }] (any quantity tiers they gave, else []),
+  "moq": number|null, "lead_time_days": number|null, "sample_cost_cny": number|null, "sample_days": number|null,
+  "payment_terms": string|null, "incoterm": string|null,
+  "accepted_our_price": boolean (true only if they clearly agreed to a price we proposed),
+  "summary_en": string (1-2 sentences: what they said), 
+  "counter_cny": number|null (the unit price we should push for next, realistic for this product and their offer),
+  "counter_zh": string (our reply in natural Simplified Chinese, WeChat style, polite and concise: thank them, push toward counter_cny with a reason such as quantity, repeat orders or competing quotes, ask for anything missing such as tiers, MOQ, lead time, sample cost, or confirm agreement if they accepted),
+  "counter_en": string (faithful English translation of counter_zh) }
+Only use numbers that appear in the message or screenshot for the factory's terms. Never invent their prices.`, 2000, MODEL, images);
+  const num = (x: Any) => (x === null || x === undefined || x === "" || isNaN(Number(x)) ? null : Number(x));
+  const offer = num(out?.offer_cny), agreed = Boolean(out?.accepted_our_price) && offer !== null;
+  const now = new Date().toISOString();
+  const last_reply = { at: now, summary: String(out?.summary_en ?? "").slice(0, 600), counter_zh: String(out?.counter_zh ?? "").slice(0, 2000), counter_en: String(out?.counter_en ?? "").slice(0, 2000), counter_cny: num(out?.counter_cny), tiers: Array.isArray(out?.tiers) ? out.tiers.slice(0, 8) : [] };
+  const patch: Any = {
+    status: agreed ? "agreed" : "waiting_us", last_contact_at: now, next_action: agreed ? "Build the client quote" : "Send the counter-offer",
+    terms: { ...(g.terms ?? {}), last_reply, ...(num(out?.sample_cost_cny) !== null ? { sample_cost_cny: num(out?.sample_cost_cny) } : {}), ...(num(out?.sample_days) !== null ? { sample_days: num(out?.sample_days) } : {}), ...(last_reply.tiers.length ? { tiers: last_reply.tiers } : {}) },
+    log: [...(g.log ?? []), { at: now, note: `Factory: ${last_reply.summary}`, offer_cny: offer, raw: text.slice(0, 1500) || "(screenshot)" }].slice(-60),
+  };
+  if (offer !== null) patch.current_offer_cny = offer;
+  if (agreed) patch.agreed_cny = offer;
+  for (const k of ["moq", "lead_time_days"]) if (num(out?.[k]) !== null) patch[k] = Math.round(num(out?.[k])!);
+  for (const k of ["payment_terms", "incoterm"]) if (out?.[k]) patch[k] = String(out[k]).slice(0, 200);
+  const { error: e2 } = await sb.from("negotiations").update(patch).eq("id", g.id);
+  if (e2) throw new HttpError(500, e2.message);
+  return { ok: true, offer_cny: offer, agreed, moq: patch.moq ?? null, lead_time_days: patch.lead_time_days ?? null, ...last_reply };
+}
+
+// ---------- Operator actions (run on the server, same work as the buttons) ----------
+async function operatorAction(sb: SupabaseClient, a: Any): Promise<string> {
+  const r = await getRequest(sb, a.request_id);
+  const t = r.title;
+  switch (a.type) {
+    case "run_intake": { await intake(sb, { request_id: r.id }); return `Read the spec for ${t}`; }
+    case "search": {
+      const photos = (r.spec?.photos ?? []).slice(-3);
+      const photo = a.mode === "photo" && photos.length;
+      await startJob(sb, { request_id: r.id, kind: photo ? "search_photo" : "search_1688", args: photo ? { paths: photos } : { terms: a.term ? [String(a.term)] : undefined } });
+      return `Started ${photo ? "a photo search" : "a 1688 search"} for ${t} (runs in the background)`;
+    }
+    case "refresh": { await startJob(sb, { request_id: r.id, kind: "refresh_search", args: { feedback: a.feedback ? String(a.feedback) : "" } }); return `Looking for different factories for ${t}`; }
+    case "negotiate": {
+      const n = Math.max(1, Math.min(5, Number(a.count) || 2));
+      const { data: have } = await sb.from("negotiations").select("factory_id").eq("request_id", r.id);
+      const skip = new Set((have ?? []).map((x: Any) => x.factory_id));
+      const { data: cands } = await sb.from("request_candidates").select("id, factory_id, factories(name)").eq("request_id", r.id).eq("status", "candidate").not("factory_id", "is", null).order("rank", { ascending: true, nullsFirst: false }).limit(20);
+      const pick = (cands ?? []).filter((c: Any) => !skip.has(c.factory_id)).slice(0, n);
+      if (!pick.length) throw new Error(`No new factories to start talks with on ${t}`);
+      const { error } = await sb.from("negotiations").insert(pick.map((c: Any) => ({ workspace_id: r.workspace_id, request_id: r.id, factory_id: c.factory_id, candidate_id: c.id, target_cny: r.spec?.estimated_factory_price_cny ?? null })));
+      if (error) throw new Error(error.message);
+      await sb.from("request_candidates").update({ status: "contacted" }).in("id", pick.map((c: Any) => c.id));
+      return `Started negotiations with ${pick.map((c: Any) => c.factories?.name ?? "a factory").join(", ")}`;
+    }
+    case "log_offer": {
+      const price = Number(a.price_cny); if (!(price > 0)) throw new Error("No price given");
+      const { data: negs } = await sb.from("negotiations").select("id, log, factories(name)").eq("request_id", r.id);
+      const name = String(a.factory ?? "").toLowerCase();
+      const g = (negs ?? []).find((x: Any) => name && (x.factories?.name ?? "").toLowerCase().includes(name)) ?? ((negs ?? []).length === 1 ? negs![0] : null);
+      if (!g) throw new Error(`Couldn't tell which factory on ${t} that offer is from`);
+      const now = new Date().toISOString();
+      const patch: Any = { current_offer_cny: price, last_contact_at: now, status: a.agreed ? "agreed" : "waiting_us", log: [...(g.log ?? []), { at: now, note: a.note ? String(a.note) : "Offer logged by Operator", offer_cny: price }] };
+      if (a.agreed) patch.agreed_cny = price;
+      const { error } = await sb.from("negotiations").update(patch).eq("id", g.id);
+      if (error) throw new Error(error.message);
+      return `${a.agreed ? "Agreed" : "Logged"} ¥${price} with ${g.factories?.name ?? "the factory"}`;
+    }
+    case "release_quote": {
+      const { data: q } = await sb.from("quotes").select("id").eq("request_id", r.id).order("created_at", { ascending: false }).limit(1);
+      if (!q?.length) throw new Error(`No saved quote on ${t} yet`);
+      await sb.from("quotes").update({ released_to_client: true, status: "sent" }).eq("id", q[0].id);
+      return `Released the quote for ${t} to the client portal`;
+    }
+    case "mark_approved": {
+      const { data: q } = await sb.from("quotes").select("id").eq("request_id", r.id).order("created_at", { ascending: false }).limit(1);
+      if (!q?.length) throw new Error(`No quote on ${t} to approve`);
+      await sb.from("quotes").update({ status: "accepted" }).eq("id", q[0].id);
+      return `Marked the quote for ${t} as approved`;
+    }
+  }
+  throw new Error("Unknown action");
+}
+const SERVER_ACTIONS = ["run_intake", "search", "refresh", "negotiate", "log_offer", "release_quote", "mark_approved"];
+
 async function draftRfq(sb: SupabaseClient, body: Any) {
   const r = await getRequest(sb, body.request_id);
   let factory: Any = null;
@@ -538,7 +645,7 @@ async function loadMemory(sb: SupabaseClient, ws: string | null) {
   return data ?? { messages: [], notes: "", suggestions: [] };
 }
 const cleanSugs = (a: Any, avoid: string[] = []) => (Array.isArray(a) ? a : []).map((x: Any) => String(x ?? "").trim().replace(/^["'“]|["'”]$/g, "")).filter((x: string) => x && x.length <= 110 && !avoid.includes(x)).slice(0, 4);
-const SUG_RULES = `Suggestions: 4 short things the user could ask Operator next (each under 75 characters, written as the user would type them, in the user's language). Make them specific to the current work: name the actual products, factories, clients and numbers. Cover different kinds: a status check, the next action on the most pressing request, drafting a message (a counter-offer or follow-up to a factory in Chinese, or an update to a client), and an analysis or advice question. Prefer requests that are stuck or have a next step, and threads from the memory and recent conversation. Operator can answer questions, give advice, draft messages, create requests and clients, and open pages; it cannot itself search 1688, contact factories or place orders, so never suggest those (suggest opening the request page instead). Each suggestion under 75 characters.`;
+const SUG_RULES = `Suggestions: 4 short things the user could ask Operator next (each under 75 characters, written as the user would type them, in the user's language). Make them specific to the current work: name the actual products, factories, clients and numbers. Cover different kinds: a status check, the next action on the most pressing request, drafting a message (a counter-offer or follow-up to a factory in Chinese, or an update to a client), and an analysis or advice question. Prefer requests that are stuck or have a next step, and threads from the memory and recent conversation. Operator can answer questions, give advice, draft messages, create requests and clients, and open pages; it can also run intake, search 1688, refresh results, start negotiations, log offers, release quotes and mark them approved; it cannot contact factories or place orders itself. Each suggestion under 75 characters.`;
 
 // ---------- background jobs ----------
 // Long 1688 searches run after the response is sent, so the screen never freezes; progress and results
@@ -590,17 +697,32 @@ ${history || "(none)"}
 User: ${message}
 
 Decide what to do and return a JSON object:
-{ "reply": string, "action": null | {...}, "memory": string, "suggestions": string[] }
+{ "reply": string, "actions": [ {...} ] (0 to 3 actions, in order), "memory": string, "suggestions": string[] }
 Possible actions:
 - { "type": "create_request", "title": short product name with key spec (under 70 chars), "brief": everything the user said about the product (specs, materials, packaging, branding, price, timing), "quantity": number|null, "target_unit_price": number|null (USD per unit), "deadline": "YYYY-MM-DD"|null (resolve relative dates from today), "client_name": existing client name or company if one was named, else null }
 - { "type": "create_client", "name": string, "company": string|null, "email": string|null }
+- { "type": "run_intake", "request_id": id }  (read or re-read the spec)
+- { "type": "search", "request_id": id, "mode": "text"|"photo", "term": Chinese search phrase|null }  (search 1688; runs in the background)
+- { "type": "refresh", "request_id": id, "feedback": what the user disliked|null }  (replace the current factories with different ones)
+- { "type": "negotiate", "request_id": id, "count": 1-5 }  (start negotiations with the best-ranked factories)
+- { "type": "log_offer", "request_id": id, "factory": factory name as in the data, "price_cny": number, "agreed": boolean, "note": string|null }
+- { "type": "release_quote", "request_id": id }  (put the latest saved quote in the client's portal)
+- { "type": "mark_approved", "request_id": id }  (the client said yes to the latest quote)
 - { "type": "open", "href": one of "sourcing.html#/requests", "sourcing.html#/request/<id>", "sourcing.html#/clients", "sourcing.html#/factories", "sourcing.html#/rates", "sourcing.html#/new", "sourcing.html#/account" }
-Rules: only create a request when the user asks to source, make, buy or quote a physical product; then the reply is one short sentence saying you're creating it and running intake. Answer status questions from the open requests only, briefly and specifically (name the requests and what each needs next). When asked to draft a message, write it in full: factory messages in Chinese (polite, concise, WeChat/1688 style), client messages in English. When useful, link a request as [its title](sourcing.html#/request/<id>). Never invent prices, factories or facts that are not in the data. Plain sentences, no markdown headings.
+Rules: take an action only when the user clearly asks for it (or confirms one you proposed); never take one on your own initiative, and use only request ids from the data. When you take actions, the reply says in one short sentence what you're doing; the app adds what happened. Only create a request when the user asks to source, make, buy or quote a physical product; then the reply is one short sentence saying you're creating it and running intake. Answer status questions from the open requests only, briefly and specifically (name the requests and what each needs next). When asked to draft a message, write it in full: factory messages in Chinese (polite, concise, WeChat/1688 style), client messages in English. When useful, link a request as [its title](sourcing.html#/request/<id>). Never invent prices, factories or facts that are not in the data. Plain sentences, no markdown headings.
 memory: rewrite your notes for next time (max 700 characters, short lines): what the person is focused on now, decisions made, preferences and how they like to work, and open threads to follow up. Keep what still matters from the old notes, drop what is finished or stale, add what this exchange taught you. Facts only; no guesses.
 ${SUG_RULES} Don't repeat these recent suggestions: ${JSON.stringify(mem?.suggestions ?? [])}.`);
-  const a = out?.action && typeof out.action === "object" ? out.action : null;
+  const list: Any[] = (Array.isArray(out?.actions) ? out.actions : out?.action ? [out.action] : []).filter((x: Any) => x && typeof x === "object").slice(0, 3);
   const allowed = ["create_request", "create_client", "open"];
-  const reply = String(out?.reply ?? "").slice(0, 3000);
+  const a = list.find((x: Any) => allowed.includes(x.type)) ?? null;
+  // server actions run here, with the same functions as the buttons
+  const done: string[] = [], failed: string[] = [];
+  for (const x of list.filter((x: Any) => SERVER_ACTIONS.includes(x.type))) {
+    try { done.push(await operatorAction(sb, x)); } catch (e) { failed.push(String((e as Error).message ?? e)); }
+  }
+  let reply = String(out?.reply ?? "").slice(0, 3000);
+  if (done.length) reply += `\n\n${done.map((d) => "✓ " + d).join("\n")}`;
+  if (failed.length) reply += `\n\n${failed.map((d) => "✗ " + d).join("\n")}`;
   const suggestions = cleanSugs(out?.suggestions, body.message ? [message] : []);
   if (ws && mem) {
     const now = new Date().toISOString();
@@ -608,7 +730,7 @@ ${SUG_RULES} Don't repeat these recent suggestions: ${JSON.stringify(mem?.sugges
     const notes = typeof out?.memory === "string" && out.memory.trim() ? out.memory.trim().slice(0, 900) : mem.notes;
     await sb.from("operator_memory").upsert({ workspace_id: ws, messages: msgs, notes, suggestions: suggestions.length ? suggestions : mem.suggestions, updated_at: now }, { onConflict: "workspace_id,user_id" });
   }
-  return { ok: true, reply, action: a && allowed.includes(a.type) ? a : null, suggestions };
+  return { ok: true, reply, action: a, done, suggestions };
 }
 
 // Fresh suggested prompts for the Operator panel, from the current work and memory (fast model).
@@ -694,6 +816,7 @@ Deno.serve(async (req) => {
       case "operator": return json(await operator(sb, body));
       case "operator_suggest": return json(await operatorSuggest(sb, body));
       case "start_job": return json(await startJob(sb, body));
+      case "parse_reply": return json(await parseReply(sb, body));
       case "registry_contacts": return json(await registryContacts(sb, body));
       case "status": return json({ ok: true, anthropic: Boolean(ANTHROPIC_API_KEY), apify: Boolean(APIFY_TOKEN), registry: Boolean(TYC_TOKEN), actor: APIFY_ACTOR, model: MODEL });
       default: return json({ error: "Unknown task" }, 400);
