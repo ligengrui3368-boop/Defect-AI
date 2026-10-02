@@ -120,22 +120,17 @@ function contactBits(f, full) {
   if (full && f.address) bits.push(`<span><span class="lab">Address</span>${esc(f.address)}</span>`);
   if (bits.length) return `<div class="contact">${bits.join('')}</div>`;
   if (f.source !== '1688') return '';
-  if (f.contact_status === 'none') return `<div class="contact mut">No contact details on its 1688 page</div>`;
-  if (f.contact_status === 'error') return `<div class="contact mut">Couldn't load its 1688 contact page <button class="link" data-getc="${f.id}">Try again</button></div>`;
-  return `<div class="contact mut">${CONTACTS.running ? 'Getting contacts…' : `<button class="link" data-getc="${f.id}">Get contacts</button>`}</div>`;
+  if (f.contact_status === 'none') return `<div class="contact mut">${f.verification?.registry?.matched === false ? 'Not found in the company registry' : 'No contacts in the company registry'}</div>`;
+  if (f.contact_status === 'error') return `<div class="contact mut">Registry lookup failed <button class="link" data-getc="${f.id}" data-force="1">Try again</button></div>`;
+  return `<div class="contact mut">${CONTACTS.running ? 'Looking up…' : `<button class="link" data-getc="${f.id}">Get contacts</button>`}</div>`;
 }
 const CONTACTS = { running: false };
 async function fetchContacts(body) {
-  if (CONTACTS.running) return toast('Already getting contacts');
-  const out = body.run_id ? body : await call('contacts_start', body);
-  if (!out.run_id) return toast(out.count === 0 ? 'Contacts already fetched' : 'Nothing to fetch');
-  CONTACTS.running = true; await render(); toast(`Getting contacts for ${out.count} supplier${out.count === 1 ? '' : 's'} from 1688…`);
+  if (CONTACTS.running) return toast('Already looking up contacts');
+  CONTACTS.running = true; await render();
   try {
-    for (let i = 0; i < 60; i++) {
-      await new Promise(r => setTimeout(r, 8000));
-      const p = await call('contacts_poll', { run_id: out.run_id, factory_ids: out.factory_ids || [] });
-      if (p.done) { toast(`Contacts found for ${p.found}` + (p.empty ? `, none listed for ${p.empty}` : '') + (p.failed ? `, ${p.failed} pages didn't load` : '')); break; }
-    }
+    const p = await call('registry_contacts', body);
+    toast(p.checked === 0 ? 'Already looked up' : `Contacts found for ${p.found} of ${p.checked}` + (p.not_found ? ` · ${p.not_found} without contacts in the registry` : '') + (p.failed ? ` · ${p.failed} lookups failed` : ''));
   } catch (err) { toast(err.message); }
   CONTACTS.running = false; await refresh();
 }
@@ -216,7 +211,7 @@ async function viewRequest(id) {
     </div>
 
     <div class="panel"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">2 · Factory candidates <span class="mut sm">${cands.length}</span></h2>
-      <div class="bar"><input id="term" placeholder="Chinese search term (optional)" style="width:220px"><button class="btn sm primary" id="search1688">Search 1688</button>${cands.length ? `<button class="btn sm" id="rerank">Re-rank</button><button class="btn sm" id="getContacts" ${CONTACTS.running ? 'disabled' : ''}>${CONTACTS.running ? 'Getting contacts…' : 'Get contacts'}</button>` : ''}<button class="btn sm" id="addCand">Add manually</button></div></div>
+      <div class="bar"><input id="term" placeholder="Chinese search term (optional)" style="width:220px"><button class="btn sm primary" id="search1688">Search 1688</button>${cands.length ? `<button class="btn sm" id="rerank">Re-rank</button><button class="btn sm" id="getContacts" ${CONTACTS.running ? 'disabled' : ''}>${CONTACTS.running ? 'Looking up…' : 'Get contacts'}</button>` : ''}<button class="btn sm" id="addCand">Add manually</button></div></div>
       <p class="sm mut">Agent searches 1688 with the Chinese terms from the spec, saves each supplier as a factory, and scores listings against the spec. Release the ones you want the client to see.</p>
       ${cands.length ? `<div class="wrap"><table><thead><tr><th>#</th><th>Listing</th><th>Supplier</th><th class="right">¥</th><th class="right">MOQ</th><th>Fit</th><th></th></tr></thead><tbody>
       ${cands.map(k => `<tr><td><span class="score">${k.rank ?? '·'}</span></td><td><a href="${esc(k.listing_url || '#')}" target="_blank">${esc(k.listing_title || 'Listing')}</a><div class="sm mut">${esc(k.notes || '')}</div></td><td>${k.factories ? `<a href="#/factory/${k.factory_id}">${esc(k.factories.name)}</a><div class="sm mut">${esc(k.factories.city || '')}${k.factories.is_verified_factory === true ? ' · <span class="badge b-pass">verified</span>' : k.factories.is_verified_factory === false ? ' · <span class="badge b-fail">trader</span>' : ''}</div>${contactBits(k.factories, false)}` : '—'}</td><td class="right">${cny(k.price_cny)}</td><td class="right">${fmt(k.moq, 0)}</td><td>${k.match_score != null ? `<b>${fmt(k.match_score, 0)}</b>` : '—'} <span class="badge">${esc(k.status)}</span></td>
@@ -276,7 +271,7 @@ async function viewFactory(id) {
     <div><label>Email</label><input id="fEmail" value="${esc(f.email || '')}"></div><div><label>Website</label><input id="fWeb" value="${esc(f.website || '')}"></div>
     <div><label>Fax</label><input id="fFax" value="${esc(f.fax || '')}"></div><div><label>Address</label><input id="fAddr" value="${esc(f.address || '')}"></div></div>
     ${contactBits(f, true) ? `<div class="cbox">${contactBits(f, true)}</div>` : ''}
-    ${f.source === '1688' && f.source_url ? `<p class="sm mut" style="margin-top:8px">${f.contact_fetched_at ? `Contacts read from its 1688 contact page ${dt(f.contact_fetched_at)}. ` : ''}<button class="link" style="background:none;border:0;padding:0;color:var(--harbor);cursor:pointer;font-weight:600" data-getc="${f.id}" data-force="1">${f.contact_fetched_at ? 'Fetch again' : 'Get contacts from 1688'}</button></p>` : ''}
+    ${`<p class="sm mut" style="margin-top:8px">${f.verification?.registry?.checked_at ? (f.verification.registry.matched ? `Contacts from the company registry (天眼查) ${dt(f.verification.registry.checked_at)}${f.verification.registry.legal_person ? ' · legal rep ' + esc(f.verification.registry.legal_person) : ''}. ` : `Not found in the company registry under “${esc(f.verification.registry.keyword || '')}”. Set the Chinese name above and look up again. `) : ''}<button class="link" style="background:none;border:0;padding:0;color:var(--harbor);cursor:pointer;font-weight:600" data-getc="${f.id}" data-force="1">${f.verification?.registry?.checked_at ? 'Look up again' : 'Look up in company registry'}</button></p>`}
     <label>Notes</label><textarea id="fNotes">${esc(f.notes || '')}</textarea>
     <div class="bar" style="margin-top:12px"><button class="btn primary" id="fSave">Save</button></div>
     <h3>Listings for requests</h3>${(cands || []).length ? cands.map(k => `<div class="sm"><a href="#/request/${k.request_id}">${esc(k.sourcing_requests?.title)}</a> · ${esc(k.listing_title || '')} · ${cny(k.price_cny)} · MOQ ${fmt(k.moq, 0)} · fit ${fmt(k.match_score, 0)}</div>`).join('') : '<p class="sm mut">None.</p>'}
@@ -344,13 +339,13 @@ function wire(page, id) {
     $('editBrief').onclick = () => { $('briefBox').style.display = 'block'; };
     $('saveBrief').onclick = () => upd('sourcing_requests', { raw_brief: $('briefTa').value }, id);
     $('runIntake').onclick = async (e) => { busy(e.target, true); try { await call('intake', { request_id: id, answers: $('answers')?.value || '' }); toast('Spec updated'); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
-    $('search1688').onclick = async (e) => { busy(e.target, true); try { const t = $('term').value.trim(); const out = await call('search_1688', { request_id: id, terms: t ? [t] : undefined }); toast(`${out.listings} listings, ${out.new_candidates} new, ranked ${out.ranked}`); await refresh(); if (out.contacts?.run_id) fetchContacts(out.contacts); } catch (err) { busy(e.target, false); toast(err.message); } };
+    $('search1688').onclick = async (e) => { busy(e.target, true); try { const t = $('term').value.trim(); const out = await call('search_1688', { request_id: id, terms: t ? [t] : undefined }); toast(`${out.listings} listings, ${out.new_candidates} new, ranked ${out.ranked}`); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
     if ($('rerank')) $('rerank').onclick = async (e) => { busy(e.target, true); try { await call('rank', { request_id: id }); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
     if ($('getContacts')) $('getContacts').onclick = () => fetchContacts({ request_id: id }).catch(err => { CONTACTS.running = false; toast(err.message); render(); });
     $('addCand').onclick = async () => { const name = prompt('Supplier / factory name'); if (!name) return; const url = prompt('Listing or shop URL (optional)') || null; const price = parseFloat(prompt('Unit price ¥ (optional)') || '') || null;
       const { data: f, error } = await sb.from('factories').insert({ workspace_id: ws, name, source: 'manual', source_url: url }).select('id').single(); if (error) return toast(error.message);
       const { error: e2 } = await sb.from('request_candidates').insert({ workspace_id: ws, request_id: id, factory_id: f.id, listing_title: name, listing_url: url, price_cny: price }); if (e2) return toast(e2.message); await refresh(); };
-    on('[data-neg]', 'click', async (e) => { const b = e.currentTarget; const { error } = await sb.from('negotiations').insert({ workspace_id: ws, request_id: id, factory_id: b.dataset.fac || null, candidate_id: b.dataset.neg, target_cny: r.spec?.estimated_factory_price_cny || null, current_offer_cny: (await sb.from('request_candidates').select('price_cny').eq('id', b.dataset.neg).single()).data?.price_cny || null }); if (error) return toast(error.message); await sb.from('request_candidates').update({ status: 'contacted' }).eq('id', b.dataset.neg); if (['intake', 'sourcing', 'shortlisted'].includes(r.status)) await sb.from('sourcing_requests').update({ status: 'negotiating' }).eq('id', id); await refresh(); });
+    on('[data-neg]', 'click', async (e) => { const b = e.currentTarget; const { error } = await sb.from('negotiations').insert({ workspace_id: ws, request_id: id, factory_id: b.dataset.fac || null, candidate_id: b.dataset.neg, target_cny: r.spec?.estimated_factory_price_cny || null, current_offer_cny: (await sb.from('request_candidates').select('price_cny').eq('id', b.dataset.neg).single()).data?.price_cny || null }); if (error) return toast(error.message); await sb.from('request_candidates').update({ status: 'contacted' }).eq('id', b.dataset.neg); const nf = D.factories.find(x => x.id === b.dataset.fac); if (nf && !nf.verification?.registry?.checked_at && !nf.mobile && !nf.phone) fetchContacts({ factory_ids: [nf.id] }).catch(() => {}); if (['intake', 'sourcing', 'shortlisted'].includes(r.status)) await sb.from('sourcing_requests').update({ status: 'negotiating' }).eq('id', id); await refresh(); });
     on('[data-rel]', 'click', (e) => upd('request_candidates', { released_to_client: e.currentTarget.dataset.on === '1' }, e.currentTarget.dataset.rel));
     on('[data-rej]', 'click', (e) => upd('request_candidates', { status: 'rejected', released_to_client: false }, e.currentTarget.dataset.rej));
     on('[data-log]', 'click', async (e) => { const g = e.currentTarget.dataset.log; const note = document.querySelector(`[data-lognote="${g}"]`).value.trim(); const offer = parseFloat(document.querySelector(`[data-logoffer="${g}"]`).value) || null; if (!note && !offer) return;
