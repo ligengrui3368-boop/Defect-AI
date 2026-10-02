@@ -784,7 +784,7 @@ function wire(page, id) {
       const { email, password } = creds(); if (!email || !password) return toast('Enter your email and password');
       busy(e.target, true); const { error } = await sb.auth.signInWithPassword({ email, password });
       if (error) { busy(e.target, false); return toast(error.message === 'Invalid login credentials' ? 'Wrong email or password' : error.message); }
-      useWorkspace(null); location.hash = '#/requests'; location.reload();
+      useWorkspace(null); location.href = './';
     };
     if ($('aLink')) $('aLink').onclick = async () => {
       const email = ($('aEmail').value || '').trim(); if (!email) return toast('Enter your email first');
@@ -808,7 +808,7 @@ function wire(page, id) {
     on('[data-rminv]', 'click', async (e) => { const { error } = await sb.from('workspace_invites').delete().eq('id', e.currentTarget.dataset.rminv); if (error) return toast(error.message); render(); });
   }
   if (page === 'join') {
-    const joinNow = async (t) => { const { data, error } = await sb.rpc('accept_invite', { p_token: t }); if (error) return toast(error.message); useWorkspace(data); toast('You\u2019re in'); location.hash = '#/requests'; location.reload(); };
+    const joinNow = async (t) => { const { data, error } = await sb.rpc('accept_invite', { p_token: t }); if (error) return toast(error.message); useWorkspace(data); toast('You\u2019re in'); location.href = './'; };
     const authErr = (err) => toast(/not authorized/i.test(err.message) ? 'Lathe can\u2019t send email to that address yet. Ask the person who invited you to finish email setup, or use a password.' : err.message);
     if ($('jJoin')) $('jJoin').onclick = (e) => joinNow(e.currentTarget.dataset.t);
     if ($('jOut')) $('jOut').onclick = async () => { await sb.auth.signOut(); useWorkspace(null); location.reload(); };
