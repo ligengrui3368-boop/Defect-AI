@@ -121,6 +121,9 @@ textarea{min-height:90px;resize:vertical}
 .nextbar b{display:block;font-size:16px;margin:2px 0}.nextbar span{font-size:13.5px;color:var(--muted)}
 .nextbar.working{border-left-color:var(--hivis,#F2B705)}.spin{width:22px;height:22px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--harbor);animation:spin 1s linear infinite;flex-shrink:0}
 @keyframes spin{to{transform:rotate(360deg)}}
+.ms{display:flex;gap:4px;margin:10px 0 12px;flex-wrap:wrap}.ms span{flex:1;min-width:92px;text-align:center;font-size:12px;font-weight:600;padding:7px 6px;border-radius:999px;background:var(--sunk);color:var(--muted)}
+.ms span.done{background:var(--harbor-bg);color:var(--harbor)}.ms span.on{background:var(--ink);color:var(--panel)}
+.oact{background:var(--sunk);border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.5}.oact .bar{margin-top:10px}
 .tl{list-style:none;margin:6px 0 0;padding:0}.tl li{display:grid;grid-template-columns:92px 1fr;gap:2px 12px;padding:7px 0;border-top:1px solid var(--line);font-size:13.5px;line-height:1.45}.tl li:first-child{border-top:0}.tl time{color:var(--muted);font-size:12.5px}.tl small{grid-column:2;color:var(--muted);font-size:12px}
 .reply{background:var(--harbor-bg);border-radius:12px;padding:12px 14px;margin-top:10px;font-size:14px;line-height:1.5}
 .reply pre{white-space:pre-wrap;font:inherit;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0}
@@ -171,7 +174,7 @@ details.more .kv{margin-top:10px;font-size:13px}details.more .chip{font-size:12p
     <div class="grow"></div>
     <a class="quiet" href="site/">Website</a>
     <div class="meta" id="sync">Connecting…</div>
-  </nav><script src="nav.js?v=5"></script>
+  </nav><script src="nav.js?v=6"></script>
   <main id="app"><p class="mut">Loading…</p></main>
 </div>
 <script>
@@ -507,7 +510,38 @@ const who = (a) => !a ? 'Lathe' : a === ME?.email ? 'You' : a;
 const when = (d) => { const t = new Date(d), m = (Date.now() - t) / 60000; return m < 1 ? 'just now' : m < 60 ? Math.round(m) + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : t.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
 const actItem = (a) => `<li><time>${when(a.at)}</time><span>${esc(a.body)}</span><small>${esc(who(a.actor))}</small></li>`;
 const ago = (d) => { const m = Math.round((Date.now() - new Date(d).getTime()) / 60000); return m < 1 ? 'just now' : m === 1 ? '1 min ago' : m + ' min ago'; };
-let LIST_FILTER = 'all', FLOW_NOW = null;
+let LIST_FILTER = 'all', FLOW_NOW = null, OLINKS = {}, OSESS = {};
+// ---------- the Order step: milestones, the factory inspection, shipping ----------
+const OSTEPS = [['deposit', 'Deposit'], ['production', 'Production'], ['qc', 'Inspection'], ['balance', 'Balance'], ['shipped', 'Shipped'], ['arrived', 'Delivered'], ['closed', 'Closed']];
+const inspUrl = (token) => SITE + 'app.html?f=' + token;
+function orderCard(od, r, links, sess) {
+  const k = OSTEPS.findIndex(x => x[0] === od.status), fac = D.factories.find(f => f.id === od.factory_id);
+  const link = od.link_id ? links[od.link_id] : null, se = od.link_id ? sess[od.link_id] : null;
+  const insp = !link ? '' : se?.result ? `<div style="margin-top:6px">Inspection result: <span class="badge ${se.result === 'PASS' ? 'b-pass' : se.result === 'FAIL' ? 'b-fail' : 'b-rev'}">${se.result === 'PASS' ? 'passed' : se.result === 'FAIL' ? 'failed' : 'needs review'}</span>${se.sample_size ? ` <span class="sm mut">${se.sample_size} units checked</span>` : ''} · <a href="app.html" target="_blank">See the photos</a></div>`
+    : se ? `<div style="margin-top:6px">The factory has started the inspection${se.sample_size ? ` (${se.sample_size} units to photograph)` : ''}.</div>` : `<div class="sm mut" style="margin-top:6px">The factory hasn't opened the link yet.</div>`;
+  const act = {
+    deposit: `<b>Pay the factory's deposit.</b> When they confirm it, mark it here and production starts.<div class="bar"><button class="btn sm primary" data-ostep="${od.id}" data-to="production">Deposit paid · start production</button></div>`,
+    production: `<b>Set up the factory inspection.</b> Lathe makes a link for the factory. On their phone, they photograph units Lathe picks at random, and the AI checks each one against the spec before you pay the balance.<div class="bar"><button class="btn sm primary" data-oinsp="${od.id}">Set up inspection link</button><button class="btn sm" data-ostep="${od.id}" data-to="balance">Skip inspection</button></div>`,
+    qc: `<b>Waiting on the factory inspection.</b> Send them this link on WeChat:<div class="bar"><input readonly value="${esc(link ? inspUrl(link.token) : '')}" style="flex:1;min-width:200px"><button class="btn sm primary" data-cp="${esc(link ? inspUrl(link.token) : '')}">Copy link</button></div>${insp}
+      ${se?.result && se.result !== 'PASS' ? `<div class="bar"><button class="btn sm" data-ostep="${od.id}" data-to="balance">Accept anyway · pay balance</button></div>` : ''}`,
+    balance: `<b>Pay the balance</b>, then add the shipping details.${insp}
+      <div class="grid3" style="margin-top:8px"><div><label style="margin-top:0">Carrier</label><input data-ocar="${od.id}" value="${esc(od.carrier || '')}" placeholder="e.g. Maersk, DHL"></div><div><label style="margin-top:0">Tracking / B/L number</label><input data-otrk="${od.id}" value="${esc(od.tracking || '')}"></div><div><label style="margin-top:0">ETA</label><input type="date" data-oeta="${od.id}" value="${esc(od.eta || '')}"></div></div>
+      <div class="bar"><label style="margin:0"><input type="checkbox" data-bal="${od.id}" ${od.balance_paid ? 'checked' : ''} style="width:auto"> Balance paid</label><button class="btn sm primary" data-oship="${od.id}">Mark shipped</button></div>`,
+    shipped: `<b>On its way.</b> ${esc(od.carrier || '')}${od.tracking ? ' · tracking <b>' + esc(od.tracking) + '</b>' : ''}${od.eta ? ' · ETA ' + dt(od.eta) : ''}. The client sees this in their portal.<div class="bar"><button class="btn sm primary" data-ostep="${od.id}" data-to="arrived">Mark delivered</button></div>`,
+    arrived: `<b>Delivered${od.delivered_at ? ' ' + dt(od.delivered_at) : ''}.</b> Close it to finish the request.<div class="bar"><button class="btn sm primary" data-ostep="${od.id}" data-to="closed">Close request</button></div>`,
+    closed: `<b>Done.</b> This order is closed.`,
+  }[od.status] || '';
+  return `<div class="card"><div class="bar" style="justify-content:space-between"><div><b>${fmt(od.qty, 0)} units</b> · ${esc(fac?.name || 'Factory')} · ${cny(od.unit_price_cny)} → client ${usd(od.client_unit_price)}</div>
+      <details class="sm"><summary>Adjust</summary><select data-odst="${od.id}" class="btn sm" style="width:auto;margin-top:6px">${OSTEPS.map(x => `<option value="${x[0]}" ${x[0] === od.status ? 'selected' : ''}>${x[1]}</option>`).join('')}</select></details></div>
+    <div class="ms">${OSTEPS.slice(0, 6).map((x, i) => `<span class="${i < k ? 'done' : i === k ? 'on' : ''}">${i < k ? '✓ ' : ''}${x[1]}</span>`).join('')}</div>
+    <div class="oact">${act}</div></div>`;
+}
+function qcSpecFrom(s) {
+  const arr = (x) => Array.isArray(x) ? x : x ? [String(x)] : [];
+  return { material: arr(s.materials).join(', '), colors: arr(s.colors).join(', '), packaging: s.packaging || '', finish: '',
+    mustHave: [...arr(s.must_haves), ...arr(s.features)].slice(0, 20), watch: arr(s.defects_to_watch || s.qc_watch).slice(0, 20),
+    officialSpecs: [s.summary, s.dimensions && 'Size: ' + s.dimensions, s.weight && 'Weight: ' + s.weight].filter(Boolean), goodLooks: s.summary || '' };
+}
 function stepsBar(status, view) { const i = STATUSES.indexOf(status); return `<div class="steps" title="Click a step to open it">${STATUSES.map((s, k) => `<div data-step="${s}" class="${k < i ? 'done' : k === i ? 'on' : ''}${view && TAB_OF[s] === view ? ' view' : ''}">${SLABEL[s]}</div>`).join('')}</div>`; }
 function openLightbox(src) {
   if (!src) return; const lb = document.createElement('div'); lb.id = 'lb';
@@ -531,6 +565,11 @@ async function viewRequest(id) {
     sb.from('activity').select('at, actor, body').eq('request_id', id).order('at', { ascending: false }).limit(60),
   ]);
   const acts = ax.data || [];
+  const linkIds = (o.data || []).map(x => x.link_id).filter(Boolean);
+  if (linkIds.length) {
+    const [lk, ss] = await Promise.all([sb.from('factory_links').select('id, token, lot').in('id', linkIds), sb.from('factory_sessions').select('link_id, status, result, sample_size, buyer_decision, created_at, finished_at').in('link_id', linkIds).order('created_at', { ascending: false })]);
+    OLINKS = Object.fromEntries((lk.data || []).map(x => [x.id, x])); OSESS = {}; (ss.data || []).forEach(x => { if (!OSESS[x.link_id]) OSESS[x.link_id] = x; });
+  } else { OLINKS = {}; OSESS = {}; }
   FLOW_NOW = fx.data || null;
   const cands = c.data || [], negs = n.data || [], quotes = q.data || [], reqs = req.data || [], orders = o.data || [];
   const active = cands.filter(k => k.status !== 'rejected'), rejected = cands.filter(k => k.status === 'rejected');
@@ -640,9 +679,7 @@ async function viewRequest(id) {
       <div class="bar" style="margin-top:10px"><select id="rqKind" class="btn sm" style="width:auto"><option value="requirement">requirement</option><option value="defect_to_watch">defect to watch</option><option value="question">question</option></select><input id="rqBody" placeholder="Add a note as the team" style="flex:1"><button class="btn sm" id="rqAdd">Add</button></div>
     </div>
     <div class="panel" data-tab="order"><h2>5 · Order</h2>
-      ${orders.length ? orders.map(od => `<div class="card"><b>${esc(od.status)}</b> · ${fmt(od.qty, 0)} units · ${cny(od.unit_price_cny)} → ${usd(od.client_unit_price)}<div class="bar sm" style="margin-top:8px"><label style="margin:0"><input type="checkbox" ${od.deposit_paid ? 'checked' : ''} data-dep="${od.id}" style="width:auto"> deposit paid</label><label style="margin:0"><input type="checkbox" ${od.balance_paid ? 'checked' : ''} data-bal="${od.id}" style="width:auto"> balance paid</label>
-        <select data-odst="${od.id}" class="btn sm" style="width:auto">${['deposit', 'production', 'qc', 'balance', 'shipped', 'arrived', 'closed'].map(x => `<option ${x === od.status ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
-        ${window.LATHE_SHOW_QC ? '' : '<!--'}<div class="sm" style="margin-top:8px">${od.po_id ? `<a href="ops.html#/po/${od.po_id}">Open purchase order &amp; QC →</a>` : `<a href="ops.html#/new">Create the purchase order in Orders</a>, then its factory link runs the sampled inspection.`}${r.product_id ? ` · <a href="app.html">QC standard</a>` : ` · <a href="app.html?go=new">Set up the QC standard</a> from the spec's watch list`}</div>${window.LATHE_SHOW_QC ? '' : '-->'}</div>`).join('') : `<p class="sm mut">No order yet. When the client approves a quote, press "Create order" on it.</p>`}
+      ${orders.length ? orders.map(od => orderCard(od, r, OLINKS, OSESS)).join('') : `<p class="sm mut">No order yet. When the client approves a quote, press "Create order" on it (or on the next-step bar).</p>`}
     </div>
   </div></div>`;
 }
@@ -955,9 +992,33 @@ function wire(page, id) {
     $('saveQuote').onclick = async () => { if (!lastCalc) return; const c = lastCalc.breakdown; const { error } = await sb.from('quotes').insert({ workspace_id: ws, request_id: id, factory_id: $('qFac').value || null, negotiation_id: $('qFac').dataset.neg || null, assumption_id: rate.id, inputs: lastCalc.inputs, breakdown: c, landed_unit_cost: c.landed_unit_usd, client_unit_price: c.client_unit_price, margin_pct: c.margin_pct }); if (error) return toast(error.message); if (['negotiating', 'shortlisted'].includes(r.status)) await sb.from('sourcing_requests').update({ status: 'quoted', client_unit_price: c.client_unit_price }).eq('id', id); await refresh(); };
     on('[data-qrel]', 'click', (e) => upd('quotes', { released_to_client: e.currentTarget.dataset.on === '1', status: e.currentTarget.dataset.on === '1' ? 'sent' : 'draft' }, e.currentTarget.dataset.qrel));
     on('[data-order]', 'click', async (e) => { const b = e.currentTarget; const { error } = await sb.from('sourcing_orders').insert({ workspace_id: ws, request_id: id, quote_id: b.dataset.order, factory_id: b.dataset.fac || null, client_id: r.client_id, qty: +b.dataset.qty || null, unit_price_cny: +b.dataset.price || null, client_unit_price: +b.dataset.cp || null }); if (error) return toast(error.message); await sb.from('quotes').update({ status: 'accepted' }).eq('id', b.dataset.order); await sb.from('sourcing_requests').update({ status: 'ordered' }).eq('id', id); await refresh(); });
-    on('[data-dep]', 'change', (e) => upd('sourcing_orders', { deposit_paid: e.currentTarget.checked }, e.currentTarget.dataset.dep));
     on('[data-bal]', 'change', (e) => upd('sourcing_orders', { balance_paid: e.currentTarget.checked }, e.currentTarget.dataset.bal));
     on('[data-odst]', 'change', (e) => upd('sourcing_orders', { status: e.currentTarget.value }, e.currentTarget.dataset.odst));
+    on('[data-ostep]', 'click', async (e) => {
+      const b = e.currentTarget, to = b.dataset.to, patch = { status: to };
+      if (to === 'production') patch.deposit_paid = true;
+      if (to === 'arrived') patch.delivered_at = new Date().toISOString();
+      if (to === 'closed' && !await confirmBox({ title: 'Close this request?', body: 'The order and the request are marked done. You can reopen it from the stage menu.', confirmLabel: 'Close request' })) return;
+      busy(b, true); const { error } = await sb.from('sourcing_orders').update(patch).eq('id', b.dataset.ostep); if (error) { busy(b, false); return toast(error.message); } await refresh();
+    });
+    on('[data-oinsp]', 'click', async (e) => {
+      const b = e.currentTarget; busy(b, true); const { data: od } = await sb.from('sourcing_orders').select('*').eq('id', b.dataset.oinsp).single(); if (!od) { busy(b, false); return; }
+      try {
+        let pid = r.product_id;
+        if (!pid) { const { data: p, error } = await sb.from('products').insert({ workspace_id: ws, name: r.spec?.product_name || r.title, spec: qcSpecFrom(r.spec || {}) }).select('id').single(); if (error) throw error; pid = p.id; await sb.from('sourcing_requests').update({ product_id: pid }).eq('id', id); }
+        const fac = D.factories.find(f => f.id === od.factory_id);
+        const { data: link, error } = await sb.from('factory_links').insert({ workspace_id: ws, product_id: pid, lot: 'Order ' + od.id.slice(0, 6).toUpperCase(), factory_name: fac?.name || null, max_units: Math.max(50, od.qty || 500) }).select('id, token').single();
+        if (error) throw error;
+        await sb.from('sourcing_orders').update({ link_id: link.id, status: 'qc' }).eq('id', od.id);
+        try { await navigator.clipboard.writeText(inspUrl(link.token)); toast('Inspection link copied. Send it to the factory on WeChat.'); } catch (err) { toast('Inspection link ready below.'); }
+        await refresh();
+      } catch (err) { busy(b, false); toast(err.message || String(err)); }
+    });
+    on('[data-oship]', 'click', async (e) => {
+      const b = e.currentTarget, oid = b.dataset.oship, v = (k) => (document.querySelector(`[data-${k}="${oid}"]`)?.value || '').trim();
+      busy(b, true); const { error } = await sb.from('sourcing_orders').update({ carrier: v('ocar') || null, tracking: v('otrk') || null, eta: v('oeta') || null, shipped_at: new Date().toISOString(), balance_paid: true, status: 'shipped' }).eq('id', oid);
+      if (error) { busy(b, false); return toast(error.message); } toast('Marked shipped. The client sees the tracking in their portal.'); await refresh();
+    });
     $('rqAdd').onclick = async () => { const body = $('rqBody').value.trim(); if (!body) return; const { error } = await sb.from('client_requirements').insert({ workspace_id: ws, request_id: id, kind: $('rqKind').value, body, author: 'team' }); if (error) return toast(error.message); await refresh(); };
   }
   if (page === 'factories') $('addFac').onclick = async () => { const name = prompt('Factory name'); if (!name) return; const { data, error } = await sb.from('factories').insert({ workspace_id: ws, name, source: 'manual' }).select('id').single(); if (error) return toast(error.message); await load(); location.hash = '#/factory/' + data.id; };
