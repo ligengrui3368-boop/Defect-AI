@@ -129,14 +129,22 @@
     }).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ATTRS });
   }
 
-  // Back button: every app page except Home, and the client portal when opened from inside the app.
-  // It returns to the previous Lathe page, or to Home when there isn't one.
-  var appBase = location.origin + location.pathname.replace(/[^/]*$/, '');
+  // Back button: every app page except Home, and the client portal when someone signed in to Lathe opens it.
+  // Lathe keeps its own trail of pages visited in this tab, so Back works even after a page reloads itself.
   var file = location.pathname.split('/').pop() || 'index.html';
-  var cameFromApp = document.referrer && document.referrer.indexOf(appBase) === 0 && document.referrer.indexOf('portal.html') < 0;
-  var moved = false; window.addEventListener('hashchange', function () { moved = true; });
+  var TRAIL = 'lathe-trail';
+  function trail() { try { return JSON.parse(sessionStorage.getItem(TRAIL) || '[]'); } catch (e) { return []; } }
+  function saveTrail(t) { try { sessionStorage.setItem(TRAIL, JSON.stringify(t.slice(-30))); } catch (e) {} }
+  function remember() { var t = trail(); if (t[t.length - 1] !== location.href) { t.push(location.href); saveTrail(t); } }
+  if (location.pathname.indexOf('/site/') < 0) { remember(); window.addEventListener('hashchange', remember); }
+  var isTeam = false; try { isTeam = Object.keys(localStorage).some(function (k) { return /^sb-.*-auth-token$/.test(k); }); } catch (e) {}
   var ARROW = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>';
-  function goBack(e) { e.preventDefault(); if ((cameFromApp || moved) && history.length > 1) history.back(); else location.href = './'; }
+  function goBack(e) {
+    e.preventDefault();
+    var t = trail(); while (t.length && t[t.length - 1] === location.href) t.pop();
+    var prev = t.pop(); saveTrail(t);
+    location.href = prev || './';
+  }
   function placeBack() {
     if (document.querySelector('.rail .back, .top .back-btn') || location.pathname.indexOf('/site/') >= 0) return;
     var rail = document.querySelector('.rail');
@@ -146,7 +154,7 @@
       var top = rail.querySelector('.rail-top'); rail.insertBefore(a, top ? top.nextSibling : rail.firstChild); return;
     }
     var bar = document.querySelector('body > .top');
-    if (bar && file === 'portal.html' && cameFromApp) {
+    if (bar && file === 'portal.html' && isTeam) {
       var b = document.createElement('a'); b.className = 'back-btn'; b.href = './'; b.innerHTML = ARROW + '<span>Back</span>'; b.onclick = goBack;
       bar.insertBefore(b, bar.firstChild);
     }
