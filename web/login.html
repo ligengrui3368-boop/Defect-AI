@@ -30,7 +30,7 @@ button{font:inherit;cursor:pointer}
 .b.dark{background:var(--ink,#1D1D1F);color:var(--panel,#fff);border-color:var(--ink,#1D1D1F)}
 .b[disabled]{opacity:.55;cursor:default}
 .b svg{width:18px;height:18px}
-.row{display:flex;gap:10px;margin-top:18px}.row .b{flex:1}
+.btns{display:flex;gap:10px;margin-top:18px}.btns .b{flex:1}
 .or{display:flex;align-items:center;gap:10px;color:var(--muted,#86868B);font-size:12.5px;margin:20px 0 2px}.or:before,.or:after{content:'';flex:1;height:1px;background:var(--line,#ECECE9)}
 .link{background:none;border:0;padding:0;color:var(--harbor,#2F7BF5);font-weight:600;font-size:inherit}
 .foot{color:var(--muted,#86868B);font-size:13px;margin:16px 0 0;text-align:center}
@@ -49,7 +49,7 @@ button{font:inherit;cursor:pointer}
   <form id="form" novalidate>
     <label for="email">Email</label><input id="email" type="email" autocomplete="email" required>
     <label for="pass">Password</label><input id="pass" type="password" autocomplete="current-password" placeholder="at least 8 characters" required>
-    <div class="row"><button class="b dark" id="signin" type="submit">Sign in</button><button class="b" id="signup" type="button">Create account</button></div>
+    <div class="btns"><button class="b dark" id="signin" type="submit">Sign in</button><button class="b" id="signup" type="button">Create account</button></div>
   </form>
   <p class="foot">Forgot your password? <button class="link" id="magic" type="button">Email me a sign-in link</button></p>
   <div class="msg" id="msg" role="status"></div>
