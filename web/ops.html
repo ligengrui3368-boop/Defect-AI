@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Orders, Defect Check</title>
+<title>Orders, Lathe</title>
 <meta name="theme-color" content="#17222B">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
@@ -170,7 +170,7 @@ textarea.i{min-height:72px;resize:vertical}
 </head><body>
 <div class="shell">
   <nav class="rail" aria-label="Main">
-    <div class="brand"><i aria-hidden="true"></i>Defect Check</div>
+    <div class="brand"><i aria-hidden="true"></i>Lathe</div>
     <a href="./">Home</a>
     <a href="#/orders" data-nav="orders">Orders <small id="navAtt"></small></a>
     <a href="#/defects" data-nav="defects">Defects</a>
@@ -273,7 +273,7 @@ function routeHtml(po, big) {
 // ---------- views ----------
 function setNav(name) { document.querySelectorAll('[data-nav]').forEach(a => { if (a.dataset.nav === name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); }); }
 function ordersView() {
-  setNav('orders'); document.title = 'Orders · Defect Check';
+  setNav('orders'); document.title = 'Orders · Lathe';
   const rows = S.pos.filter(p => !p.closed || S.filter === 'closed').map(po => ({ po, st: poState(po) }));
   const f = S.filter;
   const shown = rows.filter(({ po, st }) => f === 'all' ? !po.closed : f === 'att' ? st.att.length && !po.closed : f === 'prod' ? st.stage <= 2 && !po.closed : f === 'water' ? st.stage === 3 : f === 'recv' ? st.stage === 4 : f === 'closed' ? po.closed : true);
@@ -287,7 +287,7 @@ function ordersView() {
 }
 
 function newView() {
-  setNav('orders'); document.title = 'New purchase order · Defect Check';
+  setNav('orders'); document.title = 'New purchase order · Lathe';
   const d = S.newPo || (S.newPo = { po_number: '', supplier_name: '', supplier_city: '', ship_by: '', eta: '', notes: '', lines: [{ product_id: '', qty: '', upc: '', cartons: '' }] });
   if (!S.products.length) {
     app.innerHTML = `<div class="head"><h1>New purchase order</h1></div><div class="panel empty"><h3>Set up a product first</h3><p>Each order line is checked against a product's approved standard. Add your products (from the product page link or photos of a good unit), then come back here.</p><a class="btn primary" href="app.html?go=new">Set up products</a></div>`;
@@ -340,7 +340,7 @@ function poView(id) {
   setNav('orders');
   const po = S.pos.find(p => p.id === id);
   if (!po) { app.innerHTML = `<div class="panel empty"><h3>Order not found</h3><p>It may have been deleted.</p><a class="btn" href="#/orders">Back to orders</a></div>`; return; }
-  document.title = po.po_number + ' · Defect Check';
+  document.title = po.po_number + ' · Lathe';
   const st = poState(po);
   const lc = st.lc, rc = st.rc;
   const fl = S.findings.filter(x => x.po_id === po.id && !x.in_spec);
@@ -422,7 +422,7 @@ function claimText(po) {
   part('unclear', 'Origin not determined:');
   if (!(ai.issues || []).length) L.push('', 'No exceptions: all cartons received in good condition.');
   if (lc && lc.status === 'done') L.push('', `Loading record: ${lc.container_no}, seal ${lc.seal_no}, loaded ${fmtDT(lc.submitted_at)}, ${Object.values(lc.counts || {}).reduce((a, b) => a + b, 0)} cartons reported loaded.`);
-  L.push('', 'Photos and timestamps are stored in Defect Check.');
+  L.push('', 'Photos and timestamps are stored in Lathe.');
   return L.join('\n');
 }
 
@@ -430,7 +430,7 @@ function claimText(po) {
 async function receiveView(id) {
   setNav('orders');
   const po = S.pos.find(p => p.id === id); if (!po) return poView(id);
-  document.title = 'Receive ' + po.po_number + ' · Defect Check';
+  document.title = 'Receive ' + po.po_number + ' · Lathe';
   let rc = receiptOf(po);
   if (!S.rx || S.rx.po !== po.id) {
     if (!rc) {
@@ -506,7 +506,7 @@ function paretoHtml(rows, limit = 12) {
   return `<div class="bars">${list.slice(0, limit).map(o => { cum += o.n; return `<div class="bar"><div class="t"><code>${esc(o.code)}</code><span>${esc(codeName(o.code))}</span></div><div class="track" title="${o.n} findings"><b class="${o.crit ? 'crit' : ''}" style="width:${o.n / max * 100}%"></b></div><div class="n">${o.n}<small>${Math.round(cum / total * 100)}% cum.</small></div></div>`; }).join('')}</div>`;
 }
 function defectsView() {
-  setNav('defects'); document.title = 'Defects · Defect Check';
+  setNav('defects'); document.title = 'Defects · Lathe';
   const F = S.dfilter, since = F.days ? Date.now() - F.days * 864e5 : 0;
   const rows = S.findings.filter(x => !x.in_spec && new Date(x.created_at || 0).getTime() >= since && (F.stage === 'all' || (F.stage === 'factory' ? x.source === 'unit' && x.stage === 'factory' : F.stage === 'arrival' ? (x.source === 'unit' && x.stage === 'arrival') || x.source === 'receiving' : x.source === F.stage)) && (!F.supplier || (x.supplier || '') === F.supplier));
   const units = S.insps.filter(i => i.status === 'done' && new Date(i.created_at).getTime() >= since && (F.stage === 'all' || F.stage === 'factory' ? i.stage === 'factory' : F.stage === 'arrival' ? i.stage === 'arrival' : false) && (!F.supplier || supplierOfInsp(i) === F.supplier));
@@ -526,7 +526,7 @@ function supplierOfInsp(i) { const l = S.links.find(x => x.id === i.factory_link
 
 // ---------- suppliers ----------
 function suppliersView() {
-  setNav('suppliers'); document.title = 'Suppliers · Defect Check';
+  setNav('suppliers'); document.title = 'Suppliers · Lathe';
   const names = [...new Set([...S.pos.map(p => p.supplier_name), ...S.links.map(l => l.factory_name)].filter(Boolean))].sort();
   const card = name => {
     const pos = S.pos.filter(p => p.supplier_name === name), links = S.links.filter(l => l.factory_name === name).map(l => l.id);
@@ -547,7 +547,7 @@ function suppliersView() {
       <td class="num" style="${shortF ? 'color:var(--fail);font-weight:700' : ''}">${n0(shortF)}</td><td class="num">${n0(dmgF)}</td>
       <td>${top.map(([c, n]) => `<span class="who" style="background:var(--sunk)">${esc(c)}</span> ${esc(codeName(c))} ×${n}`).join('<br>') || '<span class="mut">None</span>'}</td></tr>`;
   };
-  app.innerHTML = `<div class="head"><div style="flex:1"><h1>Suppliers</h1><p>Each factory's record across every order you've run through Defect Check.</p></div></div>
+  app.innerHTML = `<div class="head"><div style="flex:1"><h1>Suppliers</h1><p>Each factory's record across every order you've run through Lathe.</p></div></div>
   ${names.length ? `<div class="panel tablewrap"><table><thead><tr><th>Supplier</th><th class="num">Lots passed</th><th class="num">Units failed</th><th class="num">Containers passed</th><th class="num">Cartons short (factory)</th><th class="num">Damage (factory)</th><th>Top defects</th></tr></thead><tbody>${names.map(card).join('')}</tbody></table></div>`
   : `<div class="panel empty"><h3>No suppliers yet</h3><p>Suppliers appear here once you create an order with a supplier name.</p><a class="btn primary" href="#/new">New purchase order</a></div>`}`;
 }
