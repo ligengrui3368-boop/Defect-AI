@@ -24,7 +24,8 @@
     def: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5M12 16.5v.01"/>',
     sup: '<path d="M3 21h18M5 21V8l7-4 7 4v13"/><path d="M9 21v-5h6v5"/>',
     web: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.6 2.5 14.4 0 17M12 3.5c-2.5 2.6-2.5 14.4 0 17"/>',
-    plus: '<path d="M12 5v14M5 12h14"/>'
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    acct: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.2-3.6 4-5.5 7-5.5s5.8 1.9 7 5.5"/>'
   };
   var svg = function (k) { return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + I[k] + '</svg>'; };
   var link = function (k, href, label, icon, badge) {
@@ -53,6 +54,7 @@
       link('suppliers', 'ops.html#/suppliers', 'Suppliers', 'sup')) : '') +
     (keep.navClients ? '<div class="sect">Your clients</div><div class="clients" id="navClients"></div><a class="nv quiet" href="sourcing.html#/clients">' + svg('plus') + '<span>Add a client</span></a>' : '') +
     '<div class="grow"></div>' +
+    '<a class="nv quiet" data-k="account" href="sourcing.html#/account">' + svg('acct') + '<span>Account &amp; team</span></a>' +
     '<a class="nv quiet" data-k="rates" href="sourcing.html#/rates">' + svg('rate') + '<span>Rate cards</span></a>' +
     '<a class="nv quiet" href="site/">' + svg('web') + '<span>Website</span></a>' +
     '<div class="meta"' + (keep.sync ? ' id="sync"' : '') + '>' + (syncText || '') + '</div>';
@@ -61,7 +63,7 @@
     var h = location.hash || '';
     if (file === 'index.html') return 'home';
     if (file === 'app.html') return 'products';
-    if (file === 'sourcing.html') return /^#\/(factories|factory)/.test(h) ? 'factories' : /^#\/clients/.test(h) ? 'clients' : /^#\/rates/.test(h) ? 'rates' : 'requests';
+    if (file === 'sourcing.html') return /^#\/(factories|factory)/.test(h) ? 'factories' : /^#\/clients/.test(h) ? 'clients' : /^#\/rates/.test(h) ? 'rates' : /^#\/(account|join)/.test(h) ? 'account' : 'requests';
     if (file === 'ops.html') return /^#\/defects/.test(h) ? 'defects' : /^#\/suppliers/.test(h) ? 'suppliers' : 'orders';
     return '';
   }
