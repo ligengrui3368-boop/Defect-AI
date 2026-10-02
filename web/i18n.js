@@ -14,9 +14,9 @@
 
   var css = document.createElement('style');
   css.textContent = 'html.i18n-wait body{visibility:hidden}' +
-    '.lang-switch{display:inline-flex;align-items:center;gap:2px;padding:3px;border-radius:999px;border:1px solid rgba(127,127,127,.28);background:rgba(127,127,127,.08);font:600 12.5px/1 Inter,system-ui,-apple-system,"PingFang SC",sans-serif;cursor:pointer;user-select:none;flex-shrink:0}' +
+    '.lang-switch{display:inline-flex;align-items:center;gap:2px;padding:3px;border-radius:999px;border:1px solid rgba(127,127,127,.28);background:rgba(127,127,127,.08);color:inherit;font:600 12.5px/1 Inter,system-ui,-apple-system,"PingFang SC",sans-serif;cursor:pointer;user-select:none;flex-shrink:0}' +
     '.lang-switch span{padding:6px 10px;border-radius:999px;color:inherit;opacity:.55;transition:background .15s ease,opacity .15s ease}' +
-    '.lang-switch span.on{opacity:1;background:var(--panel,#fff);color:var(--ink,#1d1d1f);box-shadow:0 1px 2px rgba(0,0,0,.12)}' +
+    '.lang-switch span.on{opacity:1;background:#fff;color:#1d1d1f;box-shadow:0 1px 2px rgba(0,0,0,.12)}' +
     '.lang-switch:hover span:not(.on){opacity:.85}.lang-switch:active{transform:scale(.96)}' +
     '.rail .lang-switch{margin:6px 11px 4px;align-self:flex-start}' +
     '.lang-float{position:fixed;right:16px;bottom:16px;z-index:50}';
