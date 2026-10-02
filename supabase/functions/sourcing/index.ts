@@ -6,6 +6,10 @@
 //                 Chinese search terms, keep only well-rated factories (quality filter: 1688 service
 //                 score, product reviews, repeat-buyer rate, years on 1688, factory vs trader), save
 //                 suppliers as factories and listings as candidates, then rank them with Claude
+//   refresh_search – "show me different factories": runs a new search on search terms not used yet (or
+//                 new ones Claude writes from the buyer's feedback), skips every supplier already shown
+//                 for this request, and replaces the untouched candidates (contacted/released ones stay;
+//                 replaced ones are kept as rejected and can be restored)
 //   rank        – re-rank the existing candidates of a request against its spec
 //   draft_rfq   – write a Chinese WeChat/email RFQ for a factory (with English translation)
 //                 from the spec and the negotiation target
@@ -118,12 +122,12 @@ Keep existing spec values unless the brief contradicts them.`);
 // are turned into the same listing format below, and rows without a product link (error notes) are dropped.
 const SUPPLIER_ACTOR = APIFY_ACTOR.includes("supplier-leads");
 const RATED_ACTOR = APIFY_ACTOR.includes("1688-wholesale-scraper");
-async function apify1688(keyword: string | string[], limit: number): Promise<Any[]> {
+async function apify1688(keyword: string | string[], limit: number, sort = "relevance"): Promise<Any[]> {
   if (!APIFY_TOKEN) throw new HttpError(500, "APIFY_TOKEN is not set in Edge Function Secrets. Add it (from apify.com → Settings → Integrations) to enable 1688 search.");
   const url = `https://api.apify.com/v2/acts/${APIFY_ACTOR}/run-sync-get-dataset-items?token=${encodeURIComponent(APIFY_TOKEN)}&timeout=140&format=json&clean=true`;
   const kws = Array.isArray(keyword) ? keyword : [keyword];
   const input = RATED_ACTOR
-    ? { keywords: kws, maxResults: limit, sortBy: "relevance", merchantType: "any" }
+    ? { keywords: kws, maxResults: limit, sortBy: sort, merchantType: "any" }
     : SUPPLIER_ACTOR
     ? { keywords: kws, maxSuppliersPerKeyword: limit, maxPagesPerKeyword: 1, maxOffersPerSupplier: 2, sortBy: "relevance", manufacturersOnly: false, proxyConfiguration: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] } }
     : { keyword: kws[0], searchKeywords: kws, keywords: kws, maxItems: limit, maxResults: limit, limit };
@@ -197,7 +201,7 @@ function qualityCheck(l: Any, f: Any): string | null {
   if (f.min_years > 0 && q.years !== null && q.years < f.min_years) return "years";
   return null;
 }
-const DROP_LABEL: Record<string, string> = { trader: "traders, not factories", service: "low 1688 service score", reviews: "few or poor reviews", repeat: "low repeat-buyer rate", years: "too new on 1688" };
+const DROP_LABEL: Record<string, string> = { already_seen: "factories already shown", trader: "traders, not factories", service: "low 1688 service score", reviews: "few or poor reviews", repeat: "low repeat-buyer rate", years: "too new on 1688" };
 
 async function search1688(sb: SupabaseClient, body: Any) {
   const r = await getRequest(sb, body.request_id);
@@ -211,7 +215,7 @@ async function search1688(sb: SupabaseClient, body: Any) {
   if (RATED_ACTOR) {
     // one run for all terms; ask for more than we keep because the quality filter drops many
     const perTerm = Math.max(20, Math.floor(Number(Deno.env.get("SOURCING_SCAN_PER_TERM") ?? "40")));
-    try { (await apify1688(terms, perTerm)).forEach((it: Any) => normalise(it, terms[0]).forEach((l: Any) => { if (l.url && l.title) scanned.push(l); })); }
+    try { (await apify1688(terms, perTerm, body.sort === "bestSelling" ? "bestSelling" : "relevance")).forEach((it: Any) => normalise(it, terms[0]).forEach((l: Any) => { if (l.url && l.title) scanned.push(l); })); }
     catch (e) { errors.push((e as Error).message); }
   } else {
     const perTerm = Math.max(5, Math.floor((SUPPLIER_ACTOR ? 24 : MAX_LISTINGS) / terms.length));
@@ -223,7 +227,14 @@ async function search1688(sb: SupabaseClient, body: Any) {
   if (!scanned.length) throw new HttpError(502, errors.join(" | ") || "1688 returned no products for these terms. The scraper may have been blocked; try again in a minute or use a shorter Chinese term.");
   const dropped: Record<string, number> = {};
   const listings = scanned.filter((l) => { const why = qualityCheck(l, filters); if (why) dropped[why] = (dropped[why] ?? 0) + 1; return !why; });
+  // never bring back suppliers the buyer rejected for this request; on refresh, skip every supplier already shown
+  const { data: prior } = await sb.from("request_candidates").select("status, factories(name, source_url)").eq("request_id", r.id);
+  const seen = new Set<string>();
+  for (const c of prior ?? []) if (c.factories && (body.exclude_existing || c.status === "rejected")) { if (c.factories.source_url) seen.add(String(c.factories.source_url).toLowerCase()); seen.add(String(c.factories.name).toLowerCase()); }
+  const passed = listings.length;
+  if (seen.size) for (let i = listings.length - 1; i >= 0; i--) { const l = listings[i]; if (seen.has((l.shopUrl || "").toLowerCase()) || seen.has(l.supplier.toLowerCase())) { listings.splice(i, 1); dropped.already_seen = (dropped.already_seen ?? 0) + 1; } }
   const filterSummary = { scanned: scanned.length, kept: listings.length, dropped, filters, rated: scanned.some((l) => l.quality) };
+  if (!listings.length && passed) throw new HttpError(422, `Found ${passed} well-rated listings, but all are from factories already shown for this request. Try other feedback or a different search term.`);
   if (!listings.length) {
     const why = Object.entries(dropped).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${DROP_LABEL[k] ?? k}`).join(", ");
     throw new HttpError(422, `Scanned ${scanned.length} listings but none passed the quality filter (${why}). Loosen the filter or try another search term.`);
@@ -260,8 +271,43 @@ async function search1688(sb: SupabaseClient, body: Any) {
   }));
   if (rows.length) { const { error } = await sb.from("request_candidates").insert(rows); if (error) throw new HttpError(500, error.message); }
   if (r.status === "intake" || r.status === "sourcing") await sb.from("sourcing_requests").update({ status: "sourcing" }).eq("id", r.id);
-  const ranked = await rank(sb, { request_id: r.id });
+  const used = [...new Set([...(r.spec?.used_terms ?? []), ...terms])].slice(-40);
+  await sb.from("sourcing_requests").update({ spec: { ...(r.spec ?? {}), used_terms: used } }).eq("id", r.id);
+  const ranked = body.skip_rank ? { ranked: 0 } : await rank(sb, { request_id: r.id });
   return { ok: true, searched: terms, listings: listings.length, new_candidates: rows.length, new_factories: newFactories.length, errors, filter: filterSummary, ...ranked };
+}
+
+async function refreshSearch(sb: SupabaseClient, body: Any) {
+  let r = await getRequest(sb, body.request_id);
+  const feedback = String(body.feedback ?? "").trim().slice(0, 1000);
+  if (feedback) {
+    const spec = { ...(r.spec ?? {}), feedback: [...(r.spec?.feedback ?? []), { at: new Date().toISOString(), text: feedback }].slice(-10) };
+    await sb.from("sourcing_requests").update({ spec }).eq("id", r.id);
+    r = { ...r, spec };
+  }
+  const used = new Set<string>(r.spec?.used_terms ?? []);
+  const unused = (r.spec?.search_terms_zh ?? []).filter((t: string) => !used.has(t));
+  let terms: string[] = [];
+  let source = "next";
+  if (feedback || unused.length === 0) {
+    const out = await askJson(`You write 1688.com search phrases for a sourcing request. The buyer wants different factories than the ones already found.
+Spec: ${specText(r)}
+Search phrases already used: ${JSON.stringify([...used])}
+${feedback ? `The buyer's feedback on the factories found so far: ${feedback}` : ""}
+Return a JSON array of 2 new Simplified Chinese 1688 search phrases (2-6 words each) a factory would use for this product. They must differ from the used phrases${feedback ? " and steer toward what the buyer wants" : ", e.g. a different material, style, synonym or the factory term 厂家/工厂"}.`, 400);
+    terms = (Array.isArray(out) ? out : []).map((t: Any) => String(t).trim()).filter((t: string) => t && !used.has(t)).slice(0, 2);
+    source = "ai";
+  }
+  if (!terms.length) terms = unused.slice(0, 2);
+  if (!terms.length) { terms = (r.spec?.search_terms_zh ?? []).slice(0, 2); source = "resort"; }
+  if (!terms.length) throw new HttpError(400, "No search terms yet. Run intake first.");
+  // untouched candidates get replaced; contacted, released or negotiating ones stay
+  const { data: old } = await sb.from("request_candidates").select("id").eq("request_id", r.id).eq("status", "candidate").eq("released_to_client", false);
+  const out = await search1688(sb, { request_id: r.id, terms, filters: body.filters, exclude_existing: true, sort: source === "resort" ? "bestSelling" : "relevance", skip_rank: true });
+  const ids = (old ?? []).map((x: Any) => x.id);
+  if (ids.length) await sb.from("request_candidates").update({ status: "rejected", rank: null, notes: "Replaced by refresh" }).in("id", ids);
+  const ranked = await rank(sb, { request_id: r.id });
+  return { ...out, ...ranked, terms, term_source: source, replaced: ids.length };
 }
 
 async function rank(sb: SupabaseClient, body: Any) {
@@ -269,7 +315,7 @@ async function rank(sb: SupabaseClient, body: Any) {
   const { data: cands } = await sb.from("request_candidates").select("id, listing_title, listing_url, price_cny, moq, listing_data, factories(name, city, platform_years, verification, is_verified_factory)").eq("request_id", r.id).neq("status", "rejected").limit(80);
   if (!cands?.length) return { ranked: 0 };
   const compact = cands.map((c: Any, i: number) => ({ i, title: c.listing_title, price_cny: c.price_cny, moq: c.moq, supplier: c.factories?.name, city: c.factories?.city, years: c.factories?.platform_years, claims_factory: c.factories?.verification?.listing_claims_factory, sales: c.factories?.verification?.sales, service_score: c.listing_data?.serviceScore ?? c.factories?.verification?.service_scores?.composite ?? null, product_rating: c.listing_data?.rating ?? null, reviews: c.listing_data?.reviewCount ?? null, supplier_positive_rate: c.listing_data?.supplierPositiveRate ?? c.factories?.verification?.positive_review_rate ?? null, repeat_rate: c.listing_data?.repeatRate ?? c.factories?.verification?.repeat_rate ?? null }));
-  const out = await askJson(`You rank 1688 listings for a sourcing request. Score each listing 0-100 on how well it fits the spec (product match, materials/features, MOQ vs quantity, price vs target, supplier looks like a real factory in a relevant industrial cluster, tenure, sales, and supplier quality: 1688 service score out of 5, product rating and review count, positive-review and repeat-buyer rates; prefer well-rated factories).
+  const out = await askJson(`You rank 1688 listings for a sourcing request. Score each listing 0-100 on how well it fits the spec (product match, materials/features, MOQ vs quantity, price vs target, supplier looks like a real factory in a relevant industrial cluster, tenure, sales, and supplier quality: 1688 service score out of 5, product rating and review count, positive-review and repeat-buyer rates; prefer well-rated factories). If the spec has buyer feedback (spec.feedback), score down listings that match what the buyer disliked.
 Spec: ${specText(r)}
 Listings (JSON): ${JSON.stringify(compact)}
 Return a JSON array of {i, score, reason} with a one-sentence reason each (English). Include every i.`);
@@ -466,6 +512,7 @@ Deno.serve(async (req) => {
       case "intake": return json(await intake(sb, body));
       case "search_1688": return json(await search1688(sb, body));
       case "rank": return json(await rank(sb, body));
+      case "refresh_search": return json(await refreshSearch(sb, body));
       case "draft_rfq": return json(await draftRfq(sb, body));
       case "verify": return json(await verify(sb, body));
       case "operator": return json(await operator(sb, body));
