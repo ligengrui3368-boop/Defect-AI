@@ -13,11 +13,17 @@
 //   translate   – Chinese mode: translates text the dictionary doesn't cover (names, notes, AI-written
 //                 specs) and caches it in translation_cache. Open to signed-in users and to clients
 //                 with a valid portal link; nothing else.
+//   contacts_start – fetch each 1688 supplier's public contact page (联系方式: contact person, mobile,
+//                 landline, fax, address, plus any email / website / WeChat it shows) through Apify's
+//                 Puppeteer scraper on residential proxies; returns an Apify run id
+//   contacts_poll  – check that run; when it has finished, parse the pages and save the contacts on the
+//                 factories (row level security still applies)
 //   operator    – the Home page assistant: reads the workspace's clients and open requests,
 //                 answers questions, or returns one action for the page to carry out
 //                 (create_request, create_client, open)
 // Secrets (Supabase Edge Function Secrets, set by Gary only): ANTHROPIC_API_KEY, APIFY_TOKEN.
-// Optional: APIFY_1688_ACTOR (default schnellscrapers~1688-supplier-leads), SOURCING_MODEL.
+// Optional: APIFY_1688_ACTOR (default schnellscrapers~1688-supplier-leads), APIFY_CONTACTS_ACTOR
+// (default apify~puppeteer-scraper), SOURCING_MODEL.
 
 import { createClient, SupabaseClient } from "npm:@supabase/supabase-js@2";
 
@@ -25,6 +31,7 @@ const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const MODEL = Deno.env.get("SOURCING_MODEL") ?? "claude-sonnet-5-5";
 const APIFY_TOKEN = Deno.env.get("APIFY_TOKEN") ?? "";
 const APIFY_ACTOR = Deno.env.get("APIFY_1688_ACTOR") ?? "schnellscrapers~1688-supplier-leads";
+const CONTACTS_ACTOR = Deno.env.get("APIFY_CONTACTS_ACTOR") ?? "apify~puppeteer-scraper";
 const MAX_LISTINGS = Number(Deno.env.get("SOURCING_MAX_LISTINGS") ?? "40");
 const TRANSLATE_MODEL = Deno.env.get("TRANSLATE_MODEL") ?? "claude-haiku-4-5-20251001";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -183,7 +190,9 @@ async function search1688(sb: SupabaseClient, body: Any) {
   if (rows.length) { const { error } = await sb.from("request_candidates").insert(rows); if (error) throw new HttpError(500, error.message); }
   if (r.status === "intake" || r.status === "sourcing") await sb.from("sourcing_requests").update({ status: "sourcing" }).eq("id", r.id);
   const ranked = await rank(sb, { request_id: r.id });
-  return { ok: true, searched: terms, listings: listings.length, new_candidates: rows.length, new_factories: newFactories.length, errors, ...ranked };
+  let contacts: Any = null;
+  try { contacts = await contactsStart(sb, { request_id: r.id }); } catch (e) { contacts = { error: (e as Error).message }; }
+  return { ok: true, searched: terms, listings: listings.length, new_candidates: rows.length, new_factories: newFactories.length, errors, ...ranked, contacts };
 }
 
 async function rank(sb: SupabaseClient, body: Any) {
@@ -228,6 +237,114 @@ async function verify(sb: SupabaseClient, body: Any) {
     { name: "1688 listing signals", status: "done", result: { claims_factory: f.verification?.listing_claims_factory ?? null, platform_years: f.platform_years, sales: f.verification?.sales ?? null, city: f.city } },
   ];
   return { ok: true, configured, checks, note: configured.registry_api || configured.customs_api ? "Automatic lookups run when their API keys are set." : "Automatic registry and customs lookups are not configured yet; the steps above are manual for now. Record the result on the factory with the 'Verified factory' switch." };
+}
+
+// ---------- factory contacts (1688 shop 联系方式 page) ----------
+// The shop's contact page is public (no 1688 login) but is drawn by JavaScript and 1688 blocks cloud
+// traffic, so it is loaded in a real browser on Apify's residential proxies. The search result link
+// (m.1688.com/winport/…) redirects to the shop's own domain; the contact page is <shop>/page/contactinfo.htm.
+const CONTACT_PAGE_FN = `async function pageFunction(context) {
+  const { page, request } = context;
+  const id = request.userData.factory_id;
+  let host = '';
+  try { host = new URL(page.url()).hostname; } catch (e) {}
+  if (!/\\.1688\\.com$/.test(host) || /^(m|page|login|www)\\./.test(host) || /wrongpage|punish|login/.test(page.url())) {
+    if (!/\\/page\\/contactinfo/.test(page.url())) return { factory_id: id, error: 'shop page did not open: ' + page.url() };
+  }
+  const shop = 'https://' + host;
+  if (!/\\/page\\/contactinfo/.test(page.url())) await page.goto(shop + '/page/contactinfo.htm', { waitUntil: 'domcontentloaded', timeout: 45000 });
+  try { await page.waitForFunction(() => /手机|电话|传真|地址/.test(document.body ? document.body.innerText : ''), { timeout: 25000 }); } catch (e) {}
+  await new Promise((r) => setTimeout(r, 1500));
+  const text = await page.evaluate(() => document.body ? document.body.innerText : '');
+  const links = await page.evaluate(() => Array.from(document.querySelectorAll('a[href]')).map((a) => a.href).filter((h) => /^https?:/.test(h) && !/1688\\.com|alicdn|alibaba|taobao|tmall|amap|aliyun|alipay|mmstat|tb\\.cn/.test(h)).slice(0, 10));
+  return { factory_id: id, shop, url: page.url(), title: await page.title(), text: text.slice(0, 6000), links };
+}`;
+
+function contactStartUrl(f: Any): string | null {
+  const u = String(f.shop_url || f.source_url || "");
+  if (!/^https?:\/\//.test(u)) return null;
+  if (f.shop_url) return u.replace(/\/+$/, "") + "/page/contactinfo.htm";
+  return u;
+}
+
+async function contactsStart(sb: SupabaseClient, body: Any) {
+  if (!APIFY_TOKEN) throw new HttpError(500, "APIFY_TOKEN is not set in Edge Function Secrets.");
+  let q = sb.from("factories").select("id, name, source_url, shop_url, contact_fetched_at").eq("source", "1688").not("source_url", "is", null);
+  if (Array.isArray(body.factory_ids) && body.factory_ids.length) q = q.in("id", body.factory_ids.slice(0, 60));
+  else if (body.request_id) {
+    const { data: c } = await sb.from("request_candidates").select("factory_id").eq("request_id", body.request_id).not("factory_id", "is", null);
+    const ids = [...new Set((c ?? []).map((x: Any) => x.factory_id))];
+    if (!ids.length) return { ok: true, run_id: null, count: 0, factory_ids: [] };
+    q = q.in("id", ids);
+  }
+  const { data: facs, error } = await q.limit(60);
+  if (error) throw new HttpError(500, error.message);
+  const todo = (facs ?? []).filter((f: Any) => body.force || !f.contact_fetched_at);
+  const startUrls = todo.map((f: Any) => ({ url: contactStartUrl(f), userData: { factory_id: f.id } })).filter((x: Any) => x.url);
+  if (!startUrls.length) return { ok: true, run_id: null, count: 0, factory_ids: [] };
+  const input = {
+    startUrls, pageFunction: CONTACT_PAGE_FN, linkSelector: "", maxConcurrency: 4, maxRequestRetries: 2,
+    pageLoadTimeoutSecs: 60, pageFunctionTimeoutSecs: 90, ignoreSslErrors: false, downloadMedia: false, downloadCss: true,
+    proxyConfiguration: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
+  };
+  const res = await fetch(`https://api.apify.com/v2/acts/${CONTACTS_ACTOR}/runs?token=${encodeURIComponent(APIFY_TOKEN)}&timeout=600&memory=2048`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+  if (!res.ok) throw new HttpError(502, `Apify ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const run = (await res.json())?.data;
+  return { ok: true, run_id: run?.id ?? null, count: startUrls.length, factory_ids: startUrls.map((x: Any) => x.userData.factory_id) };
+}
+
+const clean = (v: string | undefined | null) => { const t = String(v ?? "").replace(/\s+/g, " ").trim(); return t && !/^(无|暂无|none|null|-+|未填写)$/i.test(t) ? t : null; };
+function parseContacts(text: string, links: string[] = []) {
+  const t = String(text ?? "").replace(/\r/g, "");
+  const field = (labels: string) => clean((t.match(new RegExp(`(?:${labels})\\s*[:：]\\s*([^\\n]*)`)) ?? [])[1]);
+  const digits = (v: string | null) => (v ?? "").replace(/[^0-9+]/g, "");
+  let mobile = field("移动电话|手机号码|手机");
+  const mm = (mobile ?? "").replace(/[\s-]/g, "").match(/1[3-9]\d{9}/); mobile = mm ? mm[0] : null;
+  let phone = field("固定电话|联系电话|电话");
+  if (digits(phone).replace(/^86/, "").length < 7) phone = null;
+  let fax = field("传真"); if (digits(fax).replace(/^86/, "").length < 7) fax = null;
+  const address = field("经营地址|公司地址|地址");
+  const email = (t.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/) ?? [])[0] ?? null;
+  const wx = t.match(/(?:微信号?|WeChat|wx|V信|vx)\s*[:：]?\s*([A-Za-z][-_A-Za-z0-9]{5,19}|1[3-9]\d{9})/i);
+  let website = field("公司网址|公司主页|官网|网址");
+  if (website && !/^https?:\/\/|^www\./i.test(website)) website = null;
+  if (!website) website = links.find((h) => !/beian|gov\.cn|w3\.org|apple\.com|google|baidu\.com\/s/.test(h)) ?? null;
+  // contact person: a short Chinese name followed by 先生/女士/经理…, or after 联系人
+  let contact = field("联系人");
+  if (!contact) { const m = t.match(/(?:^|\n)\s*([\u4e00-\u9fa5·]{1,6})\s*(先生|女士|小姐|经理|总)\s*(?:\n|$)/); if (m) contact = m[1] + m[2]; }
+  if (contact && contact.length > 20) contact = contact.slice(0, 20);
+  return { contact_name: contact, mobile, phone, fax, address: address ? address.slice(0, 200) : null, email, wechat: wx ? wx[1] : null, website };
+}
+
+async function contactsPoll(sb: SupabaseClient, body: Any) {
+  if (!APIFY_TOKEN) throw new HttpError(500, "APIFY_TOKEN is not set in Edge Function Secrets.");
+  const id = String(body.run_id ?? "");
+  if (!/^[A-Za-z0-9]{10,30}$/.test(id)) throw new HttpError(400, "Bad run id");
+  const run = (await (await fetch(`https://api.apify.com/v2/actor-runs/${id}?token=${encodeURIComponent(APIFY_TOKEN)}`)).json())?.data;
+  if (!run) throw new HttpError(404, "Run not found");
+  if (["READY", "RUNNING"].includes(run.status)) return { ok: true, done: false, status: run.status };
+  const items: Any[] = await (await fetch(`https://api.apify.com/v2/datasets/${run.defaultDatasetId}/items?token=${encodeURIComponent(APIFY_TOKEN)}&clean=true&format=json`)).json();
+  const now = new Date().toISOString();
+  let found = 0, empty = 0, failed = 0;
+  const seen = new Set<string>();
+  for (const it of Array.isArray(items) ? items : []) {
+    const fid = String(it.factory_id ?? (it["#debug"]?.userData?.factory_id ?? ""));
+    if (!/^[0-9a-f-]{36}$/.test(fid) || seen.has(fid)) continue;
+    seen.add(fid);
+    if (it.error || !it.text) { failed++; await sb.from("factories").update({ contact_status: "error", contact_fetched_at: now }).eq("id", fid); continue; }
+    const c = parseContacts(it.text, it.links ?? []);
+    const has = Boolean(c.mobile || c.phone || c.email || c.wechat);
+    const { data: cur } = await sb.from("factories").select("contact_name, mobile, phone, fax, address, email, wechat, website").eq("id", fid).single();
+    // never overwrite something already filled in (by hand or earlier); only fill the gaps
+    const patch: Any = { contact_status: has ? "ok" : "none", contact_fetched_at: now, shop_url: it.shop ?? null };
+    for (const k of Object.keys(c)) if (c[k as keyof typeof c] && !(cur as Any)?.[k]) patch[k] = c[k as keyof typeof c];
+    await sb.from("factories").update(patch).eq("id", fid);
+    if (has) found++; else empty++;
+  }
+  // factories the run never reached (blocked before the page function ran)
+  const missing = (run.status === "SUCCEEDED" || run.status === "FAILED" || run.status === "TIMED-OUT" || run.status === "ABORTED") && Array.isArray(body.factory_ids) ? body.factory_ids.filter((x: string) => !seen.has(x)) : [];
+  for (const fid of missing) { failed++; await sb.from("factories").update({ contact_status: "error", contact_fetched_at: now }).eq("id", fid); }
+  return { ok: true, done: true, status: run.status, found, empty, failed };
 }
 
 async function operator(sb: SupabaseClient, body: Any) {
@@ -315,6 +432,8 @@ Deno.serve(async (req) => {
       case "draft_rfq": return json(await draftRfq(sb, body));
       case "verify": return json(await verify(sb, body));
       case "operator": return json(await operator(sb, body));
+      case "contacts_start": return json(await contactsStart(sb, body));
+      case "contacts_poll": return json(await contactsPoll(sb, body));
       case "status": return json({ ok: true, anthropic: Boolean(ANTHROPIC_API_KEY), apify: Boolean(APIFY_TOKEN), actor: APIFY_ACTOR, model: MODEL });
       default: return json({ error: "Unknown task" }, 400);
     }
