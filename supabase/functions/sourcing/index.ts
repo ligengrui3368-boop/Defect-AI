@@ -10,6 +10,9 @@
 //                 from the spec and the negotiation target
 //   verify      – factory verification stub (registry / customs lookups): returns what is and
 //                 isn't configured, so the UI can show it honestly
+//   translate   – Chinese mode: translates text the dictionary doesn't cover (names, notes, AI-written
+//                 specs) and caches it in translation_cache. Open to signed-in users and to clients
+//                 with a valid portal link; nothing else.
 //   operator    – the Home page assistant: reads the workspace's clients and open requests,
 //                 answers questions, or returns one action for the page to carry out
 //                 (create_request, create_client, open)
@@ -23,6 +26,8 @@ const MODEL = Deno.env.get("SOURCING_MODEL") ?? "claude-sonnet-5-5";
 const APIFY_TOKEN = Deno.env.get("APIFY_TOKEN") ?? "";
 const APIFY_ACTOR = Deno.env.get("APIFY_1688_ACTOR") ?? "schnellscrapers~1688-supplier-leads";
 const MAX_LISTINGS = Number(Deno.env.get("SOURCING_MAX_LISTINGS") ?? "40");
+const TRANSLATE_MODEL = Deno.env.get("TRANSLATE_MODEL") ?? "claude-haiku-4-5-20251001";
+const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -35,12 +40,12 @@ class HttpError extends Error { constructor(public status: number, m: string) { 
 type Any = any;
 
 // ---------- Claude ----------
-async function askJson(prompt: string, maxTokens = 3000): Promise<Any> {
+async function askJson(prompt: string, maxTokens = 3000, model = MODEL): Promise<Any> {
   if (!ANTHROPIC_API_KEY) throw new HttpError(500, "ANTHROPIC_API_KEY is not set in Edge Function Secrets.");
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, messages: [{ role: "user", content: prompt + "\n\nReply with only the JSON value, no other text." }] }),
+    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt + "\n\nReply with only the JSON value, no other text." }] }),
   });
   if (!res.ok) throw new HttpError(502, `Claude API ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
@@ -242,11 +247,47 @@ Rules: only create a request when the user asks to source, make, buy or quote a 
   return { ok: true, reply: String(out?.reply ?? "").slice(0, 3000), action: a && allowed.includes(a.type) ? a : null };
 }
 
+async function translate(body: Any, auth: string) {
+  const texts = [...new Set((Array.isArray(body.texts) ? body.texts : []).map((t: Any) => String(t ?? "").trim()).filter((t: string) => t && t.length <= 600))].slice(0, 60) as string[];
+  if (!texts.length) return { ok: true, zh: {} };
+  const url = Deno.env.get("SUPABASE_URL")!;
+  const admin = createClient(url, SERVICE_KEY, { auth: { persistSession: false } });
+  const asUser = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } });
+  let allowed = false;
+  try { const { data } = await asUser.auth.getUser(); allowed = !!data?.user; } catch { allowed = false; }
+  if (!allowed && body.portal_token) {
+    const { data } = await admin.from("clients").select("id").eq("portal_token", String(body.portal_token)).eq("portal_active", true).maybeSingle();
+    allowed = !!data;
+  }
+  if (!allowed) throw new HttpError(401, "Sign in first");
+  const hash = async (t: string) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t)))).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const keys = await Promise.all(texts.map(hash));
+  const { data: hits } = await admin.from("translation_cache").select("src_hash, zh").in("src_hash", keys);
+  const known = new Map((hits ?? []).map((r: Any) => [r.src_hash, r.zh]));
+  const zh: Record<string, string> = {};
+  const miss: number[] = [];
+  texts.forEach((t, i) => { const z = known.get(keys[i]); if (z) zh[t] = z as string; else miss.push(i); });
+  if (miss.length) {
+    const src = miss.map((i) => texts[i]);
+    const out = await askJson(`Translate each item below into natural Simplified Chinese for a sourcing and quality-control app used by Chinese and American business people. Items are interface text, names, notes, product specs and short explanations. Keep brand and company names (Lathe, SUNNYPRO, Amazon, Apify, 1688), model numbers and codes (HTS, MOQ, FOB, MPF, HMF, QC, AQL, VAT, 600D), numbers, currency amounts, units and URLs exactly as written. Translate everything else. Be concise; no notes or explanations.
+Return a JSON array of strings, same order and same length as the input.
+Input: ${JSON.stringify(src)}`, 4000, TRANSLATE_MODEL);
+    const arr = Array.isArray(out) ? out : [];
+    const rows: Any[] = [];
+    miss.forEach((i, k) => { const z = typeof arr[k] === "string" ? arr[k].trim() : ""; if (z) { zh[texts[i]] = z; rows.push({ src_hash: keys[i], src: texts[i], zh: z }); } });
+    if (rows.length) await admin.from("translation_cache").upsert(rows);
+  }
+  return { ok: true, zh };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
   let body: Any; try { body = await req.json(); } catch { return json({ error: "Body must be JSON" }, 400); }
   const auth = req.headers.get("Authorization") ?? "";
+  if (String(body.task ?? "") === "translate") {
+    try { return json(await translate(body, auth)); } catch (e) { return json({ error: String((e as Error).message ?? e) }, e instanceof HttpError ? e.status : 500); }
+  }
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } });
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return json({ error: "Sign in first" }, 401);
