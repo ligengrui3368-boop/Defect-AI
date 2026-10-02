@@ -14,14 +14,14 @@
 //                 answers questions, or returns one action for the page to carry out
 //                 (create_request, create_client, open)
 // Secrets (Supabase Edge Function Secrets, set by Gary only): ANTHROPIC_API_KEY, APIFY_TOKEN.
-// Optional: APIFY_1688_ACTOR (default viralanalyzer~wholesale-1688-scraper-pro), SOURCING_MODEL.
+// Optional: APIFY_1688_ACTOR (default schnellscrapers~1688-supplier-leads), SOURCING_MODEL.
 
 import { createClient, SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const MODEL = Deno.env.get("SOURCING_MODEL") ?? "claude-sonnet-5-5";
 const APIFY_TOKEN = Deno.env.get("APIFY_TOKEN") ?? "";
-const APIFY_ACTOR = Deno.env.get("APIFY_1688_ACTOR") ?? "viralanalyzer~wholesale-1688-scraper-pro";
+const APIFY_ACTOR = Deno.env.get("APIFY_1688_ACTOR") ?? "schnellscrapers~1688-supplier-leads";
 const MAX_LISTINGS = Number(Deno.env.get("SOURCING_MAX_LISTINGS") ?? "40");
 
 const cors = {
@@ -87,19 +87,35 @@ Keep existing spec values unless the brief contradicts them.`);
   return { ok: true, spec, status: upd.status ?? r.status };
 }
 
-// Pull a 1688 search from Apify and normalise the fields we rely on. Each actor has its own
-// output shape, so we read several common field names and keep the whole item in listing_data.
+// Pull a 1688 search from Apify. The default actor (schnellscrapers/1688-supplier-leads) goes through
+// residential proxies, because 1688 blocks ordinary cloud traffic, and returns one row per supplier with
+// factory signals and a few representative offers. Other actors return one row per product; both shapes
+// are turned into the same listing format below, and rows without a product link (error notes) are dropped.
+const SUPPLIER_ACTOR = APIFY_ACTOR.includes("supplier-leads");
 async function apify1688(keyword: string, limit: number): Promise<Any[]> {
   if (!APIFY_TOKEN) throw new HttpError(500, "APIFY_TOKEN is not set in Edge Function Secrets. Add it (from apify.com → Settings → Integrations) to enable 1688 search.");
-  const url = `https://api.apify.com/v2/acts/${APIFY_ACTOR}/run-sync-get-dataset-items?token=${encodeURIComponent(APIFY_TOKEN)}&timeout=120&format=json&clean=true`;
-  const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ keyword, searchKeywords: [keyword], keywords: [keyword], maxItems: limit, maxResults: limit, limit }) });
+  const url = `https://api.apify.com/v2/acts/${APIFY_ACTOR}/run-sync-get-dataset-items?token=${encodeURIComponent(APIFY_TOKEN)}&timeout=140&format=json&clean=true`;
+  const input = SUPPLIER_ACTOR
+    ? { keywords: [keyword], maxSuppliersPerKeyword: limit, maxPagesPerKeyword: 1, maxOffersPerSupplier: 2, sortBy: "relevance", manufacturersOnly: false, proxyConfiguration: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] } }
+    : { keyword, searchKeywords: [keyword], keywords: [keyword], maxItems: limit, maxResults: limit, limit };
+  const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
   if (!res.ok) throw new HttpError(502, `Apify ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const items = await res.json();
   return Array.isArray(items) ? items : (items?.items ?? []);
 }
 const pick = (o: Any, keys: string[]) => { for (const k of keys) { const v = k.split(".").reduce((a, p) => a?.[p], o); if (v !== undefined && v !== null && v !== "") return v; } return undefined; };
-const num = (v: Any) => { if (v === undefined || v === null) return null; const n = parseFloat(String(v).replace(/[^\d.]/g, "")); return isFinite(n) ? n : null; };
-function normalise(it: Any, keyword: string) {
+const num = (v: Any) => { if (v === undefined || v === null) return null; const n = parseFloat(String(v).replace(/[^0-9.]/g, "")); return isFinite(n) ? n : null; };
+const FACTORY_WORDS = /factory|manufact|生产|工厂|加工/i;
+function normalise(it: Any, keyword: string): Any[] {
+  if (it && (it.supplierName || it.supplierId) && Array.isArray(it.representativeOffers)) {
+    const claims = Boolean(it.isFactoryInspected || it.isSuperFactory || FACTORY_WORDS.test(String(it.factoryStatus ?? "")) || FACTORY_WORDS.test(String(it.businessRole ?? "")));
+    const signals = { business_role: it.businessRole ?? null, factory_status: it.factoryStatus ?? null, factory_inspected: it.isFactoryInspected ?? null, business_inspected: it.isBusinessInspected ?? null, super_factory: it.isSuperFactory ?? null, platform_level: it.platformLevel ?? null, supplier_id: it.supplierId ?? null };
+    return it.representativeOffers.map((o: Any) => ({
+      title: String(o.title ?? "").slice(0, 300), url: String(o.url ?? ""), supplier: String(it.supplierName ?? "Unknown supplier").slice(0, 200), shopUrl: String(it.supplierUrl ?? ""),
+      city: String(it.location ?? "").slice(0, 100), price: num(o.priceCny), moq: num(o.minimumOrderQuantity), years: num(it.yearsOnPlatform), isFactory: claims,
+      sales: num(o.transactionCount ?? it.transactionCount), signals, keyword, raw: { ...o, supplier: it.supplierName, location: it.location, factoryStatus: it.factoryStatus, businessRole: it.businessRole },
+    }));
+  }
   const title = String(pick(it, ["title", "subject", "name", "productTitle", "offerTitle"]) ?? "").slice(0, 300);
   const url = String(pick(it, ["productUrl", "url", "detailUrl", "offerUrl", "link"]) ?? "");
   const supplier = String(pick(it, ["supplierName", "companyName", "company", "shopName", "seller.name", "supplier.name", "storeName"]) ?? "").slice(0, 200);
@@ -110,21 +126,21 @@ function normalise(it: Any, keyword: string) {
   const years = num(pick(it, ["years", "supplierYears", "tenure", "platformTenure", "seller.years"]));
   const isFactory = pick(it, ["isFactory", "factory", "isManufacturer", "manufacturer", "supplierType"]);
   const sales = num(pick(it, ["sales", "soldCount", "transactions", "saleQuantity", "bookedCount"]));
-  return { title, url, supplier: supplier || (title ? title.slice(0, 60) : "Unknown supplier"), shopUrl, city, price, moq, years, isFactory: typeof isFactory === "boolean" ? isFactory : (typeof isFactory === "string" ? /factory|manufact|生产|工厂/i.test(isFactory) : null), sales, keyword, raw: it };
+  return [{ title, url, supplier: supplier || (title ? title.slice(0, 60) : "Unknown supplier"), shopUrl, city, price, moq, years, isFactory: typeof isFactory === "boolean" ? isFactory : (typeof isFactory === "string" ? FACTORY_WORDS.test(isFactory) : null), sales, signals: {}, keyword, raw: it }];
 }
 
 async function search1688(sb: SupabaseClient, body: Any) {
   const r = await getRequest(sb, body.request_id);
   const terms: string[] = (body.terms?.length ? body.terms : (r.spec?.search_terms_zh ?? [])).slice(0, 3);
   if (!terms.length) throw new HttpError(400, "No Chinese search terms yet. Run intake first or type a search term.");
-  const perTerm = Math.max(5, Math.floor(MAX_LISTINGS / terms.length));
+  const perTerm = Math.max(5, Math.floor((SUPPLIER_ACTOR ? 24 : MAX_LISTINGS) / terms.length));
   const listings: Any[] = [];
   const errors: string[] = [];
-  for (const t of terms) {
-    try { (await apify1688(t, perTerm)).forEach((it: Any) => listings.push(normalise(it, t))); }
+  await Promise.all(terms.map(async (t) => {
+    try { (await apify1688(t, perTerm)).forEach((it: Any) => normalise(it, t).forEach((l: Any) => { if (l.url && l.title) listings.push(l); })); }
     catch (e) { errors.push(`${t}: ${(e as Error).message}`); }
-  }
-  if (!listings.length) throw new HttpError(502, errors.join(" | ") || "No listings returned");
+  }));
+  if (!listings.length) throw new HttpError(502, errors.join(" | ") || "1688 returned no products for these terms. The scraper may have been blocked; try again in a minute or use a shorter Chinese term.");
   // one factory row per supplier (by shop url, else by name)
   const bySupplier = new Map<string, Any>();
   for (const l of listings) { const key = (l.shopUrl || l.supplier).toLowerCase(); if (!bySupplier.has(key)) bySupplier.set(key, l); }
@@ -133,7 +149,7 @@ async function search1688(sb: SupabaseClient, body: Any) {
   (existing ?? []).forEach((f: Any) => { if (f.source_url) factoryId.set(f.source_url.toLowerCase(), f.id); factoryId.set(f.name.toLowerCase(), f.id); });
   const newFactories = [...bySupplier.values()].filter((l) => !factoryId.has((l.shopUrl || "").toLowerCase()) && !factoryId.has(l.supplier.toLowerCase())).map((l) => ({
     workspace_id: r.workspace_id, name: l.supplier, source: "1688", source_url: l.shopUrl || null, city: l.city || null, platform_years: l.years,
-    is_verified_factory: l.isFactory === true ? null : null, verification: { listing_claims_factory: l.isFactory, sales: l.sales }, categories: [r.spec?.category ?? r.title].filter(Boolean),
+    is_verified_factory: null, verification: { listing_claims_factory: l.isFactory, sales: l.sales, ...l.signals }, categories: [r.spec?.category ?? r.title].filter(Boolean),
   }));
   if (newFactories.length) {
     const { data: ins, error } = await sb.from("factories").insert(newFactories).select("id, name, source_url");
