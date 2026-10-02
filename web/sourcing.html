@@ -70,6 +70,15 @@ textarea{min-height:90px;resize:vertical}
 .contact .link:hover{text-decoration:underline}
 .qf{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:13px;color:var(--muted);margin-top:8px}
 .qf select{width:auto;padding:3px 6px;font-size:13px}.qf input[type=checkbox]{width:auto;margin:0 4px 0 0;vertical-align:-2px}
+.glance{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px;margin:12px 0 4px}
+.glance div{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0}
+.glance small{display:block;color:var(--muted);font-size:12px;line-height:1.3}
+.glance b{display:block;font-size:14px;font-weight:600;line-height:1.35;overflow-wrap:anywhere}
+details.more{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+details.more>summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--harbor);list-style:none}
+details.more>summary::-webkit-details-marker{display:none}
+details.more>summary::before{content:'▸ ';}details.more[open]>summary::before{content:'▾ ';}
+details.more .kv{margin-top:10px;font-size:13px}details.more .chip{font-size:12px}
 .qchips{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:12px;color:var(--muted);margin-top:3px}.qchips b{color:var(--ink);font-weight:600}
 .cbox{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-top:8px}
 @media (max-width:900px){.shell{grid-template-columns:1fr}.rail{position:static;height:auto;flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line);padding:10px}.rail .brand{padding:6px 10px;width:100%}.rail .grow,.rail .meta,.rail .sect{display:none}.cols,.grid2,.grid3{grid-template-columns:1fr}main{padding:18px 14px 80px}.steps{grid-template-columns:repeat(4,1fr)}}
@@ -152,6 +161,7 @@ function qualityBits(d) {
   return b.length ? `<div class="qchips">${b.join('')}</div>` : '';
 }
 const CONTACTS = { running: false };
+const GLANCE_TRIED = new Set();
 async function fetchContacts(body) {
   if (CONTACTS.running) return toast('Already looking up contacts');
   CONTACTS.running = true; await render();
@@ -217,7 +227,11 @@ async function viewRequest(id) {
   const active = cands.filter(k => k.status !== 'rejected'), rejected = cands.filter(k => k.status === 'rejected');
   const untouched = active.filter(k => k.status === 'candidate' && !k.released_to_client).length;
   const s = r.spec || {}; const client = D.clients.find(x => x.id === r.client_id);
-  const list = (a) => (a && a.length) ? a.map(x => `<span class="chip">${esc(x)}</span>`).join('') : '<span class="mut">—</span>';
+  // long AI wording: keep the main phrase, grey out the parenthetical detail
+  const soft = (x) => esc(x).replace(/\(([^)]*)\)/g, '<span class="mut">($1)</span>');
+  const list = (a) => (a && a.length) ? a.map(x => `<span class="chip">${soft(x)}</span>`).join('') : '<span class="mut">—</span>';
+  const glance = [['Quantity', fmt(r.quantity, 0)], ['Client target', r.target_unit_price != null ? usd(r.target_unit_price) + ' / unit' : '—'], ['Deadline', dt(r.deadline)],
+    ...(s.at_a_glance || []).map(g => [g.label, g.value]), ...(s.estimated_factory_price_cny ? [['Est. factory price', cny(s.estimated_factory_price_cny)]] : [])];
   const rate = D.rates.find(x => x.is_default) || D.rates[0];
   return `<div class="hello"><div><a class="sm" href="#/requests">← Requests</a><h1>${esc(r.title)}</h1><p>${esc(client ? (client.company || client.name) : 'No client')} · created ${dt(r.created_at)}${r.hts_code ? ` · HTS ${esc(r.hts_code)}` : ''}</p></div>
     <div class="bar"><select id="stSel" class="btn" style="width:auto">${STATUSES.map(x => `<option value="${x}" ${x === r.status ? 'selected' : ''}>${SLABEL[x]}</option>`).join('')}</select>${client ? `<a class="btn" target="_blank" href="portal.html?c=${esc(client.portal_token)}">Client portal ↗</a>` : ''}</div></div>
@@ -225,18 +239,19 @@ async function viewRequest(id) {
   <div class="cols">
   <div>
     <div class="panel"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">1 · Spec</h2><div class="bar"><button class="btn sm" id="editBrief">Edit brief</button><button class="btn sm primary" id="runIntake">${s.intake_at ? 'Re-run intake' : 'Run intake agent'}</button></div></div>
-      ${s.summary ? `<p>${esc(s.summary)}</p>` : `<p class="mut">${r.raw_brief ? 'Intake not run yet.' : 'No brief yet.'}</p>`}
+      ${s.summary ? `<p style="margin:8px 0 0">${esc(s.summary)}</p>` : `<p class="mut">${r.raw_brief ? 'Intake not run yet.' : 'No brief yet.'}</p>`}
       <div id="briefBox" style="display:none"><textarea id="briefTa">${esc(r.raw_brief || '')}</textarea><div class="bar" style="margin-top:8px"><button class="btn sm primary" id="saveBrief">Save brief</button></div></div>
-      <div class="kv"><b>Quantity</b><span>${fmt(r.quantity, 0)}</span><b>Client target</b><span>${usd(r.target_unit_price)} / unit</span><b>Deadline</b><span>${dt(r.deadline)}</span>
+      <div class="glance">${glance.map(([k, v]) => `<div><small>${esc(k)}</small><b>${esc(v)}</b></div>`).join('')}</div>
+      ${s.intake_at ? `<details class="more"><summary>Full spec</summary><div class="kv">
         ${s.product_name ? `<b>Product</b><span>${esc(s.product_name)} <span class="mut">· ${esc(s.category || '')}</span></span>` : ''}
-        ${s.materials ? `<b>Materials</b><span>${list(s.materials)}</span>` : ''}${s.dimensions ? `<b>Dimensions</b><span>${esc(s.dimensions)}${s.weight ? ' · ' + esc(s.weight) : ''}</span>` : ''}
+        ${s.materials ? `<b>Materials</b><span>${list(s.materials)}</span>` : ''}${s.dimensions ? `<b>Dimensions</b><span>${soft(s.dimensions)}${s.weight ? ' · ' + soft(s.weight) : ''}</span>` : ''}
         ${s.colors ? `<b>Colors</b><span>${list(s.colors)}</span>` : ''}${s.features ? `<b>Features</b><span>${list(s.features)}</span>` : ''}
-        ${s.packaging ? `<b>Packaging</b><span>${esc(s.packaging)}</span>` : ''}${s.certifications ? `<b>Certifications</b><span>${list(s.certifications)}</span>` : ''}
+        ${s.packaging ? `<b>Packaging</b><span>${soft(s.packaging)}</span>` : ''}${s.certifications ? `<b>Certifications</b><span>${list(s.certifications)}</span>` : ''}
         ${s.must_haves ? `<b>Must-haves</b><span>${list(s.must_haves)}</span>` : ''}${s.defects_to_watch ? `<b>QC watch list</b><span>${list(s.defects_to_watch)}</span>` : ''}
         ${s.hts_guess ? `<b>HTS guess</b><span>${esc(s.hts_guess)} <span class="sm mut">${esc(s.hts_note || '')}</span></span>` : ''}
-        ${s.industrial_clusters ? `<b>Clusters</b><span>${list(s.industrial_clusters)}</span>` : ''}${s.estimated_factory_price_cny ? `<b>Est. factory price</b><span>${cny(s.estimated_factory_price_cny)} / unit</span>` : ''}
-        ${s.search_terms_zh ? `<b>1688 search terms</b><span>${list(s.search_terms_zh)}</span>` : ''}</div>
-      ${s.questions?.length ? `<h3>Open questions for the client</h3><ol>${s.questions.map(x => `<li>${esc(x)}</li>`).join('')}</ol><label>Answers (then re-run intake)</label><textarea id="answers" placeholder="Paste the client's answers here"></textarea>` : ''}
+        ${s.industrial_clusters ? `<b>Clusters</b><span>${list(s.industrial_clusters)}</span>` : ''}
+        ${s.search_terms_zh ? `<b>1688 search terms</b><span>${list(s.search_terms_zh)}</span>` : ''}</div></details>` : ''}
+      ${s.questions?.length ? `<details class="more"><summary>${s.questions.length} open question${s.questions.length === 1 ? '' : 's'} for the client</summary><ol style="margin:8px 0;padding-left:20px;font-size:14px">${s.questions.map(x => `<li>${esc(x)}</li>`).join('')}</ol><label>Answers (then re-run intake)</label><textarea id="answers" placeholder="Paste the client's answers here"></textarea></details>` : ''}
     </div>
 
     <div class="panel"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">2 · Factory candidates <span class="mut sm">${active.length}</span></h2>
@@ -375,6 +390,7 @@ function wire(page, id) {
     $('stSel').onchange = (e) => upd('sourcing_requests', { status: e.target.value }, id);
     $('editBrief').onclick = () => { $('briefBox').style.display = 'block'; };
     $('saveBrief').onclick = () => upd('sourcing_requests', { raw_brief: $('briefTa').value }, id);
+    if (r.spec?.intake_at && !(r.spec.at_a_glance || []).length && !GLANCE_TRIED.has(id)) { GLANCE_TRIED.add(id); call('spec_glance', { request_id: id }).then(o => { if ((o.at_a_glance || []).length) { r.spec.at_a_glance = o.at_a_glance; render(); } }).catch(() => {}); }
     $('runIntake').onclick = async (e) => { busy(e.target, true); try { await call('intake', { request_id: id, answers: $('answers')?.value || '' }); toast('Spec updated'); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
     $('search1688').onclick = async (e) => { busy(e.target, true); try { const t = $('term').value.trim(); const out = await call('search_1688', { request_id: id, terms: t ? [t] : undefined, filters: QF }); const fs = out.filter; toast(fs?.rated ? `Scanned ${fs.scanned} listings, kept ${fs.kept} well-rated` + (Object.keys(fs.dropped || {}).length ? ` (dropped ${Object.entries(fs.dropped).map(([k, n]) => n + ' ' + ({ trader: 'traders', service: 'low service score', reviews: 'weak reviews', repeat: 'low repeat rate', years: 'too new' }[k] || k)).join(', ')})` : '') + ` · ${out.new_candidates} new` : `${out.listings} listings, ${out.new_candidates} new, ranked ${out.ranked}`); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
     if ($('rerank')) $('rerank').onclick = async (e) => { busy(e.target, true); try { await call('rank', { request_id: id }); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
