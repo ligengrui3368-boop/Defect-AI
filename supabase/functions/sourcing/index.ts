@@ -61,18 +61,36 @@ class HttpError extends Error { constructor(public status: number, m: string) { 
 type Any = any;
 
 // ---------- Claude ----------
-async function askJson(prompt: string, maxTokens = 3000, model = MODEL, images: string[] = []): Promise<Any> {
-  if (!ANTHROPIC_API_KEY) throw new HttpError(500, "ANTHROPIC_API_KEY is not set in Edge Function Secrets.");
+// Every AI step goes through here. Replies that are cut off are retried with more room, and replies that aren't
+// valid JSON (a stray quote or comma) get one repair pass, so a single bad reply doesn't fail the whole step.
+async function callClaude(content: Any[], maxTokens: number, model: string): Promise<{ text: string; stop: string }> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "user", content: [...images.map((url) => ({ type: "image", source: { type: "url", url } })), { type: "text", text: prompt + "\n\nReply with only the JSON value, no other text." }] }] }),
+    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "user", content }] }),
   });
   if (!res.ok) throw new HttpError(502, `Claude API ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
-  const text = (data.content ?? []).filter((c: Any) => c.type === "text").map((c: Any) => c.text).join("\n").trim();
+  return { text: (data.content ?? []).filter((c: Any) => c.type === "text").map((c: Any) => c.text).join("\n").trim(), stop: String(data.stop_reason ?? "") };
+}
+function tryJson(text: string): Any {
   const clean = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-  try { return JSON.parse(clean); } catch { const m = clean.match(/[\[{][\s\S]*[\]}]/); if (m) return JSON.parse(m[0]); throw new HttpError(502, "Claude did not return JSON"); }
+  try { return JSON.parse(clean); } catch { /* try the outermost JSON block */ }
+  const m = clean.match(/[\[{][\s\S]*[\]}]/);
+  if (m) { try { return JSON.parse(m[0]); } catch { /* fall through */ } }
+  return undefined;
+}
+async function askJson(prompt: string, maxTokens = 3000, model = MODEL, images: string[] = []): Promise<Any> {
+  if (!ANTHROPIC_API_KEY) throw new HttpError(500, "ANTHROPIC_API_KEY is not set in Edge Function Secrets.");
+  const content = [...images.map((url) => ({ type: "image", source: { type: "url", url } })), { type: "text", text: prompt + "\n\nReply with only the JSON value, no other text." }];
+  let { text, stop } = await callClaude(content, maxTokens, model);
+  if (stop === "max_tokens") ({ text } = await callClaude(content, Math.min(maxTokens * 2, 8000), model));
+  const first = tryJson(text);
+  if (first !== undefined) return first;
+  const fix = await callClaude([{ type: "text", text: "The text below was meant to be a single valid JSON value but has a syntax error (for example an unescaped quote or a missing comma). Return exactly the same content as valid JSON. Output only the JSON.\n\n" + text }], Math.min(maxTokens * 2, 8000), MODEL);
+  const second = tryJson(fix.text);
+  if (second !== undefined) return second;
+  throw new HttpError(502, "Claude did not return valid JSON");
 }
 
 async function askText(prompt: string, maxTokens = 3000, model = MODEL): Promise<string> {
@@ -424,8 +442,14 @@ async function portalAnswers(body: Any) {
   const spec = { ...(r.spec ?? {}), client_answers: [...(r.spec?.client_answers ?? []), ...answers.map((a: Any) => ({ ...a, at: now }))].slice(-40) };
   await admin.from("sourcing_requests").update({ spec }).eq("id", r.id);
   // re-read the spec with the answers; new questions (if any) go back to the portal
-  const out: Any = await intake(admin, { request_id: r.id, answers: answers.map((a: Any) => `Q: ${a.q}\nA: ${a.a}`).join("\n\n") });
-  return { ok: true, questions: out?.spec?.questions ?? [] };
+  // the answers are already saved; if the spec update fails, the client still gets a thank-you and the request shows "run intake"
+  try {
+    const out: Any = await intake(admin, { request_id: r.id, answers: answers.map((a: Any) => `Q: ${a.q}\nA: ${a.a}`).join("\n\n") });
+    return { ok: true, questions: out?.spec?.questions ?? [] };
+  } catch (e) {
+    await admin.from("activity").insert({ workspace_id: r.workspace_id, request_id: r.id, kind: "intake", actor: "Lathe", body: "Couldn't update the spec from the client's answers automatically. Run intake on the Spec step." });
+    return { ok: true, questions: [], pending: true };
+  }
 }
 
 // ---------- factory replies ----------
