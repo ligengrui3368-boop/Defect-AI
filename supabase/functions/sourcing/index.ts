@@ -426,13 +426,13 @@ Return JSON:
 { "offer_cny": number|null (their unit price for the requested quantity; if tiered, the price for our quantity),
   "tiers": [{ "qty": number, "price_cny": number }] (any quantity tiers they gave, else []),
   "moq": number|null, "lead_time_days": number|null, "sample_cost_cny": number|null, "sample_days": number|null,
-  "payment_terms": string|null, "incoterm": string|null,
+  "payment_terms": string|null (only as they stated it), "incoterm": string|null (only if they named one such as EXW, FOB or DDP; "含税不含运" is not an incoterm),
   "accepted_our_price": boolean (true only if they clearly agreed to a price we proposed),
   "summary_en": string (1-2 sentences: what they said), 
   "counter_cny": number|null (the unit price we should push for next, realistic for this product and their offer),
   "counter_zh": string (our reply in natural Simplified Chinese, WeChat style, polite and concise: thank them, push toward counter_cny with a reason such as quantity, repeat orders or competing quotes, ask for anything missing such as tiers, MOQ, lead time, sample cost, or confirm agreement if they accepted),
   "counter_en": string (faithful English translation of counter_zh) }
-Only use numbers that appear in the message or screenshot for the factory's terms. Never invent their prices.`, 2000, MODEL, images);
+Only use numbers and terms that appear in the message or screenshot for the factory's side; leave anything they didn't state as null. Never invent their prices or terms.`, 2000, MODEL, images);
   const num = (x: Any) => (x === null || x === undefined || x === "" || isNaN(Number(x)) ? null : Number(x));
   const offer = num(out?.offer_cny), agreed = Boolean(out?.accepted_our_price) && offer !== null;
   const now = new Date().toISOString();
