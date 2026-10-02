@@ -271,7 +271,7 @@ async function translate(body: Any, auth: string) {
     const src = miss.map((i) => texts[i]);
     const out = await askJson(`Translate each item below into natural Simplified Chinese for a sourcing and quality-control app used by Chinese and American business people. Items are interface text, names, notes, product specs and short explanations. Keep brand and company names (Lathe, SUNNYPRO, Amazon, Apify, 1688), model numbers and codes (HTS, MOQ, FOB, MPF, HMF, QC, AQL, VAT, 600D), numbers, currency amounts, units and URLs exactly as written. Translate everything else. Be concise; no notes or explanations.
 Return a JSON array of strings, same order and same length as the input.
-Input: ${JSON.stringify(src)}`, 4000, TRANSLATE_MODEL);
+Input: ${JSON.stringify(src)}`, 8000, TRANSLATE_MODEL);
     const arr = Array.isArray(out) ? out : [];
     const rows: Any[] = [];
     miss.forEach((i, k) => { const z = typeof arr[k] === "string" ? arr[k].trim() : ""; if (z) { zh[texts[i]] = z; rows.push({ src_hash: keys[i], src: texts[i], zh: z }); } });
