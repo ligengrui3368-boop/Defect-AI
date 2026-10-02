@@ -10,6 +10,7 @@
 //                 new ones Claude writes from the buyer's feedback), skips every supplier already shown
 //                 for this request, and replaces the untouched candidates (contacted/released ones stay;
 //                 replaced ones are kept as rejected and can be restored)
+//   spec_glance – write the short "at a glance" facts (5-6 label/value pairs) for a spec that has none
 //   rank        – re-rank the existing candidates of a request against its spec
 //   draft_rfq   – write a Chinese WeChat/email RFQ for a factory (with English translation)
 //                 from the spec and the negotiation target
@@ -105,6 +106,7 @@ Return a JSON object with exactly these keys:
  industrial_clusters (string[] – Chinese cities/regions known for making this product),
  estimated_factory_price_cny (number or null – rough ex-works unit price range midpoint),
  questions (string[] – up to 5 follow-up questions for the client, only where an answer changes the spec or price; empty if the brief is complete),
+ at_a_glance ({label, value}[] – the 5-6 facts a buyer checks first, e.g. frame, fabric, size, weight, load rating, colors; label 1-2 words, value at most 4 words with units, no parentheses, no "to be confirmed"),
  confidence ("high"|"medium"|"low").
 Keep existing spec values unless the brief contradicts them.`);
   const spec = { ...(r.spec ?? {}), ...out, intake_at: new Date().toISOString() };
@@ -275,6 +277,18 @@ async function search1688(sb: SupabaseClient, body: Any) {
   await sb.from("sourcing_requests").update({ spec: { ...(r.spec ?? {}), used_terms: used } }).eq("id", r.id);
   const ranked = body.skip_rank ? { ranked: 0 } : await rank(sb, { request_id: r.id });
   return { ok: true, searched: terms, listings: listings.length, new_candidates: rows.length, new_factories: newFactories.length, errors, filter: filterSummary, ...ranked };
+}
+
+const GLANCE_PROMPT = `From this product spec, pick the 5-6 facts a buyer checks first (for example frame, fabric, size, weight, load rating, colors). Return a JSON array of {label, value}: label 1-2 words, value at most 4 words with units (e.g. "50×50×80 cm", "100–120 kg", "4 options"), no parentheses, no "to be confirmed".`;
+async function specGlance(sb: SupabaseClient, body: Any) {
+  const r = await getRequest(sb, body.request_id);
+  if (!r.spec?.intake_at) return { ok: true, at_a_glance: [] };
+  if (r.spec.at_a_glance?.length && !body.force) return { ok: true, at_a_glance: r.spec.at_a_glance };
+  const { at_a_glance: _old, used_terms: _u, feedback: _f, search_terms_zh: _z, search_terms_en: _e, questions: _q, ...core } = r.spec;
+  const out = await askJson(`${GLANCE_PROMPT}\nSpec: ${JSON.stringify(core)}`, 600, TRANSLATE_MODEL);
+  const glance = (Array.isArray(out) ? out : []).filter((x: Any) => x && x.label && x.value).slice(0, 6).map((x: Any) => ({ label: String(x.label).slice(0, 24), value: String(x.value).slice(0, 40) }));
+  await sb.from("sourcing_requests").update({ spec: { ...r.spec, at_a_glance: glance } }).eq("id", r.id);
+  return { ok: true, at_a_glance: glance };
 }
 
 async function refreshSearch(sb: SupabaseClient, body: Any) {
@@ -513,6 +527,7 @@ Deno.serve(async (req) => {
       case "search_1688": return json(await search1688(sb, body));
       case "rank": return json(await rank(sb, body));
       case "refresh_search": return json(await refreshSearch(sb, body));
+      case "spec_glance": return json(await specGlance(sb, body));
       case "draft_rfq": return json(await draftRfq(sb, body));
       case "verify": return json(await verify(sb, body));
       case "operator": return json(await operator(sb, body));
