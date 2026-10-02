@@ -3,8 +3,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Home · Lathe</title>
 <script>
-// Factory links (?f=), website demos (?demo=) and sign-in links open the product app directly.
-(function () { var s = location.search, h = location.hash; if (/[?&](f|demo)=/.test(s) || /access_token|error_description/.test(h)) location.replace('app.html' + s + h); })();
+// Factory links (?f=) and website demos (?demo=) open the product app directly. Sign-in links land here.
+(function () { var s = location.search; if (/[?&](f|demo)=/.test(s)) location.replace('app.html' + s + location.hash); })();
 </script>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#F7F7F5">
@@ -47,7 +47,7 @@ body{margin:0;font-size:15px;line-height:1.5}
     <div class="grow"></div>
     <a class="quiet" href="site/">Website</a>
     <div class="meta" id="sync">Connecting…</div>
-  </nav><script src="nav.js?v=4"></script>
+  </nav><script src="nav.js?v=5"></script>
 
   <main class="dc-main">
     <div class="dc-bar"><h1>Home</h1><div class="sp"></div>
@@ -81,7 +81,7 @@ function due(s) {
   return `<span class="tag ${diff < 0 ? 'red' : diff === 0 ? 'blue' : ''}">${IC.cal}${label}</span>`;
 }
 const ago = d => { const s = (Date.now() - new Date(d).getTime()) / 1000; if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s / 60) + ' min ago'; if (s < 86400) return Math.floor(s / 3600) + ' h ago'; return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
-let sb, ws, D = { reqs: [], clients: [], pos: [], negs: [], quotes: [] }, tab = 'all';
+let sb, ws, D = { reqs: [], clients: [], pos: [], negs: [], quotes: [] }, tab = 'all', ANON = false;
 
 // What each request needs next, in plain words.
 function nextStep(r) {
@@ -109,7 +109,7 @@ function render() {
   const greet = now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening';
   const openPos = D.pos.filter(p => !p.closed);
   $('navClients').innerHTML = D.clients.map(c => `<a href="#" data-client="${c.id}"><i></i>${esc(c.company || c.name)}<b>${counts[c.id] || ''}</b></a>`).join('');
-  app.innerHTML = `<div class="hello"><h2>${greet}, Gary</h2><p>${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}. ${waiting.length ? `${waiting.length} request${waiting.length === 1 ? ' needs' : 's need'} you.` : open.length ? 'Nothing is waiting on you.' : 'No open requests yet.'}</p></div>
+  app.innerHTML = `${ANON ? `<a href="sourcing.html#/account" style="display:block;background:var(--harbor-bg,#eef4f7);border-radius:12px;padding:12px 16px;margin-bottom:14px;color:inherit;text-decoration:none;font-size:14px"><b>You're not signed in.</b> Your work is saved, but only this browser can open it. <u>Sign in or create an account →</u></a>` : ''}<div class="hello"><h2>${greet}</h2><p>${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}. ${waiting.length ? `${waiting.length} request${waiting.length === 1 ? ' needs' : 's need'} you.` : open.length ? 'Nothing is waiting on you.' : 'No open requests yet.'}</p></div>
   ${open.length ? `<div class="tabs" role="group" aria-label="Filter by client"><button data-tab="all" aria-pressed="${tab === 'all'}">All clients <span>${open.length}</span></button>${D.clients.filter(c => counts[c.id]).map(c => `<button data-tab="${c.id}" aria-pressed="${tab === c.id}">${esc(c.company || c.name)} <span>${counts[c.id]}</span></button>`).join('')}${counts.none ? `<button data-tab="none" aria-pressed="${tab === 'none'}">No client <span>${counts.none}</span></button>` : ''}</div>` : ''}
   ${shown.length ? `<ul class="rows">${shown.map(r => { const [step, ring] = nextStep(r); const attn = waiting.includes(r);
       return `<li><a class="row" href="sourcing.html#/request/${r.id}"><span class="ring ${ring}"></span><span class="t"><b>${esc(r.title)}</b><small>${esc(step)}${r.quantity ? `, ${Number(r.quantity).toLocaleString()} units` : ''}</small></span><span class="chips">${attn ? '<span class="tag dot" title="Needs you"></span>' : ''}${due(r.deadline)}${r.client_id ? `<span class="tag">${esc(clientName(r.client_id))}</span>` : ''}</span></a></li>`; }).join('')}</ul>`
@@ -199,9 +199,14 @@ drawLog(false);
   sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
   let { data: { session } } = await sb.auth.getSession();
   if (!session) { const { data, error } = await sb.auth.signInAnonymously(); if (error) { app.innerHTML = `<p>Could not open your workspace: ${esc(error.message)}</p>`; return; } session = data.session; }
-  const { data: m } = await sb.from('workspace_members').select('workspace_id, workspaces(name)').eq('user_id', session.user.id).order('created_at').limit(1);
-  if (!m || !m.length) { app.innerHTML = '<p>No workspace found for this account.</p>'; return; }
-  ws = m[0].workspace_id;
+  // after an email sign-in link, continue to where the person was going (account page, an invite, …)
+  let next = null; try { next = localStorage.getItem('lathe-after-login'); } catch (e) {}
+  if (next && !session.user.is_anonymous) { try { localStorage.removeItem('lathe-after-login'); } catch (e) {} location.replace(next); return; }
+  const { data: m0 } = await sb.from('workspace_members').select('workspace_id, workspaces(name)').eq('user_id', session.user.id).order('created_at');
+  if (!m0 || !m0.length) { app.innerHTML = '<p>No workspace found for this account.</p>'; return; }
+  let pref = null; try { pref = localStorage.getItem('lathe-ws'); } catch (e) {}
+  const m = [m0.find(x => x.workspace_id === pref) || m0[0]];
+  ws = m[0].workspace_id; ANON = !!session.user.is_anonymous;
   await load(); render();
   let t = null; const ch = sb.channel('home-' + ws);
   ['sourcing_requests', 'clients', 'purchase_orders', 'negotiations', 'quotes'].forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb, filter: 'workspace_id=eq.' + ws }, () => { clearTimeout(t); t = setTimeout(async () => { await load(); render(); }, 500); }));
