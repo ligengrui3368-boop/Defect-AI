@@ -6,6 +6,8 @@
 //                 Chinese search terms, keep only well-rated factories (quality filter: 1688 service
 //                 score, product reviews, repeat-buyer rate, years on 1688, factory vs trader), save
 //                 suppliers as factories and listings as candidates, then rank them with Claude
+//   search_photo – 以图搜图: search 1688 with the buyer's product photos (uploaded to the photos bucket),
+//                 then the same quality filter, de-duplication and ranking as search_1688
 //   refresh_search – "show me different factories": runs a new search on search terms not used yet (or
 //                 new ones Claude writes from the buyer's feedback), skips every supplier already shown
 //                 for this request, and replaces the untouched candidates (contacted/released ones stay;
@@ -124,6 +126,16 @@ Keep existing spec values unless the brief contradicts them.`);
 // are turned into the same listing format below, and rows without a product link (error notes) are dropped.
 const SUPPLIER_ACTOR = APIFY_ACTOR.includes("supplier-leads");
 const RATED_ACTOR = APIFY_ACTOR.includes("1688-wholesale-scraper");
+const IMAGE_ACTOR = Deno.env.get("APIFY_IMAGE_ACTOR") ?? "devcake~scraper-by-image";
+async function apifyImage(imageUrls: string[], perImage: number): Promise<Any[]> {
+  if (!APIFY_TOKEN) throw new HttpError(500, "APIFY_TOKEN is not set in Edge Function Secrets.");
+  const url = `https://api.apify.com/v2/acts/${IMAGE_ACTOR}/run-sync-get-dataset-items?token=${encodeURIComponent(APIFY_TOKEN)}&timeout=140&format=json&clean=true`;
+  const input = { provider: "1688", imageUrls, maxProducts: perImage, maxConcurrency: 2, maxRetries: 2 };
+  const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+  if (!res.ok) throw new HttpError(502, `Apify ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
 async function apify1688(keyword: string | string[], limit: number, sort = "relevance"): Promise<Any[]> {
   if (!APIFY_TOKEN) throw new HttpError(500, "APIFY_TOKEN is not set in Edge Function Secrets. Add it (from apify.com → Settings → Integrations) to enable 1688 search.");
   const url = `https://api.apify.com/v2/acts/${APIFY_ACTOR}/run-sync-get-dataset-items?token=${encodeURIComponent(APIFY_TOKEN)}&timeout=140&format=json&clean=true`;
@@ -142,6 +154,22 @@ const pick = (o: Any, keys: string[]) => { for (const k of keys) { const v = k.s
 const num = (v: Any) => { if (v === undefined || v === null) return null; const n = parseFloat(String(v).replace(/[^0-9.]/g, "")); return isFinite(n) ? n : null; };
 const FACTORY_WORDS = /factory|manufact|生产|工厂|加工/i;
 function normalise(it: Any, keyword: string): Any[] {
+  if (it && it.provider === "1688" && it.product_id && !it.error) {
+    const tags: string[] = Array.isArray(it.tags) ? it.tags.map(String) : [];
+    const isFactory = Boolean(it.factory_inspected || tags.some((t) => /源头工厂|超级工厂|生产加工|实力工厂|工厂/.test(t)));
+    const svc = num(it.service_score ?? it.rating);
+    const reviews = num(it.review_count);
+    const q = { service_score: svc, service_scores: svc !== null ? { composite: svc, consultation: num(it.consultation_score), logistics: num(it.logistics_score), return: num(it.return_score) } : null,
+      product_rating: null, product_reviews: reviews, product_positive_rate: null, positive_review_rate: null, repeat_rate: null, fulfillment_rate: null, response_rate: null,
+      years: num(it.years_as_member), is_factory: isFactory, reviews_unavailable: true, high_repurchase: tags.includes("高回购率") };
+    const shop = String(it.shop_url || "").split("?")[0].replace(/\/+$/, "");
+    const url = `https://detail.1688.com/offer/${it.product_id}.html`;
+    return [{ title: String(it.title ?? "").slice(0, 300), url, supplier: String(it.shop_name || "Unknown supplier").slice(0, 200), shopUrl: shop, city: tags.slice(0, 2).filter((t) => /省|市|区|县|^[\u4e00-\u9fa5]{2,3}$/.test(t) && !/工厂|加工|验厂|发货|回购/.test(t)).join(", "),
+      price: num(it.price_min), moq: num(it.moq), years: q.years, isFactory, sales: num(it.sold_90d ?? it.sold_count), quality: q, address: null, keyword,
+      signals: { factory_inspected: it.factory_inspected ?? null, service_scores: q.service_scores, high_repurchase: q.high_repurchase, tags: tags.slice(0, 12), credit_url: it.member_credit_url ?? null },
+      raw: { offerId: it.product_id, title: it.title, url, priceCny: num(it.price_min), minimumOrderQuantity: num(it.moq), saledCount: num(it.sold_count), sold90d: num(it.sold_90d), serviceScore: svc, reviewCount: reviews,
+        isFactory, years: q.years, highRepurchase: q.high_repurchase, imageRank: num(it.image_rank), imageUrl: it.image_url ?? null, supplier: it.shop_name, fromPhoto: true } }];
+  }
   if (it && it.offerId && it.supplier && typeof it.supplier === "object" && !it.error) {
     const sp = it.supplier, st = sp.stats ?? {}, sc = sp.scores ?? {}, fl = sp.flags ?? {}, rv = it.reviewSummary ?? {};
     const isFactory = Boolean(fl.isFactory || fl.isSuperFactory || sp.isSuperFactory || sp.isFactoryInspected || /生产|工厂|制造|加工/.test(String(sp.bizType ?? "")) || /工厂/.test(String(st.factoryType ?? "")) || /factory/i.test(String(sp.sellerType ?? "")));
@@ -194,7 +222,7 @@ function qualityCheck(l: Any, f: Any): string | null {
   if (!q) return null; // scraper without ratings: nothing to filter on
   if (f.factory_only && !q.is_factory) return "trader";
   if (f.min_service > 0 && (q.service_score === null || q.service_score < f.min_service)) return "service";
-  if (f.min_rating > 0) {
+  if (f.min_rating > 0 && !q.reviews_unavailable) {
     const hasProduct = q.product_rating !== null && (q.product_reviews ?? 0) >= 3;
     const ok = hasProduct ? q.product_rating >= f.min_rating : (q.positive_review_rate !== null && q.positive_review_rate >= 0.95);
     if (!ok) return "reviews";
@@ -207,14 +235,18 @@ const DROP_LABEL: Record<string, string> = { already_seen: "factories already sh
 
 async function search1688(sb: SupabaseClient, body: Any) {
   const r = await getRequest(sb, body.request_id);
-  const terms: string[] = (body.terms?.length ? body.terms : (r.spec?.search_terms_zh ?? [])).slice(0, 3);
-  if (!terms.length) throw new HttpError(400, "No Chinese search terms yet. Run intake first or type a search term.");
+  const photoMode = Array.isArray(body.photo_urls) && body.photo_urls.length > 0;
+  const terms: string[] = photoMode ? [] : (body.terms?.length ? body.terms : (r.spec?.search_terms_zh ?? [])).slice(0, 3);
+  if (!photoMode && !terms.length) throw new HttpError(400, "No Chinese search terms yet. Run intake first or type a search term.");
   const filters = { ...DEFAULT_FILTERS, ...(body.filters ?? {}) };
   for (const k of ["min_service", "min_rating", "min_repeat", "min_years"]) filters[k] = Number(filters[k]) || 0;
   filters.factory_only = filters.factory_only !== false;
   const scanned: Any[] = [];
   const errors: string[] = [];
-  if (RATED_ACTOR) {
+  if (photoMode) {
+    try { (await apifyImage(body.photo_urls, 30)).forEach((it: Any) => normalise(it, "photo").forEach((l: Any) => { if (l.url && l.title) scanned.push(l); })); }
+    catch (e) { errors.push((e as Error).message); }
+  } else if (RATED_ACTOR) {
     // one run for all terms; ask for more than we keep because the quality filter drops many
     const perTerm = Math.max(20, Math.floor(Number(Deno.env.get("SOURCING_SCAN_PER_TERM") ?? "40")));
     try { (await apify1688(terms, perTerm, body.sort === "bestSelling" ? "bestSelling" : "relevance")).forEach((it: Any) => normalise(it, terms[0]).forEach((l: Any) => { if (l.url && l.title) scanned.push(l); })); }
@@ -226,7 +258,7 @@ async function search1688(sb: SupabaseClient, body: Any) {
       catch (e) { errors.push(`${t}: ${(e as Error).message}`); }
     }));
   }
-  if (!scanned.length) throw new HttpError(502, errors.join(" | ") || "1688 returned no products for these terms. The scraper may have been blocked; try again in a minute or use a shorter Chinese term.");
+  if (!scanned.length) throw new HttpError(502, errors.join(" | ") || (photoMode ? "1688 found no products matching these photos. Try a clearer photo of the product alone on a plain background." : "1688 returned no products for these terms. The scraper may have been blocked; try again in a minute or use a shorter Chinese term."));
   const dropped: Record<string, number> = {};
   const listings = scanned.filter((l) => { const why = qualityCheck(l, filters); if (why) dropped[why] = (dropped[why] ?? 0) + 1; return !why; });
   // never bring back suppliers the buyer rejected for this request; on refresh, skip every supplier already shown
@@ -252,7 +284,7 @@ async function search1688(sb: SupabaseClient, body: Any) {
     is_verified_factory: null, verification: { listing_claims_factory: l.isFactory, sales: l.sales, ...l.signals }, categories: [r.spec?.category ?? r.title].filter(Boolean),
   }));
   // suppliers already saved: refresh their 1688 rating signals (keep everything else)
-  if (RATED_ACTOR) for (const l of bySupplier.values()) {
+  if (RATED_ACTOR || photoMode) for (const l of bySupplier.values()) {
     const fid = factoryId.get((l.shopUrl || "").toLowerCase()) ?? factoryId.get(l.supplier.toLowerCase());
     if (!fid) continue;
     const { data: cur } = await sb.from("factories").select("verification, address, platform_years").eq("id", fid).single();
@@ -273,10 +305,26 @@ async function search1688(sb: SupabaseClient, body: Any) {
   }));
   if (rows.length) { const { error } = await sb.from("request_candidates").insert(rows); if (error) throw new HttpError(500, error.message); }
   if (r.status === "intake" || r.status === "sourcing") await sb.from("sourcing_requests").update({ status: "sourcing" }).eq("id", r.id);
-  const used = [...new Set([...(r.spec?.used_terms ?? []), ...terms])].slice(-40);
-  await sb.from("sourcing_requests").update({ spec: { ...(r.spec ?? {}), used_terms: used } }).eq("id", r.id);
+  if (!photoMode) {
+    const used = [...new Set([...(r.spec?.used_terms ?? []), ...terms])].slice(-40);
+    await sb.from("sourcing_requests").update({ spec: { ...(r.spec ?? {}), used_terms: used } }).eq("id", r.id);
+  }
   const ranked = body.skip_rank ? { ranked: 0 } : await rank(sb, { request_id: r.id });
-  return { ok: true, searched: terms, listings: listings.length, new_candidates: rows.length, new_factories: newFactories.length, errors, filter: filterSummary, ...ranked };
+  return { ok: true, searched: photoMode ? ["photo"] : terms, photo: photoMode, listings: listings.length, new_candidates: rows.length, new_factories: newFactories.length, errors, filter: filterSummary, ...ranked };
+}
+
+async function searchPhoto(sb: SupabaseClient, body: Any) {
+  const r = await getRequest(sb, body.request_id);
+  const paths: string[] = (Array.isArray(body.paths) ? body.paths : []).map(String).filter((p: string) => p.startsWith(`${r.workspace_id}/`)).slice(0, 3);
+  if (!paths.length) throw new HttpError(400, "Upload 1 to 3 product photos first.");
+  // short-lived links the scraper can download (row level security on storage still applies)
+  const { data: signed, error } = await sb.storage.from("photos").createSignedUrls(paths, 60 * 30);
+  if (error) throw new HttpError(403, error.message);
+  const urls = (signed ?? []).map((x: Any) => x.signedUrl).filter(Boolean);
+  if (!urls.length) throw new HttpError(403, "Couldn't read those photos.");
+  const photos = [...new Set([...(r.spec?.photos ?? []), ...paths])].slice(-6);
+  await sb.from("sourcing_requests").update({ spec: { ...(r.spec ?? {}), photos } }).eq("id", r.id);
+  return await search1688(sb, { request_id: r.id, photo_urls: urls, filters: body.filters, exclude_existing: body.exclude_existing });
 }
 
 const GLANCE_PROMPT = `From this product spec, pick the 5-6 facts a buyer checks first (for example frame, fabric, size, weight, load rating, colors). Return a JSON array of {label, value}: label 1-2 words, value at most 4 words with units (e.g. "50×50×80 cm", "100–120 kg", "4 options"), no parentheses, no "to be confirmed".`;
@@ -328,8 +376,8 @@ async function rank(sb: SupabaseClient, body: Any) {
   const r = await getRequest(sb, body.request_id);
   const { data: cands } = await sb.from("request_candidates").select("id, listing_title, listing_url, price_cny, moq, listing_data, factories(name, city, platform_years, verification, is_verified_factory)").eq("request_id", r.id).neq("status", "rejected").limit(80);
   if (!cands?.length) return { ranked: 0 };
-  const compact = cands.map((c: Any, i: number) => ({ i, title: c.listing_title, price_cny: c.price_cny, moq: c.moq, supplier: c.factories?.name, city: c.factories?.city, years: c.factories?.platform_years, claims_factory: c.factories?.verification?.listing_claims_factory, sales: c.factories?.verification?.sales, service_score: c.listing_data?.serviceScore ?? c.factories?.verification?.service_scores?.composite ?? null, product_rating: c.listing_data?.rating ?? null, reviews: c.listing_data?.reviewCount ?? null, supplier_positive_rate: c.listing_data?.supplierPositiveRate ?? c.factories?.verification?.positive_review_rate ?? null, repeat_rate: c.listing_data?.repeatRate ?? c.factories?.verification?.repeat_rate ?? null }));
-  const out = await askJson(`You rank 1688 listings for a sourcing request. Score each listing 0-100 on how well it fits the spec (product match, materials/features, MOQ vs quantity, price vs target, supplier looks like a real factory in a relevant industrial cluster, tenure, sales, and supplier quality: 1688 service score out of 5, product rating and review count, positive-review and repeat-buyer rates; prefer well-rated factories). If the spec has buyer feedback (spec.feedback), score down listings that match what the buyer disliked.
+  const compact = cands.map((c: Any, i: number) => ({ i, title: c.listing_title, price_cny: c.price_cny, moq: c.moq, supplier: c.factories?.name, city: c.factories?.city, years: c.factories?.platform_years, claims_factory: c.factories?.verification?.listing_claims_factory, sales: c.factories?.verification?.sales, service_score: c.listing_data?.serviceScore ?? c.factories?.verification?.service_scores?.composite ?? null, product_rating: c.listing_data?.rating ?? null, reviews: c.listing_data?.reviewCount ?? null, supplier_positive_rate: c.listing_data?.supplierPositiveRate ?? c.factories?.verification?.positive_review_rate ?? null, repeat_rate: c.listing_data?.repeatRate ?? c.factories?.verification?.repeat_rate ?? null, photo_match_rank: c.listing_data?.fromPhoto ? c.listing_data?.imageRank ?? null : null }));
+  const out = await askJson(`You rank 1688 listings for a sourcing request. Score each listing 0-100 on how well it fits the spec (product match, materials/features, MOQ vs quantity, price vs target, supplier looks like a real factory in a relevant industrial cluster, tenure, sales, and supplier quality: 1688 service score out of 5, product rating and review count, positive-review and repeat-buyer rates; prefer well-rated factories). If the spec has buyer feedback (spec.feedback), score down listings that match what the buyer disliked. photo_match_rank comes from 1688's search by the buyer's photo (1 = closest look-alike).
 Spec: ${specText(r)}
 Listings (JSON): ${JSON.stringify(compact)}
 Return a JSON array of {i, score, reason} with a one-sentence reason each (English). Include every i.`);
@@ -528,6 +576,7 @@ Deno.serve(async (req) => {
       case "rank": return json(await rank(sb, body));
       case "refresh_search": return json(await refreshSearch(sb, body));
       case "spec_glance": return json(await specGlance(sb, body));
+      case "search_photo": return json(await searchPhoto(sb, body));
       case "draft_rfq": return json(await draftRfq(sb, body));
       case "verify": return json(await verify(sb, body));
       case "operator": return json(await operator(sb, body));
