@@ -64,6 +64,11 @@ textarea{min-height:90px;resize:vertical}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:10px 16px;border-radius:10px;font-weight:600;z-index:9;max-width:90vw}
 .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .empty{color:var(--muted);padding:18px 0;text-align:center}
+.contact{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;font-size:13px;margin-top:4px}
+.contact b{font-weight:600}.contact .lab{color:var(--muted);margin-right:4px}
+.contact .link{background:none;border:0;padding:0;color:var(--harbor);cursor:pointer;font-size:12px;font-weight:600}
+.contact .link:hover{text-decoration:underline}
+.cbox{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-top:8px}
 @media (max-width:900px){.shell{grid-template-columns:1fr}.rail{position:static;height:auto;flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line);padding:10px}.rail .brand{padding:6px 10px;width:100%}.rail .grow,.rail .meta,.rail .sect{display:none}.cols,.grid2,.grid3{grid-template-columns:1fr}main{padding:18px 14px 80px}.steps{grid-template-columns:repeat(4,1fr)}}
 </style><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="theme.css?v=4">
@@ -100,6 +105,40 @@ const STATUSES = ['intake', 'sourcing', 'shortlisted', 'negotiating', 'quoted', 
 const SLABEL = { intake: 'Intake', sourcing: 'Sourcing', shortlisted: 'Shortlist', negotiating: 'Negotiating', quoted: 'Quoted', approved: 'Approved', ordered: 'Ordered', closed: 'Closed' };
 let sb, ws, D = { requests: [], clients: [], factories: [], rates: [] };
 let toastT; const toast = (m) => { let t = document.querySelector('.toast'); if (!t) { t = document.createElement('div'); t.className = 'toast'; document.body.appendChild(t); } t.textContent = m; clearTimeout(toastT); toastT = setTimeout(() => t.remove(), 3500); };
+// ---------- factory contacts ----------
+const telHref = (n) => 'tel:' + (String(n).replace(/[^0-9+]/g, '').replace(/^(?!\+|86|0)(1\d{10})$/, '+86$1'));
+function contactBits(f, full) {
+  if (!f) return '';
+  const bits = [];
+  if (f.contact_name) bits.push(`<span><b>${esc(f.contact_name)}</b></span>`);
+  if (f.mobile) bits.push(`<span><span class="lab">Mobile</span><a href="${esc(telHref(f.mobile))}">${esc(f.mobile)}</a> <button class="link" data-cp="${esc(f.mobile)}">Copy</button>${full ? ` <button class="link" data-wx="${esc(f.mobile)}">Add on WeChat</button>` : ''}</span>`);
+  if (f.wechat) bits.push(`<span><span class="lab">WeChat</span>${esc(f.wechat)} <button class="link" data-cp="${esc(f.wechat)}">Copy</button></span>`);
+  if (f.phone) bits.push(`<span><span class="lab">Phone</span><a href="${esc(telHref(f.phone))}">${esc(f.phone)}</a></span>`);
+  if (full && f.fax) bits.push(`<span><span class="lab">Fax</span>${esc(f.fax)}</span>`);
+  if (f.email) bits.push(`<span><span class="lab">Email</span><a href="mailto:${esc(f.email)}">${esc(f.email)}</a></span>`);
+  if (f.website) bits.push(`<span><span class="lab">Website</span><a href="${esc(/^https?:/.test(f.website) ? f.website : 'http://' + f.website)}" target="_blank" rel="noopener">${esc(f.website.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a></span>`);
+  if (full && f.address) bits.push(`<span><span class="lab">Address</span>${esc(f.address)}</span>`);
+  if (bits.length) return `<div class="contact">${bits.join('')}</div>`;
+  if (f.source !== '1688') return '';
+  if (f.contact_status === 'none') return `<div class="contact mut">No contact details on its 1688 page</div>`;
+  if (f.contact_status === 'error') return `<div class="contact mut">Couldn't load its 1688 contact page <button class="link" data-getc="${f.id}">Try again</button></div>`;
+  return `<div class="contact mut">${CONTACTS.running ? 'Getting contacts…' : `<button class="link" data-getc="${f.id}">Get contacts</button>`}</div>`;
+}
+const CONTACTS = { running: false };
+async function fetchContacts(body) {
+  if (CONTACTS.running) return toast('Already getting contacts');
+  const out = body.run_id ? body : await call('contacts_start', body);
+  if (!out.run_id) return toast(out.count === 0 ? 'Contacts already fetched' : 'Nothing to fetch');
+  CONTACTS.running = true; await render(); toast(`Getting contacts for ${out.count} supplier${out.count === 1 ? '' : 's'} from 1688…`);
+  try {
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 8000));
+      const p = await call('contacts_poll', { run_id: out.run_id, factory_ids: out.factory_ids || [] });
+      if (p.done) { toast(`Contacts found for ${p.found}` + (p.empty ? `, none listed for ${p.empty}` : '') + (p.failed ? `, ${p.failed} pages didn't load` : '')); break; }
+    }
+  } catch (err) { toast(err.message); }
+  CONTACTS.running = false; await refresh();
+}
 const busy = (btn, on) => { if (!btn) return; btn.disabled = on; btn.dataset.t ??= btn.textContent; btn.textContent = on ? 'Working…' : btn.dataset.t; };
 
 async function call(task, body) {
@@ -147,7 +186,7 @@ async function viewRequest(id) {
   const r = D.requests.find(x => x.id === id); if (!r) return `<p>Request not found.</p>`;
   const [c, n, q, req, o] = await Promise.all([
     sb.from('request_candidates').select('*, factories(*)').eq('request_id', id).order('rank', { ascending: true, nullsFirst: false }),
-    sb.from('negotiations').select('*, factories(name, city, wechat, contact_name)').eq('request_id', id).order('updated_at', { ascending: false }),
+    sb.from('negotiations').select('*, factories(*)').eq('request_id', id).order('updated_at', { ascending: false }),
     sb.from('quotes').select('*, factories(name)').eq('request_id', id).order('created_at', { ascending: false }),
     sb.from('client_requirements').select('*').eq('request_id', id).order('created_at'),
     sb.from('sourcing_orders').select('*').eq('request_id', id),
@@ -177,16 +216,16 @@ async function viewRequest(id) {
     </div>
 
     <div class="panel"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">2 · Factory candidates <span class="mut sm">${cands.length}</span></h2>
-      <div class="bar"><input id="term" placeholder="Chinese search term (optional)" style="width:220px"><button class="btn sm primary" id="search1688">Search 1688</button>${cands.length ? `<button class="btn sm" id="rerank">Re-rank</button>` : ''}<button class="btn sm" id="addCand">Add manually</button></div></div>
+      <div class="bar"><input id="term" placeholder="Chinese search term (optional)" style="width:220px"><button class="btn sm primary" id="search1688">Search 1688</button>${cands.length ? `<button class="btn sm" id="rerank">Re-rank</button><button class="btn sm" id="getContacts" ${CONTACTS.running ? 'disabled' : ''}>${CONTACTS.running ? 'Getting contacts…' : 'Get contacts'}</button>` : ''}<button class="btn sm" id="addCand">Add manually</button></div></div>
       <p class="sm mut">Agent searches 1688 with the Chinese terms from the spec, saves each supplier as a factory, and scores listings against the spec. Release the ones you want the client to see.</p>
       ${cands.length ? `<div class="wrap"><table><thead><tr><th>#</th><th>Listing</th><th>Supplier</th><th class="right">¥</th><th class="right">MOQ</th><th>Fit</th><th></th></tr></thead><tbody>
-      ${cands.map(k => `<tr><td><span class="score">${k.rank ?? '·'}</span></td><td><a href="${esc(k.listing_url || '#')}" target="_blank">${esc(k.listing_title || 'Listing')}</a><div class="sm mut">${esc(k.notes || '')}</div></td><td>${k.factories ? `<a href="#/factory/${k.factory_id}">${esc(k.factories.name)}</a><div class="sm mut">${esc(k.factories.city || '')}${k.factories.is_verified_factory === true ? ' · <span class="badge b-pass">verified</span>' : k.factories.is_verified_factory === false ? ' · <span class="badge b-fail">trader</span>' : ''}</div>` : '—'}</td><td class="right">${cny(k.price_cny)}</td><td class="right">${fmt(k.moq, 0)}</td><td>${k.match_score != null ? `<b>${fmt(k.match_score, 0)}</b>` : '—'} <span class="badge">${esc(k.status)}</span></td>
+      ${cands.map(k => `<tr><td><span class="score">${k.rank ?? '·'}</span></td><td><a href="${esc(k.listing_url || '#')}" target="_blank">${esc(k.listing_title || 'Listing')}</a><div class="sm mut">${esc(k.notes || '')}</div></td><td>${k.factories ? `<a href="#/factory/${k.factory_id}">${esc(k.factories.name)}</a><div class="sm mut">${esc(k.factories.city || '')}${k.factories.is_verified_factory === true ? ' · <span class="badge b-pass">verified</span>' : k.factories.is_verified_factory === false ? ' · <span class="badge b-fail">trader</span>' : ''}</div>${contactBits(k.factories, false)}` : '—'}</td><td class="right">${cny(k.price_cny)}</td><td class="right">${fmt(k.moq, 0)}</td><td>${k.match_score != null ? `<b>${fmt(k.match_score, 0)}</b>` : '—'} <span class="badge">${esc(k.status)}</span></td>
         <td class="right"><div class="bar" style="justify-content:flex-end"><button class="btn sm" data-neg="${k.id}" data-fac="${k.factory_id || ''}">Negotiate</button><button class="btn sm" data-rel="${k.id}" data-on="${k.released_to_client ? 0 : 1}">${k.released_to_client ? 'Hide' : 'Release'}</button><button class="btn sm" data-rej="${k.id}">✕</button></div></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">No candidates yet.</div>`}
     </div>
 
     <div class="panel"><h2>3 · Negotiations <span class="mut sm">${negs.length}</span></h2>
       <p class="sm mut">You negotiate. Log each offer here so the quote uses the agreed price. "Draft RFQ" writes the first Chinese message.</p>
-      ${negs.length ? negs.map(g => `<div class="card"><div class="bar" style="justify-content:space-between"><b>${esc(g.factories?.name || 'Factory')}</b> <span class="badge ${g.status === 'agreed' ? 'b-pass' : g.status === 'dropped' ? 'b-fail' : 'b-harbor'}">${esc(g.status.replace('_', ' '))}</span></div>
+      ${negs.length ? negs.map(g => `<div class="card"><div class="bar" style="justify-content:space-between"><b>${esc(g.factories?.name || 'Factory')}</b> <span class="badge ${g.status === 'agreed' ? 'b-pass' : g.status === 'dropped' ? 'b-fail' : 'b-harbor'}">${esc(g.status.replace('_', ' '))}</span></div>${g.factories ? `<div class="cbox">${contactBits(g.factories, true) || '<span class="sm mut">No contact details yet. Add them on the factory page.</span>'}</div>` : ''}
         <div class="kv" style="margin-top:6px"><b>Current offer</b><span>${cny(g.current_offer_cny)}</span><b>Target</b><span>${cny(g.target_cny)}</span><b>Agreed</b><span>${g.agreed_cny ? '<b>' + cny(g.agreed_cny) + '</b>' : '—'}</span><b>MOQ / lead time</b><span>${fmt(g.moq, 0)} / ${g.lead_time_days ?? '—'} days</span><b>Terms</b><span>${esc(g.incoterm || '')} ${esc(g.payment_terms || '')}</span>${g.next_action ? `<b>Next</b><span>${esc(g.next_action)}</span>` : ''}</div>
         ${(g.log || []).length ? `<details class="sm" style="margin-top:6px"><summary>${g.log.length} log entries</summary>${g.log.slice().reverse().map(l => `<div style="padding:4px 0;border-top:1px solid var(--line)"><span class="mut">${dt(l.at)}</span> ${esc(l.note)}${l.offer_cny ? ` · <b>${cny(l.offer_cny)}</b>` : ''}</div>`).join('')}</details>` : ''}
         <div class="bar" style="margin-top:10px"><input data-lognote="${g.id}" placeholder="Log note (e.g. 他们报¥26，说MOQ 500)" style="flex:1;min-width:160px"><input data-logoffer="${g.id}" type="number" step="0.01" placeholder="¥ offer" style="width:100px"><button class="btn sm" data-log="${g.id}">Log</button>
@@ -221,7 +260,7 @@ async function viewRequest(id) {
 function viewFactories() {
   return `<div class="hello"><div><h1>Factories</h1><p>Every supplier the agents or you have found, with verification.</p></div><button class="btn primary" id="addFac">Add factory</button></div>
   <div class="panel wrap">${D.factories.length ? `<table><thead><tr><th>Factory</th><th>Source</th><th>City</th><th>Contact</th><th>Verified</th><th>Updated</th></tr></thead><tbody>
-  ${D.factories.map(f => `<tr class="row" onclick="location.hash='#/factory/${f.id}'"><td><b>${esc(f.name)}</b>${f.name_zh ? `<div class="sm mut">${esc(f.name_zh)}</div>` : ''}</td><td>${esc(f.source)}</td><td>${esc(f.city || '—')}</td><td>${esc(f.contact_name || '')} ${f.wechat ? `<span class="sm mut">WeChat ${esc(f.wechat)}</span>` : ''}</td><td>${f.is_verified_factory === true ? '<span class="badge b-pass">factory</span>' : f.is_verified_factory === false ? '<span class="badge b-fail">trader</span>' : '<span class="badge">unchecked</span>'}</td><td>${dt(f.updated_at)}</td></tr>`).join('')}</tbody></table>` : `<div class="empty">No factories yet. They appear here when you search 1688 from a request.</div>`}</div>`;
+  ${D.factories.map(f => `<tr class="row" onclick="location.hash='#/factory/${f.id}'"><td><b>${esc(f.name)}</b>${f.name_zh ? `<div class="sm mut">${esc(f.name_zh)}</div>` : ''}</td><td>${esc(f.source)}</td><td>${esc(f.city || '—')}</td><td>${esc(f.contact_name || '')}${f.mobile ? `<div class="sm"><a href="${esc(telHref(f.mobile))}" onclick="event.stopPropagation()">${esc(f.mobile)}</a></div>` : f.phone ? `<div class="sm">${esc(f.phone)}</div>` : ''}${f.wechat ? `<div class="sm mut">WeChat ${esc(f.wechat)}</div>` : ''}${!f.mobile && !f.phone && !f.wechat && f.source === '1688' ? `<span class="sm mut">${f.contact_status === 'none' ? 'none listed' : f.contact_status === 'error' ? 'page didn’t load' : 'not fetched'}</span>` : ''}</td><td>${f.is_verified_factory === true ? '<span class="badge b-pass">factory</span>' : f.is_verified_factory === false ? '<span class="badge b-fail">trader</span>' : '<span class="badge">unchecked</span>'}</td><td>${dt(f.updated_at)}</td></tr>`).join('')}</tbody></table>` : `<div class="empty">No factories yet. They appear here when you search 1688 from a request.</div>`}</div>`;
 }
 
 async function viewFactory(id) {
@@ -233,7 +272,11 @@ async function viewFactory(id) {
     <div class="grid2"><div><label>Name</label><input id="fName" value="${esc(f.name)}"></div><div><label>Chinese name (for registry lookup)</label><input id="fZh" value="${esc(f.name_zh || '')}"></div>
     <div><label>City</label><input id="fCity" value="${esc(f.city || '')}"></div><div><label>Province</label><input id="fProv" value="${esc(f.province || '')}"></div>
     <div><label>Contact</label><input id="fContact" value="${esc(f.contact_name || '')}"></div><div><label>WeChat</label><input id="fWechat" value="${esc(f.wechat || '')}"></div>
-    <div><label>Phone</label><input id="fPhone" value="${esc(f.phone || '')}"></div><div><label>Email</label><input id="fEmail" value="${esc(f.email || '')}"></div></div>
+    <div><label>Mobile</label><input id="fMobile" value="${esc(f.mobile || '')}"></div><div><label>Phone (landline)</label><input id="fPhone" value="${esc(f.phone || '')}"></div>
+    <div><label>Email</label><input id="fEmail" value="${esc(f.email || '')}"></div><div><label>Website</label><input id="fWeb" value="${esc(f.website || '')}"></div>
+    <div><label>Fax</label><input id="fFax" value="${esc(f.fax || '')}"></div><div><label>Address</label><input id="fAddr" value="${esc(f.address || '')}"></div></div>
+    ${contactBits(f, true) ? `<div class="cbox">${contactBits(f, true)}</div>` : ''}
+    ${f.source === '1688' && f.source_url ? `<p class="sm mut" style="margin-top:8px">${f.contact_fetched_at ? `Contacts read from its 1688 contact page ${dt(f.contact_fetched_at)}. ` : ''}<button class="link" style="background:none;border:0;padding:0;color:var(--harbor);cursor:pointer;font-weight:600" data-getc="${f.id}" data-force="1">${f.contact_fetched_at ? 'Fetch again' : 'Get contacts from 1688'}</button></p>` : ''}
     <label>Notes</label><textarea id="fNotes">${esc(f.notes || '')}</textarea>
     <div class="bar" style="margin-top:12px"><button class="btn primary" id="fSave">Save</button></div>
     <h3>Listings for requests</h3>${(cands || []).length ? cands.map(k => `<div class="sm"><a href="#/request/${k.request_id}">${esc(k.sourcing_requests?.title)}</a> · ${esc(k.listing_title || '')} · ${cny(k.price_cny)} · MOQ ${fmt(k.moq, 0)} · fit ${fmt(k.match_score, 0)}</div>`).join('') : '<p class="sm mut">None.</p>'}
@@ -282,6 +325,10 @@ const refresh = async () => { await load(); await render(); };
 
 function wire(page, id) {
   const on = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(ev, fn));
+  const copy = (txt) => navigator.clipboard.writeText(txt).then(() => true, () => { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); return ok; });
+  on('[data-cp]', 'click', async (e) => { e.stopPropagation(); if (await copy(e.currentTarget.dataset.cp)) toast('Copied'); });
+  on('[data-wx]', 'click', async (e) => { e.stopPropagation(); await copy(e.currentTarget.dataset.wx); toast('Number copied. In WeChat tap ＋ → Add Contacts, paste it and search.'); });
+  on('[data-getc]', 'click', (e) => { e.stopPropagation(); const b = e.currentTarget; fetchContacts({ factory_ids: [b.dataset.getc], force: b.dataset.force === '1' }).catch(err => { CONTACTS.running = false; toast(err.message); render(); }); });
   const upd = async (t, patch, eq) => { const { error } = await sb.from(t).update(patch).eq('id', eq); if (error) toast(error.message); else await refresh(); };
   if (page === 'new') $('nSave').onclick = async (e) => {
     const title = $('nTitle').value.trim(); if (!title) return toast('Give it a title');
@@ -297,8 +344,9 @@ function wire(page, id) {
     $('editBrief').onclick = () => { $('briefBox').style.display = 'block'; };
     $('saveBrief').onclick = () => upd('sourcing_requests', { raw_brief: $('briefTa').value }, id);
     $('runIntake').onclick = async (e) => { busy(e.target, true); try { await call('intake', { request_id: id, answers: $('answers')?.value || '' }); toast('Spec updated'); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
-    $('search1688').onclick = async (e) => { busy(e.target, true); try { const t = $('term').value.trim(); const out = await call('search_1688', { request_id: id, terms: t ? [t] : undefined }); toast(`${out.listings} listings, ${out.new_candidates} new, ranked ${out.ranked}`); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
+    $('search1688').onclick = async (e) => { busy(e.target, true); try { const t = $('term').value.trim(); const out = await call('search_1688', { request_id: id, terms: t ? [t] : undefined }); toast(`${out.listings} listings, ${out.new_candidates} new, ranked ${out.ranked}`); await refresh(); if (out.contacts?.run_id) fetchContacts(out.contacts); } catch (err) { busy(e.target, false); toast(err.message); } };
     if ($('rerank')) $('rerank').onclick = async (e) => { busy(e.target, true); try { await call('rank', { request_id: id }); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
+    if ($('getContacts')) $('getContacts').onclick = () => fetchContacts({ request_id: id }).catch(err => { CONTACTS.running = false; toast(err.message); render(); });
     $('addCand').onclick = async () => { const name = prompt('Supplier / factory name'); if (!name) return; const url = prompt('Listing or shop URL (optional)') || null; const price = parseFloat(prompt('Unit price ¥ (optional)') || '') || null;
       const { data: f, error } = await sb.from('factories').insert({ workspace_id: ws, name, source: 'manual', source_url: url }).select('id').single(); if (error) return toast(error.message);
       const { error: e2 } = await sb.from('request_candidates').insert({ workspace_id: ws, request_id: id, factory_id: f.id, listing_title: name, listing_url: url, price_cny: price }); if (e2) return toast(e2.message); await refresh(); };
@@ -325,7 +373,7 @@ function wire(page, id) {
   }
   if (page === 'factories') $('addFac').onclick = async () => { const name = prompt('Factory name'); if (!name) return; const { data, error } = await sb.from('factories').insert({ workspace_id: ws, name, source: 'manual' }).select('id').single(); if (error) return toast(error.message); await load(); location.hash = '#/factory/' + data.id; };
   if (page === 'factory') {
-    $('fSave').onclick = () => upd('factories', { name: $('fName').value, name_zh: $('fZh').value || null, city: $('fCity').value || null, province: $('fProv').value || null, contact_name: $('fContact').value || null, wechat: $('fWechat').value || null, phone: $('fPhone').value || null, email: $('fEmail').value || null, notes: $('fNotes').value || null }, id);
+    $('fSave').onclick = () => upd('factories', { name: $('fName').value, name_zh: $('fZh').value || null, city: $('fCity').value || null, province: $('fProv').value || null, contact_name: $('fContact').value || null, wechat: $('fWechat').value || null, mobile: $('fMobile').value || null, phone: $('fPhone').value || null, email: $('fEmail').value || null, website: $('fWeb').value || null, fax: $('fFax').value || null, address: $('fAddr').value || null, notes: $('fNotes').value || null }, id);
     on('[data-ver]', 'click', (e) => { const v = e.currentTarget.dataset.ver; upd('factories', { is_verified_factory: v === 'null' ? null : v === 'true' }, id); });
     $('vSave').onclick = async () => { const f = D.factories.find(x => x.id === id); await upd('factories', { verification: { ...(f.verification || {}), business_scope: $('vScope').value || null, registered_capital: $('vCap').value || null, insured_staff: $('vStaff').value ? +$('vStaff').value : null, checked_at: new Date().toISOString() }, customs_shipments: $('vCustoms').value ? +$('vCustoms').value : null }, id); };
     $('vRun').onclick = async (e) => { busy(e.target, true); try { const out = await call('verify', { factory_id: id }); $('vOut').innerHTML = `<p class="sm mut" style="margin-top:10px">${esc(out.note)}</p>` + out.checks.map(c => `<div class="card" style="padding:8px 12px"><b>${esc(c.name)}</b> <span class="badge ${c.status === 'done' ? 'b-pass' : c.status === 'manual' ? 'b-rev' : ''}">${esc(c.status)}</span><div class="sm">${esc(c.how || '')}${c.result ? ' ' + esc(JSON.stringify(c.result)) : ''}</div></div>`).join(''); } catch (err) { toast(err.message); } busy(e.target, false); };
