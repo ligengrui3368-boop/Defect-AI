@@ -103,22 +103,13 @@ function due(s) {
   return `<span class="tag ${diff < 0 ? 'red' : diff === 0 ? 'blue' : ''}">${IC.cal}${label}</span>`;
 }
 const ago = d => { const s = (Date.now() - new Date(d).getTime()) / 1000; if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s / 60) + ' min ago'; if (s < 86400) return Math.floor(s / 3600) + ' h ago'; return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
-let sb, ws, D = { reqs: [], clients: [], pos: [], negs: [], quotes: [] }, tab = 'all', ANON = false;
+let sb, ws, D = { reqs: [], clients: [], pos: [], negs: [], quotes: [], flow: {} }, tab = 'all', ANON = false;
 
-// What each request needs next, in plain words.
+// What each request needs next comes from the shared engine (the request_flow view), the same one
+// the requests list, the request page and Operator use.
 function nextStep(r) {
-  const negs = D.negs.filter(n => n.request_id === r.id), qs = D.quotes.filter(q => q.request_id === r.id);
-  const q = r.spec?.questions?.length || 0;
-  switch (r.status) {
-    case 'intake': return r.spec?.intake_at ? (q ? [`Answer ${q} question${q === 1 ? '' : 's'} from intake`, 'half'] : ['Spec ready, search for factories', 'half']) : ['Run intake on the brief', 'empty'];
-    case 'sourcing': return ['Find factories on 1688', 'half'];
-    case 'shortlisted': return ['Pick factories to contact', 'half'];
-    case 'negotiating': { const w = negs.filter(n => n.status === 'waiting_us').length; return [w ? `${w} factor${w === 1 ? 'y is' : 'ies are'} waiting on you` : `Negotiating with ${negs.length || 'the'} factor${negs.length === 1 ? 'y' : 'ies'}`, 'half']; }
-    case 'quoted': return qs.some(x => x.released_to_client) ? ['Waiting for the client to approve', 'half'] : ['Send the quote to the client', 'half'];
-    case 'approved': return ['Place the order with the factory', 'half'];
-    case 'ordered': return ['In production, inspect before the balance', 'half'];
-    default: return ['Closed', 'full'];
-  }
+  const f = D.flow[r.id]; if (!f) return ['', 'half'];
+  return [(f.next_key === 'working' ? '⟳ ' : '') + f.next_title, f.next_key === 'done' ? 'full' : !f.intake_done ? 'empty' : 'half'];
 }
 const clientName = (id) => { const c = D.clients.find(x => x.id === id); return c ? (c.company || c.name) : ''; };
 
@@ -126,7 +117,7 @@ function render() {
   const open = D.reqs.filter(r => r.status !== 'closed');
   const counts = {}; open.forEach(r => { const k = r.client_id || 'none'; counts[k] = (counts[k] || 0) + 1; });
   const shown = open.filter(r => tab === 'all' || (r.client_id || 'none') === tab);
-  const waiting = open.filter(r => ['intake', 'shortlisted', 'quoted', 'approved'].includes(r.status) || D.negs.some(n => n.request_id === r.id && n.status === 'waiting_us'));
+  const waiting = open.filter(r => D.flow[r.id]?.needs_you);
   const now = new Date();
   const greet = now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening';
   const openPos = D.pos.filter(p => !p.closed);
@@ -149,8 +140,10 @@ async function load() {
     q('purchase_orders', 'id, po_number, supplier_name, supplier_city, ship_by, closed', 'created_at'),
     q('negotiations', 'id, request_id, status', 'updated_at'),
     q('quotes', 'id, request_id, released_to_client, status', 'created_at'),
+    sb.from('request_flow').select('*').eq('workspace_id', ws),
   ]);
-  [D.reqs, D.clients, D.pos, D.negs, D.quotes] = r.map(x => x.data || []);
+  [D.reqs, D.clients, D.pos, D.negs, D.quotes] = r.slice(0, 5).map(x => x.data || []);
+  D.flow = Object.fromEntries((r[5].data || []).map(x => [x.id, x]));
 }
 
 // ---------- Operator ----------
@@ -289,7 +282,7 @@ drawLog(false);
   ws = m[0].workspace_id; ANON = !!session.user.is_anonymous;
   await load(); render(); opInit();
   let t = null; const ch = sb.channel('home-' + ws);
-  ['sourcing_requests', 'clients', 'purchase_orders', 'negotiations', 'quotes'].forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb, filter: 'workspace_id=eq.' + ws }, () => { clearTimeout(t); t = setTimeout(async () => { await load(); render(); refreshSugs(false); }, 500); }));
+  ['sourcing_requests', 'clients', 'purchase_orders', 'negotiations', 'quotes', 'request_candidates', 'sourcing_orders', 'jobs'].forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb, filter: 'workspace_id=eq.' + ws }, () => { clearTimeout(t); t = setTimeout(async () => { await load(); render(); refreshSugs(false); }, 500); }));
   ch.subscribe(st => { $('sync').textContent = st === 'SUBSCRIBED' ? (m[0].workspaces?.name || 'My workspace') + ', live' : 'Reconnecting…'; });
 })();
 })();
