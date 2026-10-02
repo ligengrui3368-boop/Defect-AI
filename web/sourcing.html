@@ -88,6 +88,14 @@ textarea{min-height:90px;resize:vertical}
 .dprev div{position:relative}.dprev img{width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid var(--line);display:block}
 .dprev button{position:absolute;top:5px;right:5px;width:24px;height:24px;border-radius:50%;border:0;background:rgba(0,0,0,.65);color:#fff;font-size:14px;line-height:24px;cursor:pointer;padding:0}
 .chkrow{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--ink);font-weight:500;margin-top:14px}.chkrow input{width:auto;margin:0}
+.rows li.withdel{display:flex;align-items:center;gap:8px}.rows li.withdel>.row{flex:1;min-width:0}
+.delbtn{width:38px;height:38px;flex-shrink:0;border-radius:50%;border:1px solid transparent;background:none;color:var(--muted);cursor:pointer;display:grid;place-items:center;padding:0}
+.delbtn:hover{color:var(--fail);background:var(--fail-bg);border-color:var(--fail-bg)}.delbtn svg{width:18px;height:18px}
+.btn.danger{color:var(--fail)}.btn.danger:hover{background:var(--fail-bg);border-color:var(--fail-bg)}
+#cfm{position:fixed;inset:0;background:rgba(10,12,16,.5);display:flex;align-items:center;justify-content:center;z-index:9998;padding:20px}
+#cfm .box{background:var(--panel);border-radius:16px;max-width:440px;width:100%;padding:22px 22px 18px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+#cfm h3{margin:0 0 8px;font-size:18px}#cfm p{margin:0 0 6px;font-size:14px;line-height:1.5;color:var(--ink)}#cfm p.mut{color:var(--muted)}
+#cfm .bar{justify-content:flex-end;margin-top:16px}#cfm .go{background:var(--fail);border-color:var(--fail);color:#fff}#cfm .go:hover{filter:brightness(.92)}
 .glance{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px;margin:12px 0 4px}
 .glance div{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0}
 .glance small{display:block;color:var(--muted);font-size:12px;line-height:1.3}
@@ -179,6 +187,31 @@ function qualityBits(d) {
   return b.length ? `<div class="qchips">${b.join('')}</div>` : '';
 }
 const CONTACTS = { running: false };
+const TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>';
+// a confirmation box (resolves true only when the red button is pressed)
+function confirmBox({ title, body, note = '', confirmLabel = 'Delete' }) {
+  return new Promise((resolve) => {
+    const el = document.createElement('div'); el.id = 'cfm';
+    el.innerHTML = `<div class="box" role="dialog" aria-modal="true"><h3>${esc(title)}</h3><p>${body}</p>${note ? `<p class="mut">${note}</p>` : ''}<div class="bar"><button class="btn" data-x="0">Cancel</button><button class="btn go" data-x="1">${esc(confirmLabel)}</button></div></div>`;
+    const done = (v) => { el.remove(); document.removeEventListener('keydown', key); resolve(v); };
+    const key = (e) => { if (e.key === 'Escape') done(false); };
+    el.onclick = (e) => { if (e.target === el) done(false); const b = e.target.closest('[data-x]'); if (b) done(b.dataset.x === '1'); };
+    document.addEventListener('keydown', key); document.body.appendChild(el); el.querySelector('[data-x="0"]').focus();
+  });
+}
+async function deleteRequest(id) {
+  const r = D.requests.find(x => x.id === id); if (!r) return false;
+  const cnt = async (t) => (await sb.from(t).select('id', { count: 'exact', head: true }).eq('request_id', id)).count || 0;
+  const [c, n, q, o] = await Promise.all([cnt('request_candidates'), cnt('negotiations'), cnt('quotes'), cnt('sourcing_orders')]);
+  const parts = [[c, 'factory candidate'], [n, 'negotiation'], [q, 'saved quote'], [o, 'order']].filter(([k]) => k).map(([k, w]) => `${k} ${w}${k === 1 ? '' : 's'}`);
+  const ok = await confirmBox({ title: 'Delete this request?', body: `“<b>${esc(r.title)}</b>”${parts.length ? ' and its ' + parts.join(', ').replace(/, ([^,]*)$/, ' and $1') : ''} will be deleted for good.`,
+    note: (o ? '<b>It has an order.</b> ' : '') + 'Factories stay in your Factories list. This can’t be undone.', confirmLabel: 'Delete request' });
+  if (!ok) return false;
+  try { const dir = `${ws}/sourcing/${id}`; const { data: files } = await sb.storage.from('photos').list(dir, { limit: 100 }); if (files?.length) await sb.storage.from('photos').remove(files.map(f => `${dir}/${f.name}`)); } catch (e) {}
+  const { error } = await sb.from('sourcing_requests').delete().eq('id', id);
+  if (error) { toast(error.message); return false; }
+  delete VIEW_TAB[id]; toast('Request deleted'); await load(); return true;
+}
 const GLANCE_TRIED = new Set();
 async function shrinkPhoto(file, max = 1280) {
   const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('Not an image')); i.src = URL.createObjectURL(file); });
@@ -230,7 +263,7 @@ function viewRequests() {
   return `<div class="hello"><div><h1>Requests</h1><p>What clients want made, and where each one stands.</p></div>
     <div class="bar"><a class="btn" href="#/clients">Clients</a><a class="btn primary" href="#/new">New request</a></div></div>
   <div class="steps">${counts.map(([s, n]) => `<div class="${n ? 'on' : ''}">${SLABEL[s]} ${n}</div>`).join('')}</div>
-  ${open.length ? `<ul class="rows" style="margin-top:18px">${open.map(r => `<li><a class="row" href="#/request/${r.id}"><span class="ring ${r.status === 'intake' && !r.spec?.intake_at ? '' : 'half'}"></span><span class="t"><b>${esc(r.title)}</b><small>${esc(SLABEL[r.status])}${r.quantity ? ', ' + fmt(r.quantity, 0) + ' units' : ''}${r.target_unit_price ? ', target ' + usd(r.target_unit_price) : ''}</small></span><span class="chips">${r.deadline ? `<span class="tag">${dt(r.deadline)}</span>` : ''}${r.clients ? `<span class="tag">${esc(r.clients.company || r.clients.name)}</span>` : ''}</span></a></li>`).join('')}</ul>` : `<div class="dc-empty" style="margin-top:18px">No requests yet. <a href="#/new">Create the first one</a>, or tell Operator on the <a href="./">Home page</a> what the client wants made.</div>`}
+  ${open.length ? `<ul class="rows" style="margin-top:18px">${open.map(r => `<li class="withdel"><a class="row" href="#/request/${r.id}"><span class="ring ${r.status === 'intake' && !r.spec?.intake_at ? '' : 'half'}"></span><span class="t"><b>${esc(r.title)}</b><small>${esc(SLABEL[r.status])}${r.quantity ? ', ' + fmt(r.quantity, 0) + ' units' : ''}${r.target_unit_price ? ', target ' + usd(r.target_unit_price) : ''}</small></span><span class="chips">${r.deadline ? `<span class="tag">${dt(r.deadline)}</span>` : ''}${r.clients ? `<span class="tag">${esc(r.clients.company || r.clients.name)}</span>` : ''}</span></a><button class="delbtn" data-delreq="${r.id}" title="Delete request" aria-label="Delete request">${TRASH}</button></li>`).join('')}</ul>` : `<div class="dc-empty" style="margin-top:18px">No requests yet. <a href="#/new">Create the first one</a>, or tell Operator on the <a href="./">Home page</a> what the client wants made.</div>`}
   ${D.requests.some(r => r.status === 'closed') ? `<p class="sm mut">${D.requests.filter(r => r.status === 'closed').length} closed.</p>` : ''}`;
 }
 
@@ -306,7 +339,7 @@ async function viewRequest(id) {
   const tab = VIEW_TAB[id] || TAB_OF[r.status] || 'intake';
   const photoStrip = (s.photos || []).length ? `<div class="pstrip"><span>Product photos:</span>${s.photos.map(p => `<img data-sp="${esc(p)}" alt="">`).join('')}</div>` : '';
   return `<div class="hello"><div><a class="sm" href="#/requests">← Requests</a><h1>${esc(r.title)}</h1><p>${esc(client ? (client.company || client.name) : 'No client')} · created ${dt(r.created_at)}${r.hts_code ? ` · HTS ${esc(r.hts_code)}` : ''}</p></div>
-    <div class="bar"><select id="stSel" class="btn" style="width:auto">${STATUSES.map(x => `<option value="${x}" ${x === r.status ? 'selected' : ''}>${SLABEL[x]}</option>`).join('')}</select>${client ? `<a class="btn" target="_blank" href="portal.html?c=${esc(client.portal_token)}">Client portal ↗</a>` : ''}</div></div>
+    <div class="bar"><select id="stSel" class="btn" style="width:auto">${STATUSES.map(x => `<option value="${x}" ${x === r.status ? 'selected' : ''}>${SLABEL[x]}</option>`).join('')}</select>${client ? `<a class="btn" target="_blank" href="portal.html?c=${esc(client.portal_token)}">Client portal ↗</a>` : ''}<button class="btn danger" id="delReq">Delete</button></div></div>
   ${stepsBar(r.status, tab)}
   <div class="tabbed" data-show="${tab}" id="tabbed">
   <div>
@@ -463,6 +496,8 @@ function wire(page, id) {
   on('[data-cp]', 'click', async (e) => { e.stopPropagation(); if (await copy(e.currentTarget.dataset.cp)) toast('Copied'); });
   on('[data-wx]', 'click', async (e) => { e.stopPropagation(); await copy(e.currentTarget.dataset.wx); toast('Number copied. In WeChat tap ＋ → Add Contacts, paste it and search.'); });
   on('[data-getc]', 'click', (e) => { e.stopPropagation(); const b = e.currentTarget; fetchContacts({ factory_ids: [b.dataset.getc], force: b.dataset.force === '1' }).catch(err => { CONTACTS.running = false; toast(err.message); render(); }); });
+  on('[data-delreq]', 'click', async (e) => { e.preventDefault(); e.stopPropagation(); if (await deleteRequest(e.currentTarget.dataset.delreq)) render(); });
+  if ($('delReq')) $('delReq').onclick = async () => { if (await deleteRequest(id)) location.hash = '#/requests'; };
   const upd = async (t, patch, eq) => { const { error } = await sb.from(t).update(patch).eq('id', eq); if (error) toast(error.message); else await refresh(); };
   if (page === 'new') {
     const drop = $('drop'), input = $('nFiles');
