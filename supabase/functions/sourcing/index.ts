@@ -25,6 +25,7 @@
 //                 registered phone, email, website and address, plus business scope, registered capital
 //                 and insured staff for the factory-vs-trader check. Only fills empty fields; results are
 //                 kept on the factory so each company is paid for once (force: true re-checks).
+//   operator_suggest – fresh suggested prompts for the Operator panel, from current work and memory
 //   operator    – the Home page assistant: reads the workspace's clients and open requests,
 //                 answers questions, or returns one action for the page to carry out
 //                 (create_request, create_client, open)
@@ -499,33 +500,108 @@ async function registryContacts(sb: SupabaseClient, body: Any) {
   return { ok: true, checked: todo.length, skipped: (facs ?? []).length - todo.length, found, not_found: notFound, failed };
 }
 
+// ---------- Operator (Home page assistant) ----------
+// Context it sees: the workspace's clients and open requests with their stage, best factories, offers and
+// quotes; plus its own memory (per person + workspace): the conversation and running notes on what the
+// person is working on. Every reply also returns fresh suggested prompts and updated notes.
+const NEXT_OF: Record<string, string> = { intake: "run intake / answer open questions", sourcing: "pick factories to negotiate with", shortlisted: "pick factories to negotiate with", negotiating: "get offers and agree a price", quoted: "waiting on the client to approve the quote", approved: "place the order", ordered: "track deposit, production and balance" };
+async function operatorContext(sb: SupabaseClient, ws: string | null) {
+  const scope = (q: Any) => (ws ? q.eq("workspace_id", ws) : q);
+  const [{ data: clients }, { data: reqs }] = await Promise.all([
+    scope(sb.from("clients").select("id, name, company")).limit(100),
+    scope(sb.from("sourcing_requests").select("id, title, status, quantity, target_unit_price, deadline, client_id, spec, updated_at")).neq("status", "closed").order("updated_at", { ascending: false }).limit(15),
+  ]);
+  const ids = (reqs ?? []).map((r: Any) => r.id);
+  const [{ data: cands }, { data: negs }, { data: quotes }] = ids.length ? await Promise.all([
+    sb.from("request_candidates").select("request_id, rank, price_cny, moq, listing_title, status, factories(name)").in("request_id", ids).neq("status", "rejected").order("rank", { ascending: true, nullsFirst: false }).limit(300),
+    sb.from("negotiations").select("request_id, status, current_offer_cny, agreed_cny, target_cny, updated_at, factories(name)").in("request_id", ids).limit(200),
+    sb.from("quotes").select("request_id, released_to_client, status, client_unit_price, created_at").in("request_id", ids).limit(100),
+  ]) : [{ data: [] }, { data: [] }, { data: [] }] as Any[];
+  const open = (reqs ?? []).map((r: Any) => {
+    const cs = (cands ?? []).filter((c: Any) => c.request_id === r.id);
+    return {
+      id: r.id, title: r.title, status: r.status, next_step: NEXT_OF[r.status] ?? "", quantity: r.quantity, target_usd: r.target_unit_price, deadline: r.deadline,
+      client: (clients ?? []).find((c: Any) => c.id === r.client_id)?.company ?? (clients ?? []).find((c: Any) => c.id === r.client_id)?.name ?? null,
+      product: r.spec?.product_name ?? null, open_questions: (r.spec?.questions ?? []).slice(0, 5), est_factory_cny: r.spec?.estimated_factory_price_cny ?? null,
+      candidates: cs.length, top_factories: cs.slice(0, 3).map((c: Any) => ({ factory: c.factories?.name, price_cny: c.price_cny, moq: c.moq })),
+      negotiations: (negs ?? []).filter((n: Any) => n.request_id === r.id).map((n: Any) => ({ factory: n.factories?.name, status: n.status, offer_cny: n.current_offer_cny, agreed_cny: n.agreed_cny, target_cny: n.target_cny })),
+      quotes: (quotes ?? []).filter((q: Any) => q.request_id === r.id).map((q: Any) => ({ usd_per_unit: q.client_unit_price, sent_to_client: q.released_to_client })),
+      last_activity: String(r.updated_at ?? "").slice(0, 10),
+    };
+  });
+  return { clients: (clients ?? []).map((c: Any) => ({ name: c.name, company: c.company })), open };
+}
+async function loadMemory(sb: SupabaseClient, ws: string | null) {
+  if (!ws) return null;
+  const { data } = await sb.from("operator_memory").select("messages, notes, suggestions").eq("workspace_id", ws).maybeSingle();
+  return data ?? { messages: [], notes: "", suggestions: [] };
+}
+const cleanSugs = (a: Any, avoid: string[] = []) => (Array.isArray(a) ? a : []).map((x: Any) => String(x ?? "").trim().replace(/^["'“]|["'”]$/g, "")).filter((x: string) => x && x.length <= 110 && !avoid.includes(x)).slice(0, 4);
+const SUG_RULES = `Suggestions: 4 short things the user could ask Operator next (each under 75 characters, written as the user would type them, in the user's language). Make them specific to the current work: name the actual products, factories, clients and numbers. Cover different kinds: a status check, the next action on the most pressing request, drafting a message (a counter-offer or follow-up to a factory in Chinese, or an update to a client), and an analysis or advice question. Prefer requests that are stuck or have a next step, and threads from the memory and recent conversation. Operator can answer questions, draft messages, create requests and clients, and open pages.`;
+
 async function operator(sb: SupabaseClient, body: Any) {
   const message = String(body.message ?? "").trim().slice(0, 4000);
   if (!message) throw new HttpError(400, "Empty message");
-  const history = (Array.isArray(body.history) ? body.history : []).slice(-8).map((h: Any) => `${h.role === "operator" ? "Operator" : "User"}: ${String(h.text ?? "").slice(0, 800)}`).join("\n");
-  const { data: clients } = await sb.from("clients").select("id, name, company").limit(100);
-  const { data: reqs } = await sb.from("sourcing_requests").select("id, title, status, quantity, target_unit_price, deadline, client_id, spec").neq("status", "closed").order("updated_at", { ascending: false }).limit(30);
-  const { data: negs } = await sb.from("negotiations").select("request_id, status, current_offer_cny, agreed_cny").limit(200);
+  const ws = typeof body.workspace_id === "string" ? body.workspace_id : null;
+  const mem = await loadMemory(sb, ws);
+  const past = (mem?.messages ?? []) as Any[];
+  const histSrc = past.length ? past.map((m: Any) => ({ role: m.role === "op" ? "operator" : "user", text: m.text })) : (Array.isArray(body.history) ? body.history : []);
+  const history = histSrc.slice(-10).map((h: Any) => `${h.role === "operator" ? "Operator" : "User"}: ${String(h.text ?? "").slice(0, 800)}`).join("\n");
+  const { clients, open } = await operatorContext(sb, ws);
   const today = new Date().toISOString().slice(0, 10);
-  const open = (reqs ?? []).map((r: Any) => ({ id: r.id, title: r.title, status: r.status, quantity: r.quantity, target_usd: r.target_unit_price, deadline: r.deadline, client: (clients ?? []).find((c: Any) => c.id === r.client_id)?.company ?? null, open_questions: r.spec?.questions?.length ?? 0, negotiations: (negs ?? []).filter((n: Any) => n.request_id === r.id).map((n: Any) => n.status) }));
-  const out = await askJson(`You are Operator, the assistant inside Lathe. Gary runs it: US brands tell him what they want made, he sources it from Chinese factories (1688), negotiates himself, quotes the full landed cost, and checks quality before the balance is paid.
-Today is ${today}.
-Clients: ${JSON.stringify((clients ?? []).map((c: Any) => ({ name: c.name, company: c.company })))}
-Open requests: ${JSON.stringify(open)}
+  const lang = body.lang === "zh" ? "Simplified Chinese" : "English";
+  const out = await askJson(`You are Operator, the assistant inside Lathe. Gary runs it: US brands tell him what they want made, he sources it from Chinese factories (1688), negotiates himself, quotes the full landed cost, and places the order.
+Today is ${today}. Reply in ${lang}.
+Your memory of what this person is working on (your own notes from earlier conversations):
+${mem?.notes?.trim() || "(nothing yet)"}
+Clients: ${JSON.stringify(clients)}
+Open requests (newest activity first) with their stage, best factories, offers and quotes: ${JSON.stringify(open)}
 Conversation so far:
 ${history || "(none)"}
 User: ${message}
 
 Decide what to do and return a JSON object:
-{ "reply": string, "action": null | {...} }
+{ "reply": string, "action": null | {...}, "memory": string, "suggestions": string[] }
 Possible actions:
-- { "type": "create_request", "title": short product name with key spec (under 70 chars), "brief": everything the user said about the product (specs, materials, packaging, branding, price, timing), "quantity": number|null, "target_unit_price": number|null (USD per unit), "deadline": "YYYY-MM-DD"|null (resolve relative dates from today), "client_name": existing client name or company if one was named or clearly implied, else the new name the user gave, else null }
+- { "type": "create_request", "title": short product name with key spec (under 70 chars), "brief": everything the user said about the product (specs, materials, packaging, branding, price, timing), "quantity": number|null, "target_unit_price": number|null (USD per unit), "deadline": "YYYY-MM-DD"|null (resolve relative dates from today), "client_name": existing client name or company if one was named, else null }
 - { "type": "create_client", "name": string, "company": string|null, "email": string|null }
-- { "type": "open", "href": one of "sourcing.html#/requests", "sourcing.html#/request/<id>", "sourcing.html#/clients", "sourcing.html#/factories", "sourcing.html#/rates", "ops.html#/orders", "app.html" }
-Rules: only create a request when the user asks to source, make, buy or quote a physical product. When you create one, the reply is one short sentence saying you're creating it and running intake. Answer status questions from the open requests list only, briefly and specifically (name the requests and what each needs next). Never invent prices, factories or facts that are not in the data. Plain sentences, no markdown except links written as [title](sourcing.html#/request/<id>).${body.lang === "zh" ? " Write the reply in Simplified Chinese (keep product names, numbers and links as they are)." : ""}`, 1500);
+- { "type": "open", "href": one of "sourcing.html#/requests", "sourcing.html#/request/<id>", "sourcing.html#/clients", "sourcing.html#/factories", "sourcing.html#/rates", "sourcing.html#/new", "sourcing.html#/account" }
+Rules: only create a request when the user asks to source, make, buy or quote a physical product; then the reply is one short sentence saying you're creating it and running intake. Answer status questions from the open requests only, briefly and specifically (name the requests and what each needs next). When asked to draft a message, write it in full: factory messages in Chinese (polite, concise, WeChat/1688 style), client messages in English. When useful, link a request as [its title](sourcing.html#/request/<id>). Never invent prices, factories or facts that are not in the data. Plain sentences, no markdown headings.
+memory: rewrite your notes for next time (max 700 characters, short lines): what the person is focused on now, decisions made, preferences and how they like to work, and open threads to follow up. Keep what still matters from the old notes, drop what is finished or stale, add what this exchange taught you. Facts only; no guesses.
+${SUG_RULES} Don't repeat these recent suggestions: ${JSON.stringify(mem?.suggestions ?? [])}.`);
   const a = out?.action && typeof out.action === "object" ? out.action : null;
   const allowed = ["create_request", "create_client", "open"];
-  return { ok: true, reply: String(out?.reply ?? "").slice(0, 3000), action: a && allowed.includes(a.type) ? a : null };
+  const reply = String(out?.reply ?? "").slice(0, 3000);
+  const suggestions = cleanSugs(out?.suggestions, body.message ? [message] : []);
+  if (ws && mem) {
+    const now = new Date().toISOString();
+    const msgs = [...past, { role: "me", text: message, at: now }, { role: "op", text: reply, at: now }].slice(-40);
+    const notes = typeof out?.memory === "string" && out.memory.trim() ? out.memory.trim().slice(0, 900) : mem.notes;
+    await sb.from("operator_memory").upsert({ workspace_id: ws, messages: msgs, notes, suggestions: suggestions.length ? suggestions : mem.suggestions, updated_at: now }, { onConflict: "workspace_id,user_id" });
+  }
+  return { ok: true, reply, action: a && allowed.includes(a.type) ? a : null, suggestions };
+}
+
+// Fresh suggested prompts for the Operator panel, from the current work and memory (fast model).
+async function operatorSuggest(sb: SupabaseClient, body: Any) {
+  const ws = typeof body.workspace_id === "string" ? body.workspace_id : null;
+  const mem = await loadMemory(sb, ws);
+  const { clients, open } = await operatorContext(sb, ws);
+  const recent = ((mem?.messages ?? []) as Any[]).slice(-6).map((m: Any) => `${m.role === "op" ? "Operator" : "User"}: ${String(m.text ?? "").slice(0, 300)}`).join("\n");
+  const avoid = [...((mem?.suggestions ?? []) as string[]), ...((Array.isArray(body.avoid) ? body.avoid : []) as string[])].slice(-16);
+  const lang = body.lang === "zh" ? "Simplified Chinese" : "English";
+  const out = await askJson(`You suggest prompts for Operator, the assistant in Lathe (a tool for sourcing products from Chinese factories for US clients). Today is ${new Date().toISOString().slice(0, 10)}. Write in ${lang}.
+Memory notes about what the user is working on: ${mem?.notes?.trim() || "(none yet)"}
+Recent conversation:
+${recent || "(none)"}
+Clients: ${JSON.stringify(clients)}
+Open requests: ${JSON.stringify(open)}
+${SUG_RULES} If there are no open requests, suggest starting one (a concrete example product) or adding a client.
+Don't repeat or closely reword any of these: ${JSON.stringify(avoid)}.
+Return a JSON array of 4 strings.`, 600, TRANSLATE_MODEL);
+  const suggestions = cleanSugs(out, avoid);
+  if (ws && mem && suggestions.length) await sb.from("operator_memory").upsert({ workspace_id: ws, messages: mem.messages ?? [], notes: mem.notes ?? "", suggestions: [...((mem.suggestions ?? []) as string[]), ...suggestions].slice(-12), updated_at: new Date().toISOString() }, { onConflict: "workspace_id,user_id" });
+  return { ok: true, suggestions };
 }
 
 async function translate(body: Any, auth: string) {
@@ -587,6 +663,7 @@ Deno.serve(async (req) => {
       case "draft_rfq": return json(await draftRfq(sb, body));
       case "verify": return json(await verify(sb, body));
       case "operator": return json(await operator(sb, body));
+      case "operator_suggest": return json(await operatorSuggest(sb, body));
       case "registry_contacts": return json(await registryContacts(sb, body));
       case "status": return json({ ok: true, anthropic: Boolean(ANTHROPIC_API_KEY), apify: Boolean(APIFY_TOKEN), registry: Boolean(TYC_TOKEN), actor: APIFY_ACTOR, model: MODEL });
       default: return json({ error: "Unknown task" }, 400);
