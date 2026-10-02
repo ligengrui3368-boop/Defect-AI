@@ -6,6 +6,8 @@
   var rail = document.currentScript && document.currentScript.previousElementSibling;
   if (!rail || !rail.classList || !rail.classList.contains('rail')) rail = document.querySelector('nav.rail');
   if (!rail || rail.dataset.dc) return;
+  // factory inspection links (?f=) and website demos (?demo=) are standalone screens: no Lathe navigation
+  if (/[?&](f|demo)=/.test(location.search)) { rail.style.display = 'none'; return; }
   var file = location.pathname.split('/').pop() || 'index.html';
   var has = function (id) { return !!rail.querySelector('#' + id); };
   var syncEl = rail.querySelector('#sync');
