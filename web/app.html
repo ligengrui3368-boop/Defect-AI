@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Products, Defect Check</title>
+<title>Products, Lathe</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#14202A">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -314,8 +314,8 @@ details.passed summary{cursor:pointer;font-weight:600;font-size:14px;padding:6px
 <link rel="stylesheet" href="theme.css?v=4">
 <script>/* Browsers keep pages for up to 10 minutes. If the server has a newer copy, reload once. */(function(){try{fetch(location.pathname,{method:'HEAD',cache:'no-store'}).then(function(r){var lm=r.headers.get('last-modified');if(!lm)return;var k='dc-fresh:'+location.pathname;if(new Date(lm).getTime()-new Date(document.lastModified).getTime()>1000&&sessionStorage.getItem(k)!==lm){sessionStorage.setItem(k,lm);location.reload();}}).catch(function(){});}catch(e){}})();</script>
 </head><body>
-<nav class="rail" id="rail" aria-label="Main"><div class="brand"><i aria-hidden="true"></i>Defect Check</div><a href="./">Home</a><a href="ops.html#/orders">Orders</a><a href="app.html" aria-current="page">Products</a><a href="ops.html#/defects">Defects</a><a href="ops.html#/suppliers">Suppliers</a><a href="sourcing.html">Sourcing</a><div class="grow"></div><a class="quiet" href="site/">Website</a></nav><script src="nav.js?v=3"></script>
-<header class="top"><button class="back" id="back" hidden>‹ Back</button><h1 id="ttl">Defect Check</h1><a class="opslink" id="opsLink" href="./">Home</a><span class="sync" id="sync">Connecting…</span></header>
+<nav class="rail" id="rail" aria-label="Main"><div class="brand"><i aria-hidden="true"></i>Lathe</div><a href="./">Home</a><a href="ops.html#/orders">Orders</a><a href="app.html" aria-current="page">Products</a><a href="ops.html#/defects">Defects</a><a href="ops.html#/suppliers">Suppliers</a><a href="sourcing.html">Sourcing</a><div class="grow"></div><a class="quiet" href="site/">Website</a></nav><script src="nav.js?v=3"></script>
+<header class="top"><button class="back" id="back" hidden>‹ Back</button><h1 id="ttl">Lathe</h1><a class="opslink" id="opsLink" href="./">Home</a><span class="sync" id="sync">Connecting…</span></header>
 <main id="app"></main>
 <div class="bottom" id="bottom"></div>
 <input type="file" id="camIn" accept="image/*" capture="environment" hidden>
@@ -507,7 +507,7 @@ function bar(html) { bottom.innerHTML = `<div class="in">${html}</div>`; }
 
 /* ---------- home ---------- */
 function home() {
-  $('#ttl').textContent = S.factory ? 'Defect Check' : 'Products and checks';
+  $('#ttl').textContent = S.factory ? 'Lathe' : 'Products and checks';
   const recent = S.inspections.slice(0, 8);
   app.innerHTML = `<div class="big2"><button class="primary" data-a="checkStart"><b>Check a unit</b><span>Photograph a unit and compare it to its approved standard</span></button>
   <button data-a="new"><b>Set up a product</b><span>From the official listing, or photos of a good unit</span></button></div>
@@ -768,7 +768,7 @@ async function printLabels(ses, lot, productName) {
   const short = ses.id.slice(0, 8), N = ses.cartons;
   const qr = t => { const q = window.qrcode(0, 'M'); q.addData(t); q.make(); return q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); };
   let ticks = ''; for (let i = 0; i <= 100; i++) ticks += `<i style="left:${i}mm;height:${i % 10 === 0 ? 6 : i % 5 === 0 ? 4 : 2.5}mm"></i>` + (i % 10 === 0 ? `<b style="left:${i}mm">${i}</b>` : '');
-  const card = `<div class="ppage"><div class="pcard"><h2>Defect Check measuring card 测量卡</h2>
+  const card = `<div class="ppage"><div class="pcard"><h2>Lathe measuring card 测量卡</h2>
     <div class="ruler">${ticks}</div>
     <div class="patches"><span style="background:#fff">white</span><span style="background:#c8c8c8">grey</span><span style="background:#808080;color:#fff">grey</span><span style="background:#000;color:#fff">black</span><span style="background:#d22">red</span><span style="background:#1a1">green</span><span style="background:#23c;color:#fff">blue</span></div>
     <div class="pqr">${qr('DC-CARD:1')}</div>
@@ -1275,9 +1275,9 @@ document.addEventListener('click', e => {
 });
 
 /* ---------- sign-in + boot ---------- */
-function loadingView() { $('#ttl').textContent = 'Defect Check'; app.innerHTML = `<p class="note">${S.setupMsg ? S.setupMsg : 'Loading…'}</p>`; }
+function loadingView() { $('#ttl').textContent = 'Lathe'; app.innerHTML = `<p class="note">${S.setupMsg ? S.setupMsg : 'Loading…'}</p>`; }
 function loginView() {
-  $('#ttl').textContent = 'Defect Check';
+  $('#ttl').textContent = 'Lathe';
   app.innerHTML = `<div class="sec"><h3>Sign in</h3><p>We'll email you a sign-in link. No password needed.</p>
     <label class="f">Email<input class="i" type="text" id="email" name="dc-signin" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore inputmode="email" placeholder="you@company.com"></label>
     <button class="btn primary" data-a="sendLink" style="width:100%;margin-top:14px">Email me a sign-in link</button><p class="note" id="loginNote"></p></div>`;
