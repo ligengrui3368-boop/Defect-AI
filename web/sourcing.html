@@ -119,6 +119,8 @@ textarea{min-height:90px;resize:vertical}
 .nextbar{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--harbor);border-radius:12px;padding:14px 18px;margin-bottom:16px}
 .nextbar small{display:block;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--harbor);font-weight:700}
 .nextbar b{display:block;font-size:16px;margin:2px 0}.nextbar span{font-size:13.5px;color:var(--muted)}
+.nextbar.working{border-left-color:var(--hivis,#F2B705)}.spin{width:22px;height:22px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--harbor);animation:spin 1s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
 .panel-foot{display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--line);margin-top:16px;padding-top:12px}
 .filt{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
 .filt button{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:7px 14px;font:inherit;font-size:13.5px;cursor:pointer;color:var(--ink)}
@@ -348,13 +350,21 @@ async function shrinkPhoto(file, max = 1280) {
   c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(img.src);
   return await new Promise(r => c.toBlob(r, 'image/jpeg', .88));
 }
-async function photoSearch(id, body, btn) {
-  busy(btn, true); toast('Searching 1688 by photo… this takes about a minute');
-  try {
-    const out = await call('search_photo', { request_id: id, filters: QF, ...body }); const fs = out.filter;
-    toast(`Photo search: ${fs.scanned} look-alikes, kept ${fs.kept} well-rated` + (Object.keys(fs.dropped || {}).length ? ` (dropped ${Object.entries(fs.dropped).map(([k, n]) => n + ' ' + ({ already_seen: 'already shown', trader: 'traders', service: 'low service score', reviews: 'weak reviews', repeat: 'low repeat rate', years: 'too new' }[k] || k)).join(', ')})` : '') + ` · ${out.new_candidates} new`);
-    await refresh();
-  } catch (err) { busy(btn, false); toast(err.message); }
+// 1688 searches run in the background (jobs table); the page shows progress and updates when they finish
+async function startJob(id, kind, args, btn) {
+  if (btn) busy(btn, true);
+  try { const out = await call('start_job', { request_id: id, kind, args }); toast(`${out.label} in the background. Keep working; results appear here when ready.`); }
+  catch (err) { toast(err.message); }
+  await refresh();
+}
+const photoSearch = (id, body, btn) => startJob(id, 'search_photo', { filters: QF, ...body }, btn);
+const DROP_WORDS = { already_seen: 'already shown', trader: 'traders', service: 'low service score', reviews: 'weak reviews', repeat: 'low repeat rate', years: 'too new' };
+function jobToast(j) {
+  const rq = D.requests.find(x => x.id === j.request_id), name = rq ? rq.title : 'your request', x = j.result || {};
+  if (j.status === 'failed') return toast(`${j.label || 'Search'} for ${name} didn't work: ${j.error || 'unknown error'}`);
+  const dropped = Object.entries(x.dropped || {}).map(([k, n]) => n + ' ' + (DROP_WORDS[k] || k)).join(', ');
+  toast(j.kind === 'refresh_search' ? `${name}: replaced ${x.replaced ?? 0} with ${x.new_candidates ?? 0} new listings from different factories`
+    : `${name}: scanned ${x.scanned ?? x.listings ?? 0}, kept ${x.kept ?? x.listings ?? 0} well-rated${dropped ? ` (dropped ${dropped})` : ''} · ${x.new_candidates ?? 0} new`);
 }
 async function fetchContacts(body) {
   if (CONTACTS.running) return toast('Already looking up contacts');
@@ -373,14 +383,27 @@ async function call(task, body) {
   if (data?.error) throw new Error(data.error);
   return data;
 }
+// live updates redraw the page, but never under someone who is typing or has a form or dialog open
+let LIVE_T = null;
+function liveRefresh() {
+  clearTimeout(LIVE_T);
+  LIVE_T = setTimeout(async function go() {
+    const a = document.activeElement, open = (id) => { const el = document.getElementById(id); return el && el.style.display === 'block'; };
+    const busyNow = (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && app.contains(a)) || open('specEdit') || open('refreshBox') || document.getElementById('cfm') || document.getElementById('lb');
+    if (busyNow) { LIVE_T = setTimeout(go, 1500); return; }
+    await refresh();
+  }, 600);
+}
 async function load() {
-  const [r, c, f, a] = await Promise.all([
+  const [r, c, f, a, fl] = await Promise.all([
     sb.from('sourcing_requests').select('*, clients(name, company)').eq('workspace_id', ws).order('updated_at', { ascending: false }),
     sb.from('clients').select('*').eq('workspace_id', ws).order('created_at', { ascending: false }),
     sb.from('factories').select('*').eq('workspace_id', ws).order('updated_at', { ascending: false }),
     sb.from('cost_assumptions').select('*').eq('workspace_id', ws).order('effective_date', { ascending: false }),
+    sb.from('request_flow').select('*').eq('workspace_id', ws),
   ]);
   D.requests = r.data || []; D.clients = c.data || []; D.factories = f.data || []; D.rates = a.data || [];
+  D.flow = Object.fromEntries((fl.data || []).map(x => [x.id, x]));
   $('navReq').textContent = D.requests.filter(x => !['closed', 'ordered'].includes(x.status)).length || '';
 }
 
@@ -455,31 +478,20 @@ function phaseBar(status, view) {
   return `<div class="phases">${PHASES.map(([k, l], i) => `<button type="button" data-phase="${k}" class="${status === 'closed' || i < pi ? 'done' : i === pi ? 'on' : ''}${k === view ? ' view' : ''}"><span>${status === 'closed' || i < pi ? '✓' : i + 1}</span>${l}</button>`).join('')}</div>`;
 }
 // what the request needs next, from the status alone (used on the list)
-function listNext(r) {
-  const s = r.spec || {};
-  return { intake: s.intake_at ? 'Find factories on 1688' : (r.raw_brief || (s.photos || []).length ? 'Let the AI read the spec' : 'Add the spec or photos'),
-    sourcing: 'Pick factories to negotiate with', shortlisted: 'Pick factories to negotiate with', negotiating: 'Get prices and agree one',
-    quoted: 'Waiting on the client', approved: 'Place the order', ordered: 'Track the order', closed: 'Done' }[r.status] || '';
+// the next step for every request comes from one place: the request_flow view in the database
+// (also read by Home and Operator). The app only decides which button runs each step.
+function listNext(r) { const f = D.flow?.[r.id]; return f ? (f.next_key === 'working' ? '⟳ ' : '') + f.next_title : ''; }
+const FLOW_ACT = { add_spec: ['Edit spec', 'edit'], run_intake: ['Run intake', 'intake'], search: ['Search 1688', 'search'], search_photo: ['Search by photo', 'photosearch'],
+  pick_factories: ['Review factories', 'tab', 'sourcing'], reply_factory: ['Open negotiations', 'tab', 'negotiating'], get_offers: ['Open negotiations', 'tab', 'negotiating'],
+  build_quote: ['Build quote', 'quote'], release_quote: ['Release to client', 'release'], await_client: ['Mark approved', 'approve'], place_order: ['Create order', 'order'], track_order: ['Open order', 'tab', 'order'] };
+function flowNext(fl) {
+  if (!fl) return { t: '', h: '' };
+  const a = FLOW_ACT[fl.next_key];
+  return { t: fl.next_title, h: esc(fl.next_hint || '') + (fl.next_key === 'working' && fl.job_started ? ` <span class="mut">Started ${ago(fl.job_started)}.</span>` : ''), working: fl.next_key === 'working',
+    b: a?.[0], act: a?.[1], arg: fl.next_key === 'build_quote' ? fl.offer_neg_id : a?.[2], ...(fl.next_key === 'search_photo' ? { b2: 'Search by text', act2: 'search' } : {}) };
 }
-// what the request needs next, from everything on it (used on the request page)
-function requestNext(r, s, active, negs, quotes, orders) {
-  const agreed = negs.find(g => g.agreed_cny), offer = agreed || negs.find(g => g.current_offer_cny), relQ = quotes.find(q => q.released_to_client);
-  const qs = (s.questions || []).length;
-  if (r.status === 'closed') return { t: 'This request is closed', h: 'Reopen it from the stage menu if anything changes.' };
-  if (orders.length) return { t: 'Track the order', h: 'Tick off the deposit, production and balance as they happen.', b: 'Open order', act: 'tab', arg: 'order' };
-  if (r.status === 'approved' && quotes.length) return { t: 'The client approved. Place the order', h: `${usd(quotes[0].client_unit_price)} / unit${quotes[0].factories?.name ? ' with ' + esc(quotes[0].factories.name) : ''}.`, b: 'Create order', act: 'order' };
-  if (quotes.length && !relQ) return { t: 'Send the quote to the client', h: 'Releasing it puts it in their portal, where they can approve it.', b: 'Release to client', act: 'release' };
-  if (quotes.length) return { t: 'Waiting on the client', h: 'Mark it approved when they say yes.', b: 'Mark approved', act: 'approve' };
-  if (offer) return { t: 'Build the client quote', h: `${esc(offer.factories?.name || 'Factory')} at ${cny(offer.agreed_cny || offer.current_offer_cny)}${offer.agreed_cny ? ' (agreed)' : ' (latest offer)'}. Lathe adds freight, duty and your margin.`, b: 'Build quote', act: 'quote', arg: offer.id };
-  if (negs.length) return { t: 'Get prices from the factories', h: 'Draft the Chinese RFQ, send it on 1688 or WeChat, then log each offer here.', b: 'Open negotiations', act: 'tab', arg: 'negotiating' };
-  if (active.length) return { t: 'Pick 2–3 factories to negotiate with', h: `${active.length} candidate${active.length === 1 ? '' : 's'}, best match first. Press Negotiate on the ones you like, or Refresh results for different factories.`, b: 'Review factories', act: 'tab', arg: 'sourcing' };
-  if (!s.intake_at && !r.raw_brief && !(s.photos || []).length) return { t: 'Add the spec', h: 'Write what the client wants, or drop in product photos.', b: 'Edit spec', act: 'edit' };
-  if (!s.intake_at) return { t: 'Let the AI read the spec', h: 'It structures the spec' + ((s.photos || []).length ? ', reads the photos' : '') + ' and writes the Chinese 1688 search terms.', b: 'Run intake', act: 'intake' };
-  const hint = qs ? `${qs} open question${qs === 1 ? '' : 's'} for the client on the Spec step; you can search meanwhile.` : '';
-  if ((s.photos || []).length) return { t: 'Find factories on 1688', h: hint || 'Search with your product photos, or with the Chinese search terms.', b: 'Search by photo', act: 'photosearch', b2: 'Search by text', act2: 'search' };
-  return { t: 'Find factories on 1688', h: hint || `Searches ${esc((s.search_terms_zh || []).slice(0, 2).join(', '))}.`, b: 'Search 1688', act: 'search' };
-}
-let LIST_FILTER = 'all';
+const ago = (d) => { const m = Math.round((Date.now() - new Date(d).getTime()) / 60000); return m < 1 ? 'just now' : m === 1 ? '1 min ago' : m + ' min ago'; };
+let LIST_FILTER = 'all', FLOW_NOW = null;
 function stepsBar(status, view) { const i = STATUSES.indexOf(status); return `<div class="steps" title="Click a step to open it">${STATUSES.map((s, k) => `<div data-step="${s}" class="${k < i ? 'done' : k === i ? 'on' : ''}${view && TAB_OF[s] === view ? ' view' : ''}">${SLABEL[s]}</div>`).join('')}</div>`; }
 function openLightbox(src) {
   if (!src) return; const lb = document.createElement('div'); lb.id = 'lb';
@@ -493,13 +505,15 @@ const unlines = (t) => String(t || '').split('\n').map(x => x.trim()).filter(Boo
 
 async function viewRequest(id) {
   const r = D.requests.find(x => x.id === id); if (!r) return `<p>Request not found.</p>`;
-  const [c, n, q, req, o] = await Promise.all([
+  const [c, n, q, req, o, fx] = await Promise.all([
     sb.from('request_candidates').select('*, factories(*)').eq('request_id', id).order('rank', { ascending: true, nullsFirst: false }),
     sb.from('negotiations').select('*, factories(*)').eq('request_id', id).order('updated_at', { ascending: false }),
     sb.from('quotes').select('*, factories(name)').eq('request_id', id).order('created_at', { ascending: false }),
     sb.from('client_requirements').select('*').eq('request_id', id).order('created_at'),
     sb.from('sourcing_orders').select('*').eq('request_id', id),
+    sb.from('request_flow').select('*').eq('id', id).maybeSingle(),
   ]);
+  FLOW_NOW = fx.data || null;
   const cands = c.data || [], negs = n.data || [], quotes = q.data || [], reqs = req.data || [], orders = o.data || [];
   const active = cands.filter(k => k.status !== 'rejected'), rejected = cands.filter(k => k.status === 'rejected');
   const untouched = active.filter(k => k.status === 'candidate' && !k.released_to_client).length;
@@ -517,7 +531,7 @@ async function viewRequest(id) {
   return `<div class="hello"><div><a class="sm" href="#/requests">← Requests</a><h1>${esc(r.title)}</h1><p>${esc(client ? (client.company || client.name) : 'No client')} · created ${dt(r.created_at)}${r.hts_code ? ` · HTS ${esc(r.hts_code)}` : ''}</p></div>
     <div class="bar"><select id="stSel" class="btn" style="width:auto">${STATUSES.map(x => `<option value="${x}" ${x === r.status ? 'selected' : ''}>${SLABEL[x]}</option>`).join('')}</select>${client ? `<a class="btn" target="_blank" href="portal.html?c=${esc(client.portal_token)}">Client portal ↗</a>` : ''}<button class="btn danger" id="delReq">Delete</button></div></div>
   ${phaseBar(r.status, tab)}
-  ${(() => { const n = requestNext(r, s, active, negs, quotes, orders); return `<div class="nextbar"><div><small>Next step</small><b>${esc(n.t)}</b>${n.h ? `<span>${n.h}</span>` : ''}</div>${n.b ? `<div class="bar">${n.b2 ? `<button class="btn" id="nextGo2" data-act="${n.act2}">${esc(n.b2)}</button>` : ''}<button class="btn primary" id="nextGo" data-act="${n.act}" data-arg="${esc(n.arg || '')}">${esc(n.b)} →</button></div>` : ''}</div>`; })()}
+  ${(() => { const n = flowNext(FLOW_NOW); if (!n.t) return ''; if (n.working) return `<div class="nextbar working"><div><small>Working on it</small><b>${esc(n.t)}</b><span>${n.h}</span></div><span class="spin" aria-label="Working"></span></div>`; return `<div class="nextbar"><div><small>Next step</small><b>${esc(n.t)}</b>${n.h ? `<span>${n.h}</span>` : ''}</div>${n.b ? `<div class="bar">${n.b2 ? `<button class="btn" id="nextGo2" data-act="${n.act2}">${esc(n.b2)}</button>` : ''}<button class="btn primary" id="nextGo" data-act="${n.act}" data-arg="${esc(n.arg || '')}">${esc(n.b)} →</button></div>` : ''}</div>`; })()}
   <div class="tabbed" data-show="${tab}" id="tabbed">
   <div>
     <div class="panel" data-tab="intake"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">1 · Spec</h2><div class="bar"><button class="btn sm" id="editSpec">Edit</button><button class="btn sm primary" id="runIntake">${s.intake_at ? 'Re-run intake' : 'Run intake agent'}</button></div></div>
@@ -686,6 +700,7 @@ function wire(page, id) {
   if ($('delReq')) $('delReq').onclick = async () => { if (await deleteRequest(id)) location.hash = '#/requests'; };
   const upd = async (t, patch, eq) => { const { error } = await sb.from(t).update(patch).eq('id', eq); if (error) toast(error.message); else await refresh(); };
   if (page === 'account' || page === 'join') hideGoogleIfOff();
+  if (Object.values(D.flow || {}).some(f => f.next_key === 'working')) { clearTimeout(window.__jobPoll); window.__jobPoll = setTimeout(liveRefresh, 8000); }
   if (page === 'account') {
     const authErr = (err) => toast(/not authorized/i.test(err.message) ? 'Lathe can\u2019t email that address yet (email sending isn\u2019t set up). Use a password instead.' : err.message);
     const creds = () => ({ email: ($('aEmail')?.value || '').trim(), password: $('aPass')?.value || '' });
@@ -781,7 +796,7 @@ function wire(page, id) {
       try { status(paths.length ? 'Reading the spec and photos…' : 'Reading the spec…'); await call('intake', { request_id: data.id, set_title: !userTitle }); }
       catch (err) { toast('Saved. Intake failed: ' + err.message); }
       if (paths.length && $('nPhotoSearch').checked) {
-        try { status('Searching 1688 by photo… about a minute'); const out = await call('search_photo', { request_id: data.id, paths: paths.slice(0, 3), filters: QF }); toast(`Found ${out.new_candidates} well-rated factory listings from your photos`); VIEW_TAB[data.id] = 'sourcing'; }
+        try { status('Starting the photo search…'); await call('start_job', { request_id: data.id, kind: 'search_photo', args: { paths: paths.slice(0, 3), filters: QF } }); toast('Searching 1688 with your photos in the background. Results appear on the request.'); VIEW_TAB[data.id] = 'sourcing'; }
         catch (err) { toast('Intake done. Photo search: ' + err.message); }
       }
       NEW_FILES.forEach(f => URL.revokeObjectURL(f.url)); NEW_FILES = []; NEW_FORM = {};
@@ -848,7 +863,7 @@ function wire(page, id) {
     };
     if (r.spec?.intake_at && !(r.spec.at_a_glance || []).length && !GLANCE_TRIED.has(id)) { GLANCE_TRIED.add(id); call('spec_glance', { request_id: id }).then(o => { if ((o.at_a_glance || []).length) { r.spec.at_a_glance = o.at_a_glance; render(); } }).catch(() => {}); }
     $('runIntake').onclick = async (e) => { busy(e.target, true); try { await call('intake', { request_id: id, answers: $('answers')?.value || '' }); toast('Spec updated'); delete VIEW_TAB[id]; await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
-    $('search1688').onclick = async (e) => { busy(e.target, true); try { const t = $('term').value.trim(); const out = await call('search_1688', { request_id: id, terms: t ? [t] : undefined, filters: QF }); const fs = out.filter; toast(fs?.rated ? `Scanned ${fs.scanned} listings, kept ${fs.kept} well-rated` + (Object.keys(fs.dropped || {}).length ? ` (dropped ${Object.entries(fs.dropped).map(([k, n]) => n + ' ' + ({ trader: 'traders', service: 'low service score', reviews: 'weak reviews', repeat: 'low repeat rate', years: 'too new' }[k] || k)).join(', ')})` : '') + ` · ${out.new_candidates} new` : `${out.listings} listings, ${out.new_candidates} new, ranked ${out.ranked}`); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
+    $('search1688').onclick = (e) => { const t = $('term').value.trim(); startJob(id, 'search_1688', { terms: t ? [t] : undefined, filters: QF }, e.target); };
     if ($('rerank')) $('rerank').onclick = async (e) => { busy(e.target, true); try { await call('rank', { request_id: id }); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
     $('photoBtn').onclick = () => $('photoIn').click();
     $('photoIn').onchange = async (e) => {
@@ -864,7 +879,7 @@ function wire(page, id) {
     if (document.querySelector('[data-sp]')) { const ps = [...new Set([...document.querySelectorAll('[data-sp]')].map(i => i.dataset.sp))]; sb.storage.from('photos').createSignedUrls(ps, 3600).then(({ data }) => (data || []).forEach((d, i) => { if (d.signedUrl) document.querySelectorAll(`[data-sp="${CSS.escape(ps[i])}"]`).forEach(el => { el.src = d.signedUrl; }); })); }
     if ($('refreshBtn')) $('refreshBtn').onclick = () => { $('refreshBox').style.display = 'block'; $('refreshFb').focus(); };
     if ($('refreshCancel')) $('refreshCancel').onclick = () => { $('refreshBox').style.display = 'none'; };
-    if ($('refreshGo')) $('refreshGo').onclick = async (e) => { busy(e.target, true); try { const out = await call('refresh_search', { request_id: id, feedback: $('refreshFb').value.trim(), filters: QF }); toast(`Replaced ${out.replaced} with ${out.new_candidates} new listing${out.new_candidates === 1 ? '' : 's'} from ${out.new_factories} new factor${out.new_factories === 1 ? 'y' : 'ies'} · searched ${out.terms.join(', ')}`); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
+    if ($('refreshGo')) $('refreshGo').onclick = (e) => startJob(id, 'refresh_search', { feedback: $('refreshFb').value.trim(), filters: QF }, e.target);
     on('[data-restore]', 'click', (e) => upd('request_candidates', { status: 'candidate' }, e.currentTarget.dataset.restore));
     if ($('qf')) { const sync = () => { QF = { factory_only: $('qfFac').checked, min_service: +$('qfSvc').value, min_rating: +$('qfRat').value, min_repeat: +$('qfRep').value, min_years: +$('qfYrs').value }; saveQF(); }; ['qfFac', 'qfSvc', 'qfRat', 'qfRep', 'qfYrs'].forEach(x => $(x).addEventListener('change', sync)); }
     if ($('getContacts')) $('getContacts').onclick = () => fetchContacts({ request_id: id }).catch(err => { CONTACTS.running = false; toast(err.message); render(); });
@@ -928,8 +943,10 @@ function wire(page, id) {
   ws = curWs.workspace_id; $('sync').textContent = (curWs.workspaces?.name || 'My workspace') + (session.user.is_anonymous ? ' · not signed in' : '');
   await load(); await render();
   window.addEventListener('hashchange', render);
-  let t; const ch = sb.channel('sourcing');
-  ['sourcing_requests', 'request_candidates', 'negotiations', 'quotes', 'client_requirements', 'sourcing_orders', 'factories', 'clients'].forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb, filter: 'workspace_id=eq.' + ws }, () => { clearTimeout(t); t = setTimeout(refresh, 600); }));
+  const ch = sb.channel('sourcing');
+  ['sourcing_requests', 'request_candidates', 'negotiations', 'quotes', 'client_requirements', 'sourcing_orders', 'factories', 'clients'].forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb, filter: 'workspace_id=eq.' + ws }, liveRefresh));
+  const seenJobs = new Set();
+  ch.on('postgres_changes', { event: '*', schema: 'public', table: 'jobs', filter: 'workspace_id=eq.' + ws }, (p) => { const j = p.new; if (j && j.status !== 'running' && !seenJobs.has(j.id)) { seenJobs.add(j.id); jobToast(j); } liveRefresh(); });
   ch.subscribe();
 })();
 })();
