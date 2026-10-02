@@ -1,4 +1,4 @@
-// Defect Check AI endpoint. One function, several tasks:
+// Lathe AI endpoint. One function, several tasks:
 //   identify      – label which part each photo shows and flag unusable photos
 //   describe      – draft a standard from photos of a good unit
 //   read_listing  – draft a standard from pasted listing text and screenshots
@@ -192,7 +192,7 @@ export function inspectPrompt(p: any, refs: Photo[], units: Photo[], all: Photo[
 - Include one check for each must-have line, each in-the-box item and each watch-for item, plus color and finish.${s.barcode ? `
 - Add a check "Barcode": pass if a barcode or its printed digits visibly match ${s.barcode}; fail if a different code is visible (that is a major defect: wrong label); unclear if no barcode is visible.` : ""}${lines(s.labelText).length ? `
 - Add one check per required printed text line: pass if it appears spelled exactly, fail if it is missing or misspelled (a misprint is a major defect), unclear if that part is not shown.` : ""}
-- Measuring card: if a printed Defect Check card is visible (a ruler marked 0 to 100 mm with colour squares), use the ruler to measure sizes and defects in mm, so size checks can pass or fail instead of unclear, and use its white and grey squares to judge lighting before judging colour.
+- Measuring card: if a printed Lathe card is visible (a ruler marked 0 to 100 mm with colour squares), use the ruler to measure sizes and defects in mm, so size checks can pass or fail instead of unclear, and use its white and grey squares to judge lighting before judging colour.
 - Extra photos: ${views.length ? `the seller has decided that ${views.join(", ")} views are enough for this product. ` : ""}Only ask for another photo when a must-have item or a possible defect genuinely cannot be judged from the photos given, and say exactly what to photograph and why. Never ask just for completeness. If you ask, the verdict cannot be PASS.${arrival ? `
 - Shipping condition counts: damaged packaging that the seller sells to customers (retail box, label, seal) is a defect. A crushed or wet outer shipping carton is a defect of severity minor unless the product inside is affected.
 - For every defect set "origin":
@@ -413,7 +413,7 @@ function pageImages(html: string, base: string): string[] {
 }
 async function taskImportUrl(sb: SupabaseClient, workspaceId: string, url: string) {
   if (!isPublicHttpUrl(url)) throw new Error("That link can't be opened. Use a public http(s) product page.");
-  const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (DefectCheck importer)", "Accept": "text/html" }, redirect: "follow" });
+  const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (Lathe importer)", "Accept": "text/html" }, redirect: "follow" });
   if (!res.ok) throw new Error(`The page returned ${res.status}. Paste the listing text or add screenshots instead.`);
   const html = (await res.text()).slice(0, 2_000_000);
   const text = pageText(html).slice(0, 40000);
