@@ -18,7 +18,7 @@
     '.lang-switch span{padding:6px 10px;border-radius:999px;color:inherit;opacity:.55;transition:background .15s ease,opacity .15s ease}' +
     '.lang-switch span.on{opacity:1;background:#fff;color:#1d1d1f;box-shadow:0 1px 2px rgba(0,0,0,.12)}' +
     '.lang-switch:hover span:not(.on){opacity:.85}.lang-switch:active{transform:scale(.96)}' +
-    '.rail .lang-switch{margin:-4px 2px 14px;align-self:flex-start}' +
+    '.rail-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 2px 14px}.rail-top .brand{margin:0!important}' +
     '.lang-float{position:fixed;right:16px;bottom:16px;z-index:50}';
   document.head.appendChild(css);
 
@@ -139,7 +139,13 @@
   function placeSwitch() {
     if (document.querySelector('.lang-switch')) return;
     var rail = document.querySelector('.rail');
-    if (rail) { var brand = rail.querySelector('.brand'); rail.insertBefore(sw(), brand ? brand.nextSibling : rail.firstChild); return; }
+    if (rail) {
+      // Same row as the Lathe logo, top of the sidebar.
+      var brand = rail.querySelector('.brand'), row = document.createElement('div');
+      row.className = 'rail-top';
+      if (brand) { rail.insertBefore(row, brand); row.appendChild(brand); } else rail.insertBefore(row, rail.firstChild);
+      row.appendChild(sw()); return;
+    }
     var app = Array.prototype.find.call(document.querySelectorAll('header a, nav a'), function (a) { return /Open the app|打开应用/.test(a.textContent); });
     if (app && app.parentNode) { var s = sw(); s.style.marginRight = '8px'; app.parentNode.insertBefore(s, app); return; }
     var top = document.querySelector('body > .top');
