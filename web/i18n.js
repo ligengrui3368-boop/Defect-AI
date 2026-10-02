@@ -88,8 +88,10 @@
   }
   // Anything the dictionary doesn't cover (names, notes, AI-written specs) is machine-translated once by
   // the sourcing function and cached, in this browser and in the database.
-  var MTK = 'lathe-mt', MT = {}, pending = {}, mtTimer = null;
+  var MTK = 'lathe-mt', MT = {}, DONE = {}, pending = {}, mtTimer = null;
   try { MT = JSON.parse(localStorage.getItem(MTK) || '{}'); } catch (e) {}
+  // Text that is already a translation is never sent again, even if it keeps a name in English.
+  Object.keys(MT).forEach(function (k) { DONE[MT[k]] = 1; });
   var KEEP = /^(Lathe|SUNNYPRO|HTS|MOQ|FOB|MPF|HMF|QC|AQL|VAT|FX|RFQ|USD|CNY|AI|EN|PO|DDP|FBA|Amazon|Apify|WeChat|OK|ID|URL|PDF|CSV|UPC|EAN|FNSKU|Gary)$/;
   function needsMT(s) {
     var w = s.match(/[A-Za-z]{2,}/g); if (!w) return false;
@@ -113,17 +115,17 @@
     fetch(SB + '/functions/v1/sourcing', { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: AK, Authorization: 'Bearer ' + (tok || AK) }, body: JSON.stringify({ task: 'translate', texts: batch, portal_token: portal || undefined }) })
       .then(function (r) { return r.json(); }).then(function (d) {
         var z = (d && d.zh) || {};
-        Object.keys(z).forEach(function (k) { MT[k] = z[k]; (cbs[k] || []).forEach(function (f) { try { f(z[k]); } catch (e) {} }); });
+        Object.keys(z).forEach(function (k) { MT[k] = z[k]; DONE[z[k]] = 1; (cbs[k] || []).forEach(function (f) { try { f(z[k]); } catch (e) {} }); });
         try { var ks = Object.keys(MT); if (ks.length > 4000) ks.slice(0, ks.length - 4000).forEach(function (k) { delete MT[k]; }); localStorage.setItem(MTK, JSON.stringify(MT)); } catch (e) {}
       }).catch(function () {});
   }
   function doText(n) {
     var raw = n.nodeValue; if (!raw || !/[A-Za-z]/.test(raw)) return;
-    var t = raw.trim(); if (!t || skipped(n.parentNode)) return;
+    var t = raw.trim(); if (!t || DONE[t] || skipped(n.parentNode)) return;
     var lead = raw.match(/^\s*/)[0], tail = raw.match(/\s*$/)[0];
     var out = tr(t), shown = out != null ? out : t;
     if (out != null && out !== t) n.nodeValue = lead + out + tail;
-    if (needsMT(shown)) queue(t, function (z) { if (n.nodeValue && n.nodeValue.trim() === shown) n.nodeValue = lead + z + tail; });
+    if (needsMT(shown) && !DONE[shown]) queue(t, function (z) { if (z !== shown && n.nodeValue && n.nodeValue.trim() === shown) n.nodeValue = lead + z + tail; });
   }
   var ATTRS = ['placeholder', 'title', 'aria-label'];
   function doEl(el) {
@@ -132,10 +134,10 @@
     for (var i = 0; i < ATTRS.length; i++) {
       var v = el.getAttribute(ATTRS[i]); if (!v || !/[A-Za-z]/.test(v)) continue;
       var out = tr(v.trim()), shownA = out || v.trim(); if (out) el.setAttribute(ATTRS[i], out);
-      if (needsMT(shownA)) (function (name, cur) { queue(v.trim(), function (z) { if (el.getAttribute(name) === cur) el.setAttribute(name, z); }); })(ATTRS[i], out || v);
+      if (needsMT(shownA) && !DONE[shownA] && !DONE[v.trim()]) (function (name, cur) { queue(v.trim(), function (z) { if (z !== cur && el.getAttribute(name) === cur) el.setAttribute(name, z); }); })(ATTRS[i], out || v);
     }
     if (el.tagName === 'INPUT' && (el.type === 'button' || el.type === 'submit') && el.value) { var o2 = tr(el.value.trim()); if (o2) el.value = o2; }
-    if (el.tagName === 'OPTION' && el.textContent) { var ot = el.textContent.trim(), o3 = tr(ot); if (o3) el.textContent = o3; if (needsMT(o3 || ot)) queue(ot, function (z) { el.textContent = z; }); }
+    if (el.tagName === 'OPTION' && el.textContent) { var ot = el.textContent.trim(), o3 = tr(ot); if (o3) el.textContent = o3; if (needsMT(o3 || ot) && !DONE[ot]) queue(ot, function (z) { if (el.textContent !== z) el.textContent = z; }); }
   }
   function walk(rootNode) {
     if (!rootNode) return;
