@@ -68,6 +68,9 @@ textarea{min-height:90px;resize:vertical}
 .contact b{font-weight:600}.contact .lab{color:var(--muted);margin-right:4px}
 .contact .link{background:none;border:0;padding:0;color:var(--harbor);cursor:pointer;font-size:12px;font-weight:600}
 .contact .link:hover{text-decoration:underline}
+.qf{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:13px;color:var(--muted);margin-top:8px}
+.qf select{width:auto;padding:3px 6px;font-size:13px}.qf input[type=checkbox]{width:auto;margin:0 4px 0 0;vertical-align:-2px}
+.qchips{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:12px;color:var(--muted);margin-top:3px}.qchips b{color:var(--ink);font-weight:600}
 .cbox{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-top:8px}
 @media (max-width:900px){.shell{grid-template-columns:1fr}.rail{position:static;height:auto;flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line);padding:10px}.rail .brand{padding:6px 10px;width:100%}.rail .grow,.rail .meta,.rail .sect{display:none}.cols,.grid2,.grid3{grid-template-columns:1fr}main{padding:18px 14px 80px}.steps{grid-template-columns:repeat(4,1fr)}}
 </style><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650&display=swap" rel="stylesheet">
@@ -123,6 +126,30 @@ function contactBits(f, full) {
   if (f.contact_status === 'none') return `<div class="contact mut">${f.verification?.registry?.matched === false ? 'Not found in the company registry' : 'No contacts in the company registry'}</div>`;
   if (f.contact_status === 'error') return `<div class="contact mut">Registry lookup failed <button class="link" data-getc="${f.id}" data-force="1">Try again</button></div>`;
   return `<div class="contact mut">${CONTACTS.running ? 'Looking up…' : `<button class="link" data-getc="${f.id}">Get contacts</button>`}</div>`;
+}
+const QF_DEFAULT = { factory_only: true, min_service: 4, min_rating: 4.5, min_repeat: 0, min_years: 2 };
+let QF = (() => { try { return { ...QF_DEFAULT, ...JSON.parse(localStorage.getItem('lathe-1688-filters') || '{}') }; } catch (e) { return { ...QF_DEFAULT }; } })();
+const saveQF = () => { try { localStorage.setItem('lathe-1688-filters', JSON.stringify(QF)); } catch (e) {} };
+const opt = (vals, cur, fmt) => vals.map(v => `<option value="${v}" ${Number(cur) === v ? 'selected' : ''}>${fmt(v)}</option>`).join('');
+function filterBar() {
+  return `<div class="qf" id="qf"><span>Quality filter:</span>
+    <span><input type="checkbox" id="qfFac" ${QF.factory_only ? 'checked' : ''}>Factories only</span>
+    <span>Service score ≥ <select id="qfSvc">${opt([0, 4, 4.5, 4.8], QF.min_service, v => v ? v.toFixed(1) : 'any')}</select></span>
+    <span>Reviews ≥ <select id="qfRat">${opt([0, 4.5, 4.7, 4.9], QF.min_rating, v => v ? v + '★' : 'any')}</select></span>
+    <span>Repeat buyers ≥ <select id="qfRep">${opt([0, 0.2, 0.3, 0.4], QF.min_repeat, v => v ? Math.round(v * 100) + '%' : 'any')}</select></span>
+    <span>On 1688 ≥ <select id="qfYrs">${opt([0, 2, 3, 5], QF.min_years, v => v ? v + ' yrs' : 'any')}</select></span></div>`;
+}
+function qualityBits(d) {
+  if (!d) return '';
+  const pct = (x) => Math.round(x * 100) + '%';
+  const b = [];
+  if (d.rating != null && d.reviewCount) b.push(`<span><b>★ ${Number(d.rating).toFixed(1)}</b> (${d.reviewCount} reviews)</span>`);
+  else if (d.supplierPositiveRate != null) b.push(`<span><b>${pct(d.supplierPositiveRate)}</b> positive reviews</span>`);
+  if (d.serviceScore != null) b.push(`<span>Service <b>${Number(d.serviceScore).toFixed(1)}</b>/5</span>`);
+  if (d.repeatRate != null) b.push(`<span>Repeat buyers <b>${pct(d.repeatRate)}</b></span>`);
+  if (d.years != null) b.push(`<span><b>${d.years}</b> yrs on 1688</span>`);
+  if (d.isFactory === true) b.push(`<span class="badge b-pass">factory</span>`);
+  return b.length ? `<div class="qchips">${b.join('')}</div>` : '';
 }
 const CONTACTS = { running: false };
 async function fetchContacts(body) {
@@ -212,9 +239,10 @@ async function viewRequest(id) {
 
     <div class="panel"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">2 · Factory candidates <span class="mut sm">${cands.length}</span></h2>
       <div class="bar"><input id="term" placeholder="Chinese search term (optional)" style="width:220px"><button class="btn sm primary" id="search1688">Search 1688</button>${cands.length ? `<button class="btn sm" id="rerank">Re-rank</button><button class="btn sm" id="getContacts" ${CONTACTS.running ? 'disabled' : ''}>${CONTACTS.running ? 'Looking up…' : 'Get contacts'}</button>` : ''}<button class="btn sm" id="addCand">Add manually</button></div></div>
+      ${filterBar()}
       <p class="sm mut">Agent searches 1688 with the Chinese terms from the spec, saves each supplier as a factory, and scores listings against the spec. Release the ones you want the client to see.</p>
       ${cands.length ? `<div class="wrap"><table><thead><tr><th>#</th><th>Listing</th><th>Supplier</th><th class="right">¥</th><th class="right">MOQ</th><th>Fit</th><th></th></tr></thead><tbody>
-      ${cands.map(k => `<tr><td><span class="score">${k.rank ?? '·'}</span></td><td><a href="${esc(k.listing_url || '#')}" target="_blank">${esc(k.listing_title || 'Listing')}</a><div class="sm mut">${esc(k.notes || '')}</div></td><td>${k.factories ? `<a href="#/factory/${k.factory_id}">${esc(k.factories.name)}</a><div class="sm mut">${esc(k.factories.city || '')}${k.factories.is_verified_factory === true ? ' · <span class="badge b-pass">verified</span>' : k.factories.is_verified_factory === false ? ' · <span class="badge b-fail">trader</span>' : ''}</div>${contactBits(k.factories, false)}` : '—'}</td><td class="right">${cny(k.price_cny)}</td><td class="right">${fmt(k.moq, 0)}</td><td>${k.match_score != null ? `<b>${fmt(k.match_score, 0)}</b>` : '—'} <span class="badge">${esc(k.status)}</span></td>
+      ${cands.map(k => `<tr><td><span class="score">${k.rank ?? '·'}</span></td><td><a href="${esc(k.listing_url || '#')}" target="_blank">${esc(k.listing_title || 'Listing')}</a>${qualityBits(k.listing_data)}<div class="sm mut">${esc(k.notes || '')}</div></td><td>${k.factories ? `<a href="#/factory/${k.factory_id}">${esc(k.factories.name)}</a><div class="sm mut">${esc(k.factories.city || '')}${k.factories.is_verified_factory === true ? ' · <span class="badge b-pass">verified</span>' : k.factories.is_verified_factory === false ? ' · <span class="badge b-fail">trader</span>' : ''}</div>${contactBits(k.factories, false)}` : '—'}</td><td class="right">${cny(k.price_cny)}</td><td class="right">${fmt(k.moq, 0)}</td><td>${k.match_score != null ? `<b>${fmt(k.match_score, 0)}</b>` : '—'} <span class="badge">${esc(k.status)}</span></td>
         <td class="right"><div class="bar" style="justify-content:flex-end"><button class="btn sm" data-neg="${k.id}" data-fac="${k.factory_id || ''}">Negotiate</button><button class="btn sm" data-rel="${k.id}" data-on="${k.released_to_client ? 0 : 1}">${k.released_to_client ? 'Hide' : 'Release'}</button><button class="btn sm" data-rej="${k.id}">✕</button></div></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">No candidates yet.</div>`}
     </div>
 
@@ -279,7 +307,7 @@ async function viewFactory(id) {
   <div class="panel"><h2>Verification</h2>
     <p class="sm mut">Is this a real factory or a trader? Record what you find; the client portal shows the badge.</p>
     <div class="bar"><button class="btn ${f.is_verified_factory === true ? 'primary' : ''}" data-ver="true">Verified factory</button><button class="btn ${f.is_verified_factory === false ? 'primary' : ''}" data-ver="false">Trader / unverified</button><button class="btn ${f.is_verified_factory === null ? 'primary' : ''}" data-ver="null">Unchecked</button></div>
-    <div class="kv" style="margin-top:12px"><b>Listing claims factory</b><span>${v.listing_claims_factory === true ? 'yes' : v.listing_claims_factory === false ? 'no' : '—'}</span><b>Years on platform</b><span>${f.platform_years ?? '—'}</span><b>Sales (listing)</b><span>${v.sales ?? '—'}</span>
+    <div class="kv" style="margin-top:12px"><b>Listing claims factory</b><span>${v.listing_claims_factory === true ? 'yes' : v.listing_claims_factory === false ? 'no' : '—'}</span><b>Years on platform</b><span>${f.platform_years ?? '—'}</span><b>Sales (listing)</b><span>${v.sales ?? '—'}</span>${v.service_scores ? `<b>1688 service score</b><span>${esc(Object.entries(v.service_scores).map(([k, x]) => ({ composite: 'overall', goods: 'goods', logistics: 'logistics', dispute: 'disputes', return: 'returns', consultation: 'consultation' }[k] || k) + ' ' + x).join(' · '))}</span>` : ''}${v.positive_review_rate != null ? `<b>Positive reviews</b><span>${Math.round(v.positive_review_rate * 100)}%</span>` : ''}${v.repeat_rate != null ? `<b>Repeat buyers</b><span>${Math.round(v.repeat_rate * 100)}%</span>` : ''}${v.employees ? `<b>Employees / area</b><span>${v.employees}${v.factory_area_m2 ? ' · ' + v.factory_area_m2 + ' m²' : ''}</span>` : ''}${v.im_url ? `<b>1688 chat</b><span><a href="${esc(v.im_url)}" target="_blank" rel="noopener">Open 旺旺 chat ↗</a></span>` : ''}
       <b>Business scope</b><span><input id="vScope" value="${esc(v.business_scope || '')}" placeholder="经营范围 (from 企查查)"></span><b>Registered capital</b><span><input id="vCap" value="${esc(v.registered_capital || '')}" placeholder="注册资本"></span><b>Insured staff</b><span><input id="vStaff" type="number" value="${esc(v.insured_staff ?? '')}" placeholder="参保人数"></span><b>US shipments</b><span><input id="vCustoms" type="number" value="${esc(f.customs_shipments ?? '')}" placeholder="ImportYeti count"></span></div>
     <div class="bar" style="margin-top:10px"><button class="btn" id="vSave">Save verification</button><button class="btn" id="vRun">Run checks</button></div><div id="vOut"></div>
   </div></div>`;
@@ -339,8 +367,9 @@ function wire(page, id) {
     $('editBrief').onclick = () => { $('briefBox').style.display = 'block'; };
     $('saveBrief').onclick = () => upd('sourcing_requests', { raw_brief: $('briefTa').value }, id);
     $('runIntake').onclick = async (e) => { busy(e.target, true); try { await call('intake', { request_id: id, answers: $('answers')?.value || '' }); toast('Spec updated'); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
-    $('search1688').onclick = async (e) => { busy(e.target, true); try { const t = $('term').value.trim(); const out = await call('search_1688', { request_id: id, terms: t ? [t] : undefined }); toast(`${out.listings} listings, ${out.new_candidates} new, ranked ${out.ranked}`); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
+    $('search1688').onclick = async (e) => { busy(e.target, true); try { const t = $('term').value.trim(); const out = await call('search_1688', { request_id: id, terms: t ? [t] : undefined, filters: QF }); const fs = out.filter; toast(fs?.rated ? `Scanned ${fs.scanned} listings, kept ${fs.kept} well-rated` + (Object.keys(fs.dropped || {}).length ? ` (dropped ${Object.entries(fs.dropped).map(([k, n]) => n + ' ' + ({ trader: 'traders', service: 'low service score', reviews: 'weak reviews', repeat: 'low repeat rate', years: 'too new' }[k] || k)).join(', ')})` : '') + ` · ${out.new_candidates} new` : `${out.listings} listings, ${out.new_candidates} new, ranked ${out.ranked}`); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
     if ($('rerank')) $('rerank').onclick = async (e) => { busy(e.target, true); try { await call('rank', { request_id: id }); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
+    if ($('qf')) { const sync = () => { QF = { factory_only: $('qfFac').checked, min_service: +$('qfSvc').value, min_rating: +$('qfRat').value, min_repeat: +$('qfRep').value, min_years: +$('qfYrs').value }; saveQF(); }; ['qfFac', 'qfSvc', 'qfRat', 'qfRep', 'qfYrs'].forEach(x => $(x).addEventListener('change', sync)); }
     if ($('getContacts')) $('getContacts').onclick = () => fetchContacts({ request_id: id }).catch(err => { CONTACTS.running = false; toast(err.message); render(); });
     $('addCand').onclick = async () => { const name = prompt('Supplier / factory name'); if (!name) return; const url = prompt('Listing or shop URL (optional)') || null; const price = parseFloat(prompt('Unit price ¥ (optional)') || '') || null;
       const { data: f, error } = await sb.from('factories').insert({ workspace_id: ws, name, source: 'manual', source_url: url }).select('id').single(); if (error) return toast(error.message);
