@@ -36,7 +36,7 @@
   };
   rail.dataset.dc = '1';
   rail.innerHTML =
-    '<a class="brand" href="./"><i aria-hidden="true"></i>Defect Check</a>' +
+    '<a class="brand" href="./"><i aria-hidden="true"></i>Lathe</a>' +
     link('home', './', 'Home', 'home') +
     group('src', 'Sourcing', 'src',
       link('requests', 'sourcing.html#/requests', 'Requests', 'req', keep.navReq ? 'navReq' : '') +
