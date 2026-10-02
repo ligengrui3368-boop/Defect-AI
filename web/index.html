@@ -6,6 +6,16 @@
 // Factory links (?f=) and website demos (?demo=) open the product app directly. Sign-in links land here.
 (function () { var s = location.search; if (/[?&](f|demo)=/.test(s)) location.replace('app.html' + s + location.hash); })();
 </script>
+<style>
+.op-sug .sh{display:flex;align-items:center;justify-content:space-between;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:2px 2px 0}
+.op-sug .sh button{border:0;background:none;padding:2px 6px;font-size:14px;color:var(--muted);cursor:pointer;border-radius:8px;text-transform:none;letter-spacing:0}
+.op-sug .sh button:hover{background:var(--sunk);color:var(--ink);transform:none}
+.op-sug.loading button.s{opacity:.55}
+#opMemBox{position:fixed;inset:0;background:rgba(10,12,16,.5);display:flex;align-items:center;justify-content:center;z-index:9998;padding:20px}
+#opMemBox .box{background:var(--panel);border-radius:16px;max-width:520px;width:100%;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+#opMemBox h3{margin:0 0 6px;font-size:18px}#opMemBox pre{white-space:pre-wrap;font:inherit;font-size:14px;line-height:1.55;background:var(--sunk);border-radius:10px;padding:12px 14px;margin:10px 0 0;max-height:50vh;overflow:auto}
+#opMemBox .row2{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+</style>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#F7F7F5">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -58,7 +68,7 @@ body{margin:0;font-size:15px;line-height:1.5}
   </main>
 
   <aside class="op" aria-label="Operator">
-    <div class="op-head"><span class="av op"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18c0-4 3-6 8-6s8 2 8 6"/><circle cx="12" cy="7" r="3.5"/></svg></span>Operator<div class="sp"></div><button class="pill" id="opClear" title="Clear the conversation">Clear</button></div>
+    <div class="op-head"><span class="av op"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18c0-4 3-6 8-6s8 2 8 6"/><circle cx="12" cy="7" r="3.5"/></svg></span>Operator<div class="sp"></div><button class="pill" id="opMem" title="What Operator remembers about your work">Memory</button><button class="pill" id="opClear" title="Clear the conversation (Operator keeps its notes)">Clear</button></div>
     <div class="op-log" id="opLog" aria-live="polite"></div>
     <div class="op-sug" id="opSug"></div>
     <form class="op-box" id="opForm"><textarea id="opIn" rows="1" placeholder="Ask Operator to source something…" aria-label="Message Operator"></textarea><button id="opSend" aria-label="Send" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></form>
@@ -141,10 +151,56 @@ function drawLog(busy) {
   $('opLog').innerHTML = log.map(m => `<div class="msg"><span class="av ${m.role === 'op' ? 'op' : ''}">${m.role === 'op' ? IC.op : 'G'}</span><div><div class="who">${m.role === 'op' ? 'Operator' : 'You'}<time>${tm(m.at)}</time></div><div class="body">${linkify(m.text)}</div>${m.done ? `<span class="done">✓ ${esc(m.done)}</span>` : ''}</div></div>`).join('')
     + (busy ? `<div class="msg"><span class="av op">${IC.op}</span><div><div class="who">Operator</div><div class="typing"><i></i><i></i><i></i></div></div></div>` : '');
   $('opLog').scrollTop = $('opLog').scrollHeight;
-  const sug = ['Source 1,000 foldable camping chairs for SUNNYPRO, about $9.50 landed, needed by December', "What's waiting on me?", 'Add a client called Brightside Home'];
-  $('opSug').innerHTML = log.length || busy ? '' : sug.map(s => `<button type="button">${esc(s)}</button>`).join('');
-  $('opSug').querySelectorAll('button').forEach(b => b.onclick = () => send(b.textContent));
+  drawSugs(busy);
 }
+// ---------- suggested prompts: instant ones from the data, then fresh ones from Claude (memory-aware) ----------
+let SUGS = [], SUG_BUSY = false, sugAt = 0;
+const SEEN_KEY = 'lathe-op-seen';
+const seen = () => { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || '[]'); } catch { return []; } };
+const markSeen = (a) => { try { localStorage.setItem(SEEN_KEY, JSON.stringify([...seen(), ...a].slice(-30))); } catch {} };
+function quickSugs() {
+  const short = (t) => t.length > 42 ? t.slice(0, 40).trim() + '…' : t;
+  const pool = [];
+  D.reqs.filter(r => r.status !== 'closed').slice(0, 6).forEach(r => {
+    const t = short(r.title || 'this request');
+    ({ intake: [`Is the ${t} spec ready to search?`, `What's still missing for ${t}?`],
+      sourcing: [`Which factory looks best for ${t}?`, `Compare the top 3 factories for ${t}`],
+      shortlisted: [`Which factories should I negotiate with for ${t}?`],
+      negotiating: [`Draft a counter-offer in Chinese for ${t}`, `What price should I aim for on ${t}?`],
+      quoted: [`Write a follow-up to the client about ${t}`], approved: [`What's left before ordering ${t}?`],
+      ordered: [`Summarize where ${t} stands`] }[r.status] || []).forEach(x => pool.push(x));
+  });
+  pool.push("What's waiting on me?", 'What should I work on first today?');
+  if (!D.reqs.length) pool.push('Source 500 bamboo cutting boards with our logo, about $4 landed', 'Add a client called Brightside Home');
+  const old = seen(), fresh = pool.filter(x => !old.includes(x)), use = (fresh.length >= 3 ? fresh : pool);
+  return use.map(x => [Math.random(), x]).sort((a, b) => a[0] - b[0]).map(x => x[1]).slice(0, 4);
+}
+function drawSugs(busy) {
+  const box = $('opSug');
+  if (busy || !SUGS.length) { box.innerHTML = ''; return; }
+  box.classList.toggle('loading', SUG_BUSY);
+  box.innerHTML = `<div class="sh"><span>${SUG_BUSY ? 'Thinking of ideas…' : 'Try asking'}</span><button type="button" id="opMore" title="Different suggestions">↻</button></div>` + SUGS.map(s => `<button type="button" class="s">${esc(s)}</button>`).join('');
+  box.querySelectorAll('button.s').forEach(b => b.onclick = () => send(b.textContent));
+  $('opMore').onclick = () => refreshSugs(true);
+}
+async function refreshSugs(force) {
+  if (!sb || !ws || SUG_BUSY) return;
+  if (!force && Date.now() - sugAt < 60000) return;
+  SUG_BUSY = true; sugAt = Date.now(); drawSugs(false);
+  try { const out = await call('operator_suggest', { workspace_id: ws, lang: window.LatheLang || 'en', avoid: [...SUGS, ...seen()].slice(-20) }); if (out.suggestions?.length) { SUGS = out.suggestions; markSeen(SUGS); } }
+  catch (e) { /* keep the quick ones */ }
+  SUG_BUSY = false; drawSugs(false);
+}
+// load the conversation from the cloud (any device), then show suggestions
+async function opInit() {
+  try {
+    const { data } = await sb.from('operator_memory').select('messages').eq('workspace_id', ws).maybeSingle();
+    if (data?.messages?.length) { log = data.messages; saveLog(); }
+    else if (log.length) await sb.from('operator_memory').upsert({ workspace_id: ws, messages: log.slice(-40) }, { onConflict: 'workspace_id,user_id' });
+  } catch (e) {}
+  SUGS = quickSugs(); markSeen(SUGS); drawLog(false); refreshSugs(true);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && sb && ws && Date.now() - sugAt > 120000) refreshSugs(true); });
 async function call(task, body) {
   const { data, error } = await sb.functions.invoke('sourcing', { body: { task, ...body } });
   if (error) { let m = error.message; try { const j = await error.context?.json(); if (j?.error) m = j.error; } catch {} throw new Error(m); }
@@ -164,7 +220,8 @@ async function send(text) {
   log.push({ role: 'me', text, at: new Date().toISOString() }); saveLog(); drawLog(true);
   $('opIn').value = ''; $('opSend').disabled = true;
   try {
-    const out = await call('operator', { lang: window.LatheLang || 'en', message: text, history: log.slice(-9, -1).map(m => ({ role: m.role === 'op' ? 'operator' : 'user', text: m.text })) });
+    const out = await call('operator', { workspace_id: ws, lang: window.LatheLang || 'en', message: text, history: log.slice(-9, -1).map(m => ({ role: m.role === 'op' ? 'operator' : 'user', text: m.text })) });
+    if (out.suggestions?.length) { SUGS = out.suggestions; markSeen(SUGS); sugAt = Date.now(); }
     const a = out.action; let reply = out.reply || 'Done.', done = '';
     if (a?.type === 'create_request') {
       const client_id = await findOrMakeClient(a.client_name);
@@ -191,7 +248,18 @@ async function send(text) {
 $('opForm').onsubmit = (e) => { e.preventDefault(); send($('opIn').value); };
 $('opIn').oninput = (e) => { $('opSend').disabled = !e.target.value.trim(); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 180) + 'px'; };
 $('opIn').onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send($('opIn').value); } };
-$('opClear').onclick = () => { log = []; saveLog(); drawLog(false); };
+$('opClear').onclick = async () => { log = []; saveLog(); drawLog(false); if (sb && ws) await sb.from('operator_memory').update({ messages: [] }).eq('workspace_id', ws); };
+$('opMem').onclick = async () => {
+  if (!sb || !ws) return;
+  const { data } = await sb.from('operator_memory').select('notes, updated_at').eq('workspace_id', ws).maybeSingle();
+  const el = document.createElement('div'); el.id = 'opMemBox';
+  el.innerHTML = `<div class="box" role="dialog" aria-modal="true"><h3>What Operator remembers</h3><div class="sm mut" style="color:var(--muted);font-size:13px">Its own notes on what you're working on, updated after each conversation. Only you can see them.${data?.updated_at ? ' Last updated ' + new Date(data.updated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + '.' : ''}</div><pre>${esc(data?.notes?.trim() || 'Nothing yet. Operator starts taking notes as you talk to it.')}</pre><div class="row2"><button class="pill" data-x="forget">Forget everything</button><button class="pill dark" data-x="close">Close</button></div></div>`;
+  const close = () => el.remove();
+  el.onclick = async (e) => { if (e.target === el) return close(); const b = e.target.closest('[data-x]'); if (!b) return;
+    if (b.dataset.x === 'forget') { if (!confirm('Forget the conversation and everything Operator noted? This can\u2019t be undone.')) return; await sb.from('operator_memory').delete().eq('workspace_id', ws); log = []; saveLog(); SUGS = quickSugs(); drawLog(false); refreshSugs(true); }
+    close(); };
+  document.body.appendChild(el);
+};
 drawLog(false);
 
 (async () => {
@@ -207,9 +275,9 @@ drawLog(false);
   let pref = null; try { pref = localStorage.getItem('lathe-ws'); } catch (e) {}
   const m = [m0.find(x => x.workspace_id === pref) || m0[0]];
   ws = m[0].workspace_id; ANON = !!session.user.is_anonymous;
-  await load(); render();
+  await load(); render(); opInit();
   let t = null; const ch = sb.channel('home-' + ws);
-  ['sourcing_requests', 'clients', 'purchase_orders', 'negotiations', 'quotes'].forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb, filter: 'workspace_id=eq.' + ws }, () => { clearTimeout(t); t = setTimeout(async () => { await load(); render(); }, 500); }));
+  ['sourcing_requests', 'clients', 'purchase_orders', 'negotiations', 'quotes'].forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb, filter: 'workspace_id=eq.' + ws }, () => { clearTimeout(t); t = setTimeout(async () => { await load(); render(); refreshSugs(false); }, 500); }));
   ch.subscribe(st => { $('sync').textContent = st === 'SUBSCRIBED' ? (m[0].workspaces?.name || 'My workspace') + ', live' : 'Reconnecting…'; });
 })();
 })();
