@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Your sourcing portal · Defect Check</title>
+<title>Your sourcing portal · Lathe</title>
 <meta name="theme-color" content="#17222B">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
@@ -48,7 +48,7 @@ details summary{cursor:pointer;font-weight:700}
 <link rel="stylesheet" href="theme.css?v=4">
 <script>/* Browsers keep pages for up to 10 minutes. If the server has a newer copy, reload once. */(function(){try{fetch(location.pathname,{method:'HEAD',cache:'no-store'}).then(function(r){var lm=r.headers.get('last-modified');if(!lm)return;var k='dc-fresh:'+location.pathname;if(new Date(lm).getTime()-new Date(document.lastModified).getTime()>1000&&sessionStorage.getItem(k)!==lm){sessionStorage.setItem(k,lm);location.reload();}}).catch(function(){});}catch(e){}})();</script>
 </head><body>
-<div class="top"><div class="brand"><i aria-hidden="true"></i>Defect Check</div><div class="who" id="who"></div></div>
+<div class="top"><div class="brand"><i aria-hidden="true"></i>Lathe</div><div class="who" id="who"></div></div>
 <main id="app"><p class="mut">Loading your portal…</p></main>
 <script>
 (() => {
@@ -68,7 +68,7 @@ const list = (a) => (a && a.length) ? a.map(x => `<span class="chip">${esc(x)}</
 function steps(st) { const i = STATUSES.indexOf(st); return `<div class="steps">${STATUSES.map((s, k) => `<div class="${k < i ? 'done' : k === i ? 'on' : ''}">${SLABEL[s]}</div>`).join('')}</div>`; }
 function quoteRows(b) {
   const row = (l, v, strong) => `<tr><td>${l}</td><td class="r">${strong ? '<b>' + v + '</b>' : v}</td></tr>`;
-  return `<table><tbody>${row('Goods (ex-works)', usd(b.goods_usd))}${row('Domestic freight', usd(b.domestic_freight_usd))}${b.vat_rebate_usd ? row('VAT rebate', '−' + usd(b.vat_rebate_usd)) : ''}${row('FOB value', usd(b.fob_usd), 1)}${row('International freight', usd(b.intl_freight_usd))}${row(`Duties &amp; tariffs (${fmt(b.duty_pct_total, 2)}%)`, usd(b.duty_usd))}${row('MPF', usd(b.mpf_usd))}${row('HMF', usd(b.hmf_usd))}${row('Customs broker', usd(b.broker_fee_usd))}${row('Insurance', usd(b.insurance_usd))}${row('Payment fees', usd(b.payment_fee_usd))}${row('Landed total', usd(b.landed_total_usd), 1)}${row('Landed cost per unit', usd(b.landed_unit_usd, 4), 1)}${row(`Defect Check commission (${fmt(b.commission_pct, 1)}%)`, usd(b.commission_usd))}${b.client_unit_price != null ? row('Your selling price per unit', usd(b.client_unit_price)) + row('Your profit per unit', usd(b.profit_unit_usd, 4), 1) : ''}</tbody></table>
+  return `<table><tbody>${row('Goods (ex-works)', usd(b.goods_usd))}${row('Domestic freight', usd(b.domestic_freight_usd))}${b.vat_rebate_usd ? row('VAT rebate', '−' + usd(b.vat_rebate_usd)) : ''}${row('FOB value', usd(b.fob_usd), 1)}${row('International freight', usd(b.intl_freight_usd))}${row(`Duties &amp; tariffs (${fmt(b.duty_pct_total, 2)}%)`, usd(b.duty_usd))}${row('MPF', usd(b.mpf_usd))}${row('HMF', usd(b.hmf_usd))}${row('Customs broker', usd(b.broker_fee_usd))}${row('Insurance', usd(b.insurance_usd))}${row('Payment fees', usd(b.payment_fee_usd))}${row('Landed total', usd(b.landed_total_usd), 1)}${row('Landed cost per unit', usd(b.landed_unit_usd, 4), 1)}${row(`Lathe commission (${fmt(b.commission_pct, 1)}%)`, usd(b.commission_usd))}${b.client_unit_price != null ? row('Your selling price per unit', usd(b.client_unit_price)) + row('Your profit per unit', usd(b.profit_unit_usd, 4), 1) : ''}</tbody></table>
   ${b.margin_pct != null ? `<div style="margin-top:10px">Your margin at that price: <span class="num" style="color:${b.margin_pct < 0 ? 'var(--fail)' : b.margin_pct < 15 ? 'var(--review)' : 'var(--pass)'}">${fmt(b.margin_pct, 1)}%</span></div>` : ''}`;
 }
 
@@ -91,12 +91,12 @@ function render() {
       ${r.quotes.length ? `<h3>Your quote${r.quotes.length > 1 ? 's' : ''}</h3>${r.quotes.map(q => `<div class="card"><div class="sm mut">${dt(q.created_at)} · ${esc(q.status)}</div>${quoteRows(q.breakdown || {})}${q.status === 'sent' ? `<div class="bar" style="margin-top:10px"><button class="btn primary" data-approve="${r.id}" data-q="${q.id}">Approve this quote</button><button class="btn" data-ask="${r.id}">Ask a question</button></div>` : ''}</div>`).join('')}` : ''}
       ${r.orders.length ? `<h3>Order</h3>${r.orders.map(o => `<div class="card"><b>${esc(o.status)}</b> · ${fmt(o.qty, 0)} units · deposit ${o.deposit_paid ? 'paid' : 'pending'} · balance ${o.balance_paid ? 'paid' : 'held until inspection passes'}<div class="sm mut">Randomly sampled units are photo-inspected before the balance is released. The factory cannot choose which units are checked.</div></div>`).join('')}` : ''}
       <h3>Your requirements &amp; notes</h3>
-      ${r.requirements.filter(q => !(q.author === 'team' && q.kind === 'question')).length ? r.requirements.filter(q => !(q.author === 'team' && q.kind === 'question')).map(q => `<div class="card" style="padding:7px 12px"><span class="badge ${q.kind === 'defect_to_watch' ? 'b-fail' : q.kind === 'approval' ? 'b-pass' : q.kind === 'question' ? 'b-rev' : ''}">${esc(q.kind.replace('_', ' '))}</span> <span class="sm mut">${q.author === 'client' ? 'you' : 'Defect Check'} · ${dt(q.created_at)}</span><div>${esc(q.body)}</div></div>`).join('') : '<p class="sm mut">None yet.</p>'}
+      ${r.requirements.filter(q => !(q.author === 'team' && q.kind === 'question')).length ? r.requirements.filter(q => !(q.author === 'team' && q.kind === 'question')).map(q => `<div class="card" style="padding:7px 12px"><span class="badge ${q.kind === 'defect_to_watch' ? 'b-fail' : q.kind === 'approval' ? 'b-pass' : q.kind === 'question' ? 'b-rev' : ''}">${esc(q.kind.replace('_', ' '))}</span> <span class="sm mut">${q.author === 'client' ? 'you' : 'Lathe'} · ${dt(q.created_at)}</span><div>${esc(q.body)}</div></div>`).join('') : '<p class="sm mut">None yet.</p>'}
       <div class="bar" style="margin-top:10px"><select data-kind="${r.id}" class="btn sm" style="width:auto"><option value="requirement">Requirement</option><option value="defect_to_watch">Mistake to watch for</option><option value="question">Question</option></select><input data-body="${r.id}" placeholder="e.g. Logo must be centered within 2 mm; last supplier shipped scratched legs" style="flex:1;min-width:200px"><button class="btn sm primary" data-add="${r.id}">Add</button></div>
     </div>`; }).join('') : '<p class="mut" style="margin-top:18px">No requests yet. Send your first one above.</p>'}`;
   wire();
 }
-async function reload() { const { data: d, error } = await sb.rpc('portal_view', { p_token: token }); if (error || !d) { app.innerHTML = '<p>This portal link is not valid or has been turned off. Ask your Defect Check contact for a new one.</p>'; return false; } data = d; render(); return true; }
+async function reload() { const { data: d, error } = await sb.rpc('portal_view', { p_token: token }); if (error || !d) { app.innerHTML = '<p>This portal link is not valid or has been turned off. Ask your Lathe contact for a new one.</p>'; return false; } data = d; render(); return true; }
 function wire() {
   $('nSend').onclick = async (e) => { const title = $('nTitle').value.trim(); if (!title) return toast('Tell us what you want made'); e.target.disabled = true;
     const { error } = await sb.rpc('portal_new_request', { p_token: token, p_title: title, p_brief: $('nBrief').value, p_quantity: +$('nQty').value || null, p_target_price: +$('nTarget').value || null, p_deadline: $('nDead').value || null }); e.target.disabled = false; if (error) return toast(error.message); toast('Request sent'); await reload(); };
@@ -105,7 +105,7 @@ function wire() {
   document.querySelectorAll('[data-ask]').forEach(b => b.onclick = () => { const i = document.querySelector(`[data-body="${b.dataset.ask}"]`); document.querySelector(`[data-kind="${b.dataset.ask}"]`).value = 'question'; i.focus(); i.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
 }
 (async () => {
-  if (!token) { app.innerHTML = '<p>Open this page from the link your Defect Check contact sent you.</p>'; return; }
+  if (!token) { app.innerHTML = '<p>Open this page from the link your Lathe contact sent you.</p>'; return; }
   if (!CFG.supabaseUrl || !window.supabase) { app.innerHTML = '<p>Setup needed: config.js is missing.</p>'; return; }
   sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
   if (await reload()) setInterval(reload, 30000);
