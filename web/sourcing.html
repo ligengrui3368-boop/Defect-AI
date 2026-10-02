@@ -266,6 +266,12 @@ const afterLogin = (target) => { try { localStorage.setItem('lathe-after-login',
 const useWorkspace = (id) => { try { if (id) localStorage.setItem('lathe-ws', id); else localStorage.removeItem('lathe-ws'); } catch (e) {} };
 // ---------- signed out: sign-in screen and invite page ----------
 const GLOGO = '<svg viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.6 13.2l7.9 6.2C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.7c4.3-4 6.9-9.9 6.9-17z"/><path fill="#FBBC05" d="M10.5 28.6c-.5-1.4-.8-2.9-.8-4.6s.3-3.2.8-4.6l-7.9-6.2C1 16.6 0 20.2 0 24s1 7.4 2.6 10.8l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.3-8.5 2.3-6.3 0-11.6-4.1-13.5-9.9l-7.9 6.2C6.6 42.6 14.6 48 24 48z"/></svg>';
+// show "Continue with Google" only once Google sign-in is switched on in Supabase
+let AUTH_SETTINGS = null;
+async function hideGoogleIfOff() {
+  try { if (!AUTH_SETTINGS) AUTH_SETTINGS = await fetch(CFG.supabaseUrl + '/auth/v1/settings', { headers: { apikey: CFG.supabaseAnonKey } }).then(r => r.json()); } catch (e) { return; }
+  if (!AUTH_SETTINGS?.external?.google) document.querySelectorAll('.gbtn').forEach(b => { const o = b.nextElementSibling; if (o && o.classList.contains('orline')) o.remove(); b.remove(); });
+}
 function signInBox(title, sub, email, lockEmail) {
   return `<div class="panel signin"><h2>${title}</h2><p class="mut">${sub}</p>
     <button class="btn gbtn" id="siGoogle">${GLOGO}Continue with Google</button>
@@ -293,6 +299,7 @@ async function showSignedOut() {
   $('siUp').onclick = async (e) => { const { email, password } = creds(); if (!email || password.length < 8) return toast('Enter your email and a password of at least 8 characters'); busy(e.target, true); const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: SITE } }); if (error) { busy(e.target, false); return authErr(error); } if (data.session) return done(); afterLogin(next); busy(e.target, false); toast('Check your email and click the confirmation link to finish.'); };
   $('siLink').onclick = async () => { const { email } = creds(); if (!email) return toast('Enter your email first'); const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: SITE } }); if (error) return authErr(error); afterLogin(next); toast('Check your email for a sign-in link.'); };
   ['siEmail', 'siPass'].forEach(k => $(k).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('siIn').click(); }));
+  hideGoogleIfOff();
 }
 async function viewAccount() {
   const { data: { user } } = await sb.auth.getUser(); ME = user;
@@ -695,6 +702,7 @@ function wire(page, id) {
   on('[data-delreq]', 'click', async (e) => { e.preventDefault(); e.stopPropagation(); if (await deleteRequest(e.currentTarget.dataset.delreq)) render(); });
   if ($('delReq')) $('delReq').onclick = async () => { if (await deleteRequest(id)) location.hash = '#/requests'; };
   const upd = async (t, patch, eq) => { const { error } = await sb.from(t).update(patch).eq('id', eq); if (error) toast(error.message); else await refresh(); };
+  if (page === 'account' || page === 'join') hideGoogleIfOff();
   if (page === 'account') {
     const authErr = (err) => toast(/not authorized/i.test(err.message) ? 'Lathe can\u2019t email that address yet (email sending isn\u2019t set up). Use a password instead.' : err.message);
     const creds = () => ({ email: ($('aEmail')?.value || '').trim(), password: $('aPass')?.value || '' });
