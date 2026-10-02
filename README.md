@@ -1,4 +1,4 @@
-# Defect Check
+# Lathe
 
 End-to-end sourcing platform for US brands buying from Chinese factories: a client submits what they want made, agents find and verify factories on 1688, Gary negotiates, the system computes landed cost and margin (duties, tariffs, freight, fees), and a client portal tracks everything. The quality module below checks the goods before the balance is paid.
 
@@ -81,8 +81,8 @@ Dashboard → Authentication → URL Configuration. Set the Site URL to where th
 
 | Piece | Where |
 | --- | --- |
-| Code | https://github.com/ligengrui3368-boop/Defect-AI (branch `main`) |
-| Web app | https://ligengrui3368-boop.github.io/Defect-AI/ (GitHub Pages, deployed by `.github/workflows/pages.yml` on every push to `main` that touches `web/`) |
+| Code | https://github.com/ligengrui3368-boop/Lathe (branch `main`) |
+| Web app | https://ligengrui3368-boop.github.io/Lathe/ (GitHub Pages, deployed by `.github/workflows/pages.yml` on every push to `main` that touches `web/`) |
 | Backend | Supabase project `jkgevzgfacfqcjqxosnm`: all migrations applied, `qc` Edge Function deployed with Verify JWT on |
 
 The deployed `qc` function is a one-line entry file that imports `supabase/functions/qc/index.ts` from a pinned GitHub commit (`raw.githubusercontent.com/.../<commit>/supabase/functions/qc/index.ts`), so what runs is byte-for-byte what is in the repo. After changing the function, commit it and redeploy with the new commit hash, or deploy `index.ts` directly with `supabase functions deploy qc`.
