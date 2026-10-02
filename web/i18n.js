@@ -119,8 +119,11 @@
         try { var ks = Object.keys(MT); if (ks.length > 4000) ks.slice(0, ks.length - 4000).forEach(function (k) { delete MT[k]; }); localStorage.setItem(MTK, JSON.stringify(MT)); } catch (e) {}
       }).catch(function () {});
   }
+  // Safety net: no piece of text or element is processed more than a few times, so nothing can loop.
+  var seen = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function tooMany(x) { if (!seen) return false; var now = Date.now(), r = seen.get(x); if (!r || now - r.t > 2000) r = { c: 0, t: now }; r.c++; seen.set(x, r); return r.c > 6; }
   function doText(n) {
-    var raw = n.nodeValue; if (!raw || !/[A-Za-z]/.test(raw)) return;
+    var raw = n.nodeValue; if (!raw || !/[A-Za-z]/.test(raw) || tooMany(n)) return;
     var t = raw.trim(); if (!t || DONE[t] || skipped(n.parentNode)) return;
     var lead = raw.match(/^\s*/)[0], tail = raw.match(/\s*$/)[0];
     var out = tr(t), shown = out != null ? out : t;
@@ -129,15 +132,16 @@
   }
   var ATTRS = ['placeholder', 'title', 'aria-label'];
   function doEl(el) {
+    if (tooMany(el)) return;
     // Text boxes keep what people type, but their placeholder and label are translated.
     if (el.tagName === 'TEXTAREA' ? (el.parentNode && el.parentNode.nodeType === 1 && skipped(el.parentNode)) : skipped(el)) return;
     for (var i = 0; i < ATTRS.length; i++) {
       var v = el.getAttribute(ATTRS[i]); if (!v || !/[A-Za-z]/.test(v)) continue;
-      var out = tr(v.trim()), shownA = out || v.trim(); if (out) el.setAttribute(ATTRS[i], out);
+      var out = tr(v.trim()), shownA = out || v.trim(); if (out && out !== v) el.setAttribute(ATTRS[i], out);
       if (needsMT(shownA) && !DONE[shownA] && !DONE[v.trim()]) (function (name, cur) { queue(v.trim(), function (z) { if (z !== cur && el.getAttribute(name) === cur) el.setAttribute(name, z); }); })(ATTRS[i], out || v);
     }
     if (el.tagName === 'INPUT' && (el.type === 'button' || el.type === 'submit') && el.value) { var o2 = tr(el.value.trim()); if (o2) el.value = o2; }
-    if (el.tagName === 'OPTION' && el.textContent) { var ot = el.textContent.trim(), o3 = tr(ot); if (o3) el.textContent = o3; if (needsMT(o3 || ot) && !DONE[ot]) queue(ot, function (z) { if (el.textContent !== z) el.textContent = z; }); }
+    if (el.tagName === 'OPTION' && el.textContent) { var ot = el.textContent.trim(), o3 = tr(ot); if (o3 && o3 !== ot) el.textContent = o3; if (needsMT(o3 || ot) && !DONE[ot]) queue(ot, function (z) { if (el.textContent !== z) el.textContent = z; }); }
   }
   function walk(rootNode) {
     if (!rootNode) return;
@@ -153,15 +157,17 @@
     var t = tr(document.title); if (t) document.title = t;
     root.classList.remove('i18n-wait');
     if (observing) return; observing = true;
-    new MutationObserver(function (list) {
+    var obs = new MutationObserver(function (list) {
       for (var i = 0; i < list.length; i++) {
         var m = list[i];
         if (m.type === 'characterData') doText(m.target);
         else if (m.type === 'attributes') doEl(m.target);
         else for (var j = 0; j < m.addedNodes.length; j++) walk(m.addedNodes[j]);
       }
-      var tt = tr(document.title); if (tt) document.title = tt;
-    }).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ATTRS });
+      var tt = tr(document.title); if (tt && tt !== document.title) document.title = tt;
+      obs.takeRecords(); // drop the records our own edits just produced
+    });
+    obs.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ATTRS });
   }
 
   // Back button: every app page except Home, and the client portal when someone signed in to Lathe opens it.
