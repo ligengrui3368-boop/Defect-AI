@@ -140,10 +140,10 @@
     if (document.querySelector('.lang-switch')) return;
     var rail = document.querySelector('.rail');
     if (rail) { var meta = rail.querySelector('.meta'); rail.insertBefore(sw(), meta || null); return; }
-    var top = document.querySelector('.top');
-    if (top) { top.appendChild(sw()); return; }
     var app = Array.prototype.find.call(document.querySelectorAll('header a, nav a'), function (a) { return /Open the app|打开应用/.test(a.textContent); });
     if (app && app.parentNode) { var s = sw(); s.style.marginRight = '8px'; app.parentNode.insertBefore(s, app); return; }
+    var top = document.querySelector('body > .top');
+    if (top) { top.appendChild(sw()); return; }
     var f = sw(); f.classList.add('lang-float'); document.body.appendChild(f);
   }
 
