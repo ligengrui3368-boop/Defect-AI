@@ -26,7 +26,7 @@
     web: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.6 2.5 14.4 0 17M12 3.5c-2.5 2.6-2.5 14.4 0 17"/>',
     plus: '<path d="M12 5v14M5 12h14"/>'
   };
-  var svg = function (k) { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + I[k] + '</svg>'; };
+  var svg = function (k) { return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + I[k] + '</svg>'; };
   var link = function (k, href, label, icon, badge) {
     return '<a class="nv" data-k="' + k + '" href="' + href + '">' + svg(icon) + '<span>' + label + '</span>' +
       (badge !== undefined ? '<small' + (badge ? ' id="' + badge + '"' : '') + '></small>' : '') + '</a>';
