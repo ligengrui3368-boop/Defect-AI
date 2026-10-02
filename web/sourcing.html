@@ -55,6 +55,13 @@ textarea{min-height:90px;resize:vertical}
 .steps{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin:14px 0 4px}
 .steps div{font-size:11.5px;font-weight:700;text-align:center;padding:7px 4px;border-radius:6px;background:var(--sunk);color:var(--muted)}
 .steps div.on{background:var(--ink);color:var(--panel)}.steps div.done{background:var(--harbor-bg);color:var(--harbor)}
+.steps div[data-step]{cursor:pointer}.steps div[data-step]:hover{filter:brightness(.95)}.steps div.view{box-shadow:0 0 0 2px var(--harbor)}
+.tabbed [data-tab]{display:none}
+.tabbed[data-show=intake] [data-tab~=intake],.tabbed[data-show=sourcing] [data-tab~=sourcing],.tabbed[data-show=negotiating] [data-tab~=negotiating],.tabbed[data-show=quote] [data-tab~=quote],.tabbed[data-show=order] [data-tab~=order]{display:block}
+.tabhint{font-size:12.5px;color:var(--muted);margin:2px 0 10px}
+#lb{position:fixed;inset:0;background:rgba(10,12,16,.86);display:flex;align-items:center;justify-content:center;z-index:9999;cursor:zoom-out;padding:20px}
+#lb img{max-width:94vw;max-height:88vh;border-radius:10px;background:#fff;box-shadow:0 10px 40px rgba(0,0,0,.4)}
+#lb span{position:absolute;top:14px;right:20px;color:#fff;font-size:13px;opacity:.8}
 .chip{display:inline-block;background:var(--sunk);border-radius:6px;padding:2px 8px;margin:2px 4px 2px 0;font-size:13px}
 .kv{display:grid;grid-template-columns:150px 1fr;gap:4px 12px;font-size:14px}.kv b{color:var(--muted);font-weight:600}
 .card{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:10px}
@@ -70,9 +77,10 @@ textarea{min-height:90px;resize:vertical}
 .contact .link:hover{text-decoration:underline}
 .qf{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:13px;color:var(--muted);margin-top:8px}
 .qf select{width:auto;padding:3px 6px;font-size:13px}.qf input[type=checkbox]{width:auto;margin:0 4px 0 0;vertical-align:-2px}
-.lthumb{width:52px;height:52px;object-fit:cover;border-radius:8px;border:1px solid var(--line);float:left;margin:2px 10px 4px 0;background:var(--sunk)}
+.lthumb{width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid var(--line);float:left;margin:2px 12px 6px 0;background:var(--sunk);cursor:zoom-in}
+@media (max-width:700px){.lthumb{width:84px;height:84px}}
 .pstrip{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;font-size:13px;color:var(--muted)}
-.pstrip img{width:44px;height:44px;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:var(--sunk)}
+.pstrip img{width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid var(--line);background:var(--sunk);cursor:zoom-in}
 .glance{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px;margin:12px 0 4px}
 .glance div{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0}
 .glance small{display:block;color:var(--muted);font-size:12px;line-height:1.3}
@@ -230,7 +238,19 @@ function viewNew() {
   </div>`;
 }
 
-function stepsBar(status) { const i = STATUSES.indexOf(status); return `<div class="steps">${STATUSES.map((s, k) => `<div class="${k < i ? 'done' : k === i ? 'on' : ''}">${SLABEL[s]}</div>`).join('')}</div>`; }
+// the request page shows one stage at a time; click any step (earlier or later) to open it
+const TAB_OF = { intake: 'intake', sourcing: 'sourcing', shortlisted: 'sourcing', negotiating: 'negotiating', quoted: 'quote', approved: 'quote', ordered: 'order', closed: 'order' };
+const VIEW_TAB = {};
+function stepsBar(status, view) { const i = STATUSES.indexOf(status); return `<div class="steps" title="Click a step to open it">${STATUSES.map((s, k) => `<div data-step="${s}" class="${k < i ? 'done' : k === i ? 'on' : ''}${view && TAB_OF[s] === view ? ' view' : ''}">${SLABEL[s]}</div>`).join('')}</div>`; }
+function openLightbox(src) {
+  if (!src) return; const lb = document.createElement('div'); lb.id = 'lb';
+  lb.innerHTML = `<img src="${esc(src)}" referrerpolicy="no-referrer" alt=""><span>Click anywhere or press Esc to close</span>`;
+  const close = () => { lb.remove(); document.removeEventListener('keydown', key); }; const key = (e) => { if (e.key === 'Escape') close(); };
+  lb.onclick = close; document.addEventListener('keydown', key); document.body.appendChild(lb);
+}
+document.addEventListener('click', (e) => { const im = e.target.closest && e.target.closest('.lthumb, .pstrip img'); if (im && im.src) { e.preventDefault(); openLightbox(im.src); } });
+const lines = (a) => (a || []).join('\n');
+const unlines = (t) => String(t || '').split('\n').map(x => x.trim()).filter(Boolean);
 
 async function viewRequest(id) {
   const r = D.requests.find(x => x.id === id); if (!r) return `<p>Request not found.</p>`;
@@ -251,15 +271,31 @@ async function viewRequest(id) {
   const glance = [['Quantity', fmt(r.quantity, 0)], ['Client target', r.target_unit_price != null ? usd(r.target_unit_price) + ' / unit' : '—'], ['Deadline', dt(r.deadline)],
     ...(s.at_a_glance || []).map(g => [g.label, g.value]), ...(s.estimated_factory_price_cny ? [['Est. factory price', cny(s.estimated_factory_price_cny)]] : [])];
   const rate = D.rates.find(x => x.is_default) || D.rates[0];
+  const tab = VIEW_TAB[id] || TAB_OF[r.status] || 'intake';
+  const photoStrip = (s.photos || []).length ? `<div class="pstrip"><span>Product photos:</span>${s.photos.map(p => `<img data-sp="${esc(p)}" alt="">`).join('')}</div>` : '';
   return `<div class="hello"><div><a class="sm" href="#/requests">← Requests</a><h1>${esc(r.title)}</h1><p>${esc(client ? (client.company || client.name) : 'No client')} · created ${dt(r.created_at)}${r.hts_code ? ` · HTS ${esc(r.hts_code)}` : ''}</p></div>
     <div class="bar"><select id="stSel" class="btn" style="width:auto">${STATUSES.map(x => `<option value="${x}" ${x === r.status ? 'selected' : ''}>${SLABEL[x]}</option>`).join('')}</select>${client ? `<a class="btn" target="_blank" href="portal.html?c=${esc(client.portal_token)}">Client portal ↗</a>` : ''}</div></div>
-  ${stepsBar(r.status)}
-  <div class="cols">
+  ${stepsBar(r.status, tab)}
+  <div class="tabbed" data-show="${tab}" id="tabbed">
   <div>
-    <div class="panel"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">1 · Spec</h2><div class="bar"><button class="btn sm" id="editBrief">Edit brief</button><button class="btn sm primary" id="runIntake">${s.intake_at ? 'Re-run intake' : 'Run intake agent'}</button></div></div>
+    <div class="panel" data-tab="intake"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">1 · Intake &amp; spec</h2><div class="bar"><button class="btn sm" id="editSpec">Edit</button><button class="btn sm primary" id="runIntake">${s.intake_at ? 'Re-run intake' : 'Run intake agent'}</button></div></div>
       ${s.summary ? `<p style="margin:8px 0 0">${esc(s.summary)}</p>` : `<p class="mut">${r.raw_brief ? 'Intake not run yet.' : 'No brief yet.'}</p>`}
-      <div id="briefBox" style="display:none"><textarea id="briefTa">${esc(r.raw_brief || '')}</textarea><div class="bar" style="margin-top:8px"><button class="btn sm primary" id="saveBrief">Save brief</button></div></div>
+      <div id="specEdit" class="cbox" style="display:none;margin-top:10px">
+        <div class="grid2"><div><label style="margin-top:0">Request title</label><input id="eTitle" value="${esc(r.title || '')}"></div><div><label style="margin-top:0">Product name</label><input id="eProd" value="${esc(s.product_name || '')}"></div>
+          <div><label>Quantity</label><input id="eQty" type="number" min="1" value="${r.quantity ?? ''}"></div><div><label>Client target (USD / unit)</label><input id="eTarget" type="number" step="0.01" value="${r.target_unit_price ?? ''}"></div>
+          <div><label>Deadline</label><input id="eDeadline" type="date" value="${esc(r.deadline || '')}"></div><div><label>Est. factory price (¥ / unit)</label><input id="eEst" type="number" step="0.01" value="${s.estimated_factory_price_cny ?? ''}"></div></div>
+        <label>Summary</label><textarea id="eSummary" rows="2">${esc(s.summary || '')}</textarea>
+        <label>At a glance <span class="mut">(one per line, as Label: value)</span></label><textarea id="eGlance" rows="4">${esc((s.at_a_glance || []).map(g => g.label + ': ' + g.value).join('\n'))}</textarea>
+        <div class="grid2"><div><label>Materials <span class="mut">(one per line)</span></label><textarea id="eMat" rows="4">${esc(lines(s.materials))}</textarea></div><div><label>Features <span class="mut">(one per line)</span></label><textarea id="eFeat" rows="4">${esc(lines(s.features))}</textarea></div>
+          <div><label>Dimensions &amp; weight</label><textarea id="eDim" rows="3">${esc([s.dimensions, s.weight].filter(Boolean).join('\n'))}</textarea></div><div><label>Colors <span class="mut">(one per line)</span></label><textarea id="eCol" rows="3">${esc(lines(s.colors))}</textarea></div>
+          <div><label>Packaging</label><textarea id="ePack" rows="3">${esc(s.packaging || '')}</textarea></div><div><label>Certifications <span class="mut">(one per line)</span></label><textarea id="eCert" rows="3">${esc(lines(s.certifications))}</textarea></div>
+          <div><label>Must-haves <span class="mut">(one per line)</span></label><textarea id="eMust" rows="3">${esc(lines(s.must_haves))}</textarea></div><div><label>QC watch list <span class="mut">(one per line)</span></label><textarea id="eQc" rows="3">${esc(lines(s.defects_to_watch))}</textarea></div></div>
+        <label>1688 search terms <span class="mut">(Chinese, one per line; used by Search 1688 and Refresh)</span></label><textarea id="eTerms" rows="3">${esc(lines(s.search_terms_zh))}</textarea>
+        <label>Client brief</label><textarea id="eBrief" rows="4">${esc(r.raw_brief || '')}</textarea>
+        <div class="bar" style="margin-top:10px"><button class="btn sm primary" id="saveSpec">Save changes</button><button class="btn sm" id="cancelSpec">Cancel</button><span class="sm mut">Re-running intake rewrites these fields from the brief.</span></div>
+      </div>
       <div class="glance">${glance.map(([k, v]) => `<div><small>${esc(k)}</small><b>${esc(v)}</b></div>`).join('')}</div>
+      ${photoStrip}
       ${s.intake_at ? `<details class="more"><summary>Full spec</summary><div class="kv">
         ${s.product_name ? `<b>Product</b><span>${esc(s.product_name)} <span class="mut">· ${esc(s.category || '')}</span></span>` : ''}
         ${s.materials ? `<b>Materials</b><span>${list(s.materials)}</span>` : ''}${s.dimensions ? `<b>Dimensions</b><span>${soft(s.dimensions)}${s.weight ? ' · ' + soft(s.weight) : ''}</span>` : ''}
@@ -272,10 +308,10 @@ async function viewRequest(id) {
       ${s.questions?.length ? `<details class="more"><summary>${s.questions.length} open question${s.questions.length === 1 ? '' : 's'} for the client</summary><ol style="margin:8px 0;padding-left:20px;font-size:14px">${s.questions.map(x => `<li>${esc(x)}</li>`).join('')}</ol><label>Answers (then re-run intake)</label><textarea id="answers" placeholder="Paste the client's answers here"></textarea></details>` : ''}
     </div>
 
-    <div class="panel"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">2 · Factory candidates <span class="mut sm">${active.length}</span></h2>
+    <div class="panel" data-tab="sourcing"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">2 · Factory candidates <span class="mut sm">${active.length}</span></h2>
       <div class="bar"><input id="term" placeholder="Chinese search term (optional)" style="width:220px"><button class="btn sm primary" id="search1688">Search 1688</button><button class="btn sm" id="photoBtn">Search by photo</button><input type="file" id="photoIn" accept="image/*" multiple hidden>${cands.length ? `<button class="btn sm" id="refreshBtn">Refresh results</button><button class="btn sm" id="rerank">Re-rank</button><button class="btn sm" id="getContacts" ${CONTACTS.running ? 'disabled' : ''}>${CONTACTS.running ? 'Looking up…' : 'Get contacts'}</button>` : ''}<button class="btn sm" id="addCand">Add manually</button></div></div>
       ${filterBar()}
-      ${(s.photos || []).length ? `<div class="pstrip"><span>Photos:</span>${s.photos.map(p => `<img data-sp="${esc(p)}" alt="">`).join('')}<button class="btn sm" id="photoAgain">Search again with these</button></div>` : ''}
+      ${(s.photos || []).length ? `<div class="pstrip"><span>Your photos:</span>${s.photos.map(p => `<img data-sp="${esc(p)}" alt="">`).join('')}<button class="btn sm" id="photoAgain">Search again with these</button></div>` : ''}
       <div id="refreshBox" class="cbox" style="display:none;margin-top:10px">
         <label style="margin-top:0">What didn't you like about these factories? (optional)</label>
         <textarea id="refreshFb" rows="2" placeholder="e.g. too expensive, want aluminum frames, only bigger factories, prefer Zhejiang"></textarea>
@@ -289,7 +325,7 @@ async function viewRequest(id) {
       ${rejected.length ? `<details class="sm" style="margin-top:10px"><summary>Rejected or replaced (${rejected.length}) · these factories won't be suggested again for this request</summary>${rejected.map(k => `<div class="bar" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0"><span><a href="${esc(k.listing_url || '#')}" target="_blank">${esc(k.listing_title || 'Listing')}</a> <span class="mut">· ${esc(k.factories?.name || '')} · ${cny(k.price_cny)}</span></span><button class="btn sm" data-restore="${k.id}">Restore</button></div>`).join('')}</details>` : ''}
     </div>
 
-    <div class="panel"><h2>3 · Negotiations <span class="mut sm">${negs.length}</span></h2>
+    <div class="panel" data-tab="negotiating"><h2>3 · Negotiations <span class="mut sm">${negs.length}</span></h2>
       <p class="sm mut">You negotiate. Log each offer here so the quote uses the agreed price. "Draft RFQ" writes the first Chinese message.</p>
       ${negs.length ? negs.map(g => `<div class="card"><div class="bar" style="justify-content:space-between"><b>${esc(g.factories?.name || 'Factory')}</b> <span class="badge ${g.status === 'agreed' ? 'b-pass' : g.status === 'dropped' ? 'b-fail' : 'b-harbor'}">${esc(g.status.replace('_', ' '))}</span></div>${g.factories ? `<div class="cbox">${contactBits(g.factories, true) || '<span class="sm mut">No contact details yet. Add them on the factory page.</span>'}</div>` : ''}
         <div class="kv" style="margin-top:6px"><b>Current offer</b><span>${cny(g.current_offer_cny)}</span><b>Target</b><span>${cny(g.target_cny)}</span><b>Agreed</b><span>${g.agreed_cny ? '<b>' + cny(g.agreed_cny) + '</b>' : '—'}</span><b>MOQ / lead time</b><span>${fmt(g.moq, 0)} / ${g.lead_time_days ?? '—'} days</span><b>Terms</b><span>${esc(g.incoterm || '')} ${esc(g.payment_terms || '')}</span>${g.next_action ? `<b>Next</b><span>${esc(g.next_action)}</span>` : ''}</div>
@@ -301,7 +337,7 @@ async function viewRequest(id) {
     </div>
   </div>
   <div>
-    <div class="panel"><h2>4 · Landed cost &amp; margin</h2>
+    <div class="panel" data-tab="quote"><h2>4 · Landed cost &amp; margin</h2>
       ${rate ? `<p class="sm mut">Rate card: <b>${esc(rate.name)}</b> (${dt(rate.effective_date)}) · <a href="#/rates">edit rates</a></p>` : `<p class="sm mut">No rate card. <a href="#/rates">Create one</a>.</p>`}
       <div class="grid2"><div><label>Factory price (¥/unit)</label><input id="qPrice" type="number" step="0.01" value="${quotes[0]?.inputs?.factory_price_cny ?? s.estimated_factory_price_cny ?? ''}"></div><div><label>Quantity</label><input id="qQty" type="number" value="${r.quantity || 1000}"></div>
         <div><label>Domestic freight to port (¥ total)</label><input id="qDom" type="number" step="1" value="${quotes[0]?.inputs?.domestic_freight_cny ?? 0}"></div><div><label>Intl freight (USD total)</label><input id="qIntl" type="number" step="1" value="${quotes[0]?.inputs?.intl_freight_usd ?? 0}"></div>
@@ -311,11 +347,11 @@ async function viewRequest(id) {
       <div id="calcOut"></div>
       ${quotes.length ? `<h3>Saved quotes</h3>${quotes.map(qt => `<div class="card"><div class="bar" style="justify-content:space-between"><div><b>${usd(qt.landed_unit_cost, 2)} landed</b> → ${usd(qt.client_unit_price)} <span class="mut">· margin ${fmt(qt.margin_pct, 1)}%</span><div class="sm mut">${esc(qt.factories?.name || '')} · ${dt(qt.created_at)} · ${esc(qt.status)}${qt.released_to_client ? ' · <span class="badge b-pass">released</span>' : ''}</div></div><div class="bar"><button class="btn sm" data-qrel="${qt.id}" data-on="${qt.released_to_client ? 0 : 1}">${qt.released_to_client ? 'Hide from client' : 'Release to client'}</button><button class="btn sm" data-order="${qt.id}" data-fac="${qt.factory_id || ''}" data-qty="${qt.inputs?.qty || r.quantity || ''}" data-price="${qt.inputs?.factory_price_cny || ''}" data-cp="${qt.client_unit_price || ''}">Create order</button></div></div></div>`).join('')}` : ''}
     </div>
-    <div class="panel"><h2>Client requirements &amp; notes <span class="mut sm">${reqs.length}</span></h2>
+    <div class="panel" data-tab="intake sourcing"><h2>Client requirements &amp; notes <span class="mut sm">${reqs.length}</span></h2>
       ${reqs.length ? reqs.map(x => `<div class="card" style="padding:8px 12px"><span class="badge ${x.kind === 'defect_to_watch' ? 'b-fail' : x.kind === 'question' ? 'b-rev' : x.kind === 'approval' ? 'b-pass' : ''}">${esc(x.kind.replace('_', ' '))}</span> <span class="sm mut">${esc(x.author)} · ${dt(x.created_at)}</span><div>${esc(x.body)}</div></div>`).join('') : `<p class="sm mut">Nothing yet. Clients add these in their portal; they feed the QC standard.</p>`}
       <div class="bar" style="margin-top:10px"><select id="rqKind" class="btn sm" style="width:auto"><option value="requirement">requirement</option><option value="defect_to_watch">defect to watch</option><option value="question">question</option></select><input id="rqBody" placeholder="Add a note as the team" style="flex:1"><button class="btn sm" id="rqAdd">Add</button></div>
     </div>
-    <div class="panel"><h2>5 · Order &amp; QC</h2>
+    <div class="panel" data-tab="order"><h2>5 · Order &amp; QC</h2>
       ${orders.length ? orders.map(od => `<div class="card"><b>${esc(od.status)}</b> · ${fmt(od.qty, 0)} units · ${cny(od.unit_price_cny)} → ${usd(od.client_unit_price)}<div class="bar sm" style="margin-top:8px"><label style="margin:0"><input type="checkbox" ${od.deposit_paid ? 'checked' : ''} data-dep="${od.id}" style="width:auto"> deposit paid</label><label style="margin:0"><input type="checkbox" ${od.balance_paid ? 'checked' : ''} data-bal="${od.id}" style="width:auto"> balance paid</label>
         <select data-odst="${od.id}" class="btn sm" style="width:auto">${['deposit', 'production', 'qc', 'balance', 'shipped', 'arrived', 'closed'].map(x => `<option ${x === od.status ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
         <div class="sm" style="margin-top:8px">${od.po_id ? `<a href="ops.html#/po/${od.po_id}">Open purchase order &amp; QC →</a>` : `<a href="ops.html#/new">Create the purchase order in Orders</a>, then its factory link runs the sampled inspection.`}${r.product_id ? ` · <a href="app.html">QC standard</a>` : ` · <a href="app.html?go=new">Set up the QC standard</a> from the spec's watch list`}</div></div>`).join('') : `<p class="sm mut">No order yet. Save a quote and press "Create order".</p>`}
@@ -406,9 +442,25 @@ function wire(page, id) {
   };
   if (page === 'request') {
     const r = D.requests.find(x => x.id === id);
-    $('stSel').onchange = (e) => upd('sourcing_requests', { status: e.target.value }, id);
-    $('editBrief').onclick = () => { $('briefBox').style.display = 'block'; };
-    $('saveBrief').onclick = () => upd('sourcing_requests', { raw_brief: $('briefTa').value }, id);
+    $('stSel').onchange = (e) => { delete VIEW_TAB[id]; upd('sourcing_requests', { status: e.target.value }, id); };
+    on('[data-step]', 'click', (e) => { const t = TAB_OF[e.currentTarget.dataset.step]; VIEW_TAB[id] = t; $('tabbed').dataset.show = t; document.querySelectorAll('[data-step]').forEach(x => x.classList.toggle('view', TAB_OF[x.dataset.step] === t)); });
+    $('editSpec').onclick = () => { const b = $('specEdit'); b.style.display = b.style.display === 'none' ? 'block' : 'none'; };
+    $('cancelSpec').onclick = () => { $('specEdit').style.display = 'none'; };
+    $('saveSpec').onclick = async (e) => {
+      busy(e.target, true);
+      const dim = unlines($('eDim').value);
+      const glanceRows = unlines($('eGlance').value).map(x => { const i = x.indexOf(':'); return i > 0 ? { label: x.slice(0, i).trim(), value: x.slice(i + 1).trim() } : null; }).filter(g => g && g.label && g.value);
+      const spec = { ...(r.spec || {}), product_name: $('eProd').value.trim() || null, summary: $('eSummary').value.trim() || null, at_a_glance: glanceRows,
+        materials: unlines($('eMat').value), features: unlines($('eFeat').value), colors: unlines($('eCol').value), certifications: unlines($('eCert').value),
+        must_haves: unlines($('eMust').value), defects_to_watch: unlines($('eQc').value), search_terms_zh: unlines($('eTerms').value),
+        dimensions: dim[0] || null, weight: dim.slice(1).join(' · ') || null, packaging: $('ePack').value.trim() || null,
+        estimated_factory_price_cny: $('eEst').value === '' ? null : Number($('eEst').value), edited_at: new Date().toISOString() };
+      const patch = { title: $('eTitle').value.trim() || r.title, quantity: $('eQty').value === '' ? null : Math.round(Number($('eQty').value)), target_unit_price: $('eTarget').value === '' ? null : Number($('eTarget').value),
+        deadline: $('eDeadline').value || null, raw_brief: $('eBrief').value, spec };
+      const { error } = await sb.from('sourcing_requests').update(patch).eq('id', id);
+      if (error) { busy(e.target, false); return toast(error.message); }
+      Object.assign(r, patch); toast('Saved'); await refresh();
+    };
     if (r.spec?.intake_at && !(r.spec.at_a_glance || []).length && !GLANCE_TRIED.has(id)) { GLANCE_TRIED.add(id); call('spec_glance', { request_id: id }).then(o => { if ((o.at_a_glance || []).length) { r.spec.at_a_glance = o.at_a_glance; render(); } }).catch(() => {}); }
     $('runIntake').onclick = async (e) => { busy(e.target, true); try { await call('intake', { request_id: id, answers: $('answers')?.value || '' }); toast('Spec updated'); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
     $('search1688').onclick = async (e) => { busy(e.target, true); try { const t = $('term').value.trim(); const out = await call('search_1688', { request_id: id, terms: t ? [t] : undefined, filters: QF }); const fs = out.filter; toast(fs?.rated ? `Scanned ${fs.scanned} listings, kept ${fs.kept} well-rated` + (Object.keys(fs.dropped || {}).length ? ` (dropped ${Object.entries(fs.dropped).map(([k, n]) => n + ' ' + ({ trader: 'traders', service: 'low service score', reviews: 'weak reviews', repeat: 'low repeat rate', years: 'too new' }[k] || k)).join(', ')})` : '') + ` · ${out.new_candidates} new` : `${out.listings} listings, ${out.new_candidates} new, ranked ${out.ranked}`); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
@@ -424,7 +476,7 @@ function wire(page, id) {
       } catch (err) { busy(btn, false); toast(err.message || String(err)); }
     };
     if ($('photoAgain')) $('photoAgain').onclick = (e) => photoSearch(id, { paths: (r.spec?.photos || []).slice(-3), exclude_existing: true }, e.target);
-    if (document.querySelector('[data-sp]')) { const ps = [...document.querySelectorAll('[data-sp]')].map(i => i.dataset.sp); sb.storage.from('photos').createSignedUrls(ps, 3600).then(({ data }) => (data || []).forEach((d, i) => { const el = document.querySelector(`[data-sp="${CSS.escape(ps[i])}"]`); if (el && d.signedUrl) el.src = d.signedUrl; })); }
+    if (document.querySelector('[data-sp]')) { const ps = [...new Set([...document.querySelectorAll('[data-sp]')].map(i => i.dataset.sp))]; sb.storage.from('photos').createSignedUrls(ps, 3600).then(({ data }) => (data || []).forEach((d, i) => { if (d.signedUrl) document.querySelectorAll(`[data-sp="${CSS.escape(ps[i])}"]`).forEach(el => { el.src = d.signedUrl; }); })); }
     if ($('refreshBtn')) $('refreshBtn').onclick = () => { $('refreshBox').style.display = 'block'; $('refreshFb').focus(); };
     if ($('refreshCancel')) $('refreshCancel').onclick = () => { $('refreshBox').style.display = 'none'; };
     if ($('refreshGo')) $('refreshGo').onclick = async (e) => { busy(e.target, true); try { const out = await call('refresh_search', { request_id: id, feedback: $('refreshFb').value.trim(), filters: QF }); toast(`Replaced ${out.replaced} with ${out.new_candidates} new listing${out.new_candidates === 1 ? '' : 's'} from ${out.new_factories} new factor${out.new_factories === 1 ? 'y' : 'ies'} · searched ${out.terms.join(', ')}`); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
