@@ -19,6 +19,8 @@
     '.lang-switch span.on{opacity:1;background:#fff;color:#1d1d1f;box-shadow:0 1px 2px rgba(0,0,0,.12)}' +
     '.lang-switch:hover span:not(.on){opacity:.85}.lang-switch:active{transform:scale(.96)}' +
     '.rail-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 2px 14px}.rail-top .brand{margin:0!important}' +
+    '.rail a.nv.back{margin:-6px 0 8px;color:var(--muted,#86868b)!important}' +
+    '.top .back-btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px 0 10px;border-radius:999px;border:1px solid rgba(127,127,127,.28);background:#fff;color:#1d1d1f;font:600 14px/1 Inter,system-ui,-apple-system,"PingFang SC",sans-serif;text-decoration:none;cursor:pointer;flex-shrink:0;transition:transform .15s ease}.top .back-btn:hover{transform:translateX(-2px)}.top .back-btn:active{transform:scale(.96)}.top .back-btn svg{width:16px;height:16px}' +
     '.lang-float{position:fixed;right:16px;bottom:16px;z-index:50}';
   document.head.appendChild(css);
 
@@ -127,6 +129,29 @@
     }).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ATTRS });
   }
 
+  // Back button: every app page except Home, and the client portal when opened from inside the app.
+  // It returns to the previous Lathe page, or to Home when there isn't one.
+  var appBase = location.origin + location.pathname.replace(/[^/]*$/, '');
+  var file = location.pathname.split('/').pop() || 'index.html';
+  var cameFromApp = document.referrer && document.referrer.indexOf(appBase) === 0 && document.referrer.indexOf('portal.html') < 0;
+  var moved = false; window.addEventListener('hashchange', function () { moved = true; });
+  var ARROW = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>';
+  function goBack(e) { e.preventDefault(); if ((cameFromApp || moved) && history.length > 1) history.back(); else location.href = './'; }
+  function placeBack() {
+    if (document.querySelector('.rail .back, .top .back-btn') || location.pathname.indexOf('/site/') >= 0) return;
+    var rail = document.querySelector('.rail');
+    if (rail) {
+      if (file === 'index.html' || file === '') return;
+      var a = document.createElement('a'); a.className = 'nv back'; a.href = './'; a.innerHTML = ARROW + '<span>Back</span>'; a.onclick = goBack;
+      var top = rail.querySelector('.rail-top'); rail.insertBefore(a, top ? top.nextSibling : rail.firstChild); return;
+    }
+    var bar = document.querySelector('body > .top');
+    if (bar && file === 'portal.html' && cameFromApp) {
+      var b = document.createElement('a'); b.className = 'back-btn'; b.href = './'; b.innerHTML = ARROW + '<span>Back</span>'; b.onclick = goBack;
+      bar.insertBefore(b, bar.firstChild);
+    }
+  }
+
   // The switch
   function sw() {
     var b = document.createElement('button');
@@ -155,9 +180,9 @@
 
   function ready(fn) { if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
   ready(function () {
-    placeSwitch();
-    // Pages that rebuild the sidebar later get the switch back.
-    new MutationObserver(function () { if (!document.querySelector('.lang-switch')) placeSwitch(); }).observe(document.body, { childList: true, subtree: true });
+    placeSwitch(); placeBack();
+    // Pages that rebuild the sidebar later get the switch and back button back.
+    new MutationObserver(function () { if (!document.querySelector('.lang-switch')) placeSwitch(); placeBack(); }).observe(document.body, { childList: true, subtree: true });
   });
   if (!zh) return;
   var cacheKey = 'lathe-zh-dict';
