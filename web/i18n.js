@@ -93,7 +93,8 @@
   }
   var ATTRS = ['placeholder', 'title', 'aria-label'];
   function doEl(el) {
-    if (skipped(el)) return;
+    // Text boxes keep what people type, but their placeholder and label are translated.
+    if (el.tagName === 'TEXTAREA' ? (el.parentNode && el.parentNode.nodeType === 1 && skipped(el.parentNode)) : skipped(el)) return;
     for (var i = 0; i < ATTRS.length; i++) {
       var v = el.getAttribute(ATTRS[i]); if (!v || !/[A-Za-z]/.test(v)) continue;
       var out = tr(v.trim()); if (out) el.setAttribute(ATTRS[i], out);
