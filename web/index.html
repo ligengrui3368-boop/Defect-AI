@@ -29,6 +29,7 @@ body{margin:0;font-size:15px;line-height:1.5}
 .hello h2{margin:0;font-size:26px;font-weight:650;letter-spacing:-.025em}
 .hello p{margin:4px 0 0;color:var(--muted);font-size:15px}
 </style>
+<script src="i18n.js?v=1"></script>
 <script>/* Browsers keep pages for up to 10 minutes. If the server has a newer copy, reload once. */(function(){try{fetch(location.pathname,{method:'HEAD',cache:'no-store'}).then(function(r){var lm=r.headers.get('last-modified');if(!lm)return;var k='dc-fresh:'+location.pathname;if(new Date(lm).getTime()-new Date(document.lastModified).getTime()>1000&&sessionStorage.getItem(k)!==lm){sessionStorage.setItem(k,lm);location.reload();}}).catch(function(){});}catch(e){}})();</script>
 </head><body>
 <div class="dc-shell">
@@ -163,7 +164,7 @@ async function send(text) {
   log.push({ role: 'me', text, at: new Date().toISOString() }); saveLog(); drawLog(true);
   $('opIn').value = ''; $('opSend').disabled = true;
   try {
-    const out = await call('operator', { message: text, history: log.slice(-9, -1).map(m => ({ role: m.role === 'op' ? 'operator' : 'user', text: m.text })) });
+    const out = await call('operator', { lang: window.LatheLang || 'en', message: text, history: log.slice(-9, -1).map(m => ({ role: m.role === 'op' ? 'operator' : 'user', text: m.text })) });
     const a = out.action; let reply = out.reply || 'Done.', done = '';
     if (a?.type === 'create_request') {
       const client_id = await findOrMakeClient(a.client_name);
