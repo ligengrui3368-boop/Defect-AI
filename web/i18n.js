@@ -105,9 +105,9 @@
   }
   function flush() {
     mtTimer = null; var all = Object.keys(pending); if (!all.length) return;
-    var batch = all.slice(0, 60), cbs = {};
+    var batch = all.slice(0, 20), cbs = {};
     batch.forEach(function (k) { cbs[k] = pending[k]; delete pending[k]; });
-    if (all.length > 60) mtTimer = setTimeout(flush, 50);
+    if (all.length > 20) mtTimer = setTimeout(flush, 50);
     var tok = null;
     try { Object.keys(localStorage).forEach(function (k) { if (/^sb-.*-auth-token$/.test(k)) { var v = JSON.parse(localStorage.getItem(k)); if (v && v.access_token) tok = v.access_token; } }); } catch (e) {}
     var portal = (location.search.match(/[?&]c=([^&#]+)/) || [])[1];
