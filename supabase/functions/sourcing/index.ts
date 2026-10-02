@@ -184,6 +184,8 @@ async function apify1688(keyword: string | string[], limit: number, sort = "rele
 const pick = (o: Any, keys: string[]) => { for (const k of keys) { const v = k.split(".").reduce((a, p) => a?.[p], o); if (v !== undefined && v !== null && v !== "") return v; } return undefined; };
 const num = (v: Any) => { if (v === undefined || v === null) return null; const n = parseFloat(String(v).replace(/[^0-9.]/g, "")); return isFinite(n) ? n : null; };
 const FACTORY_WORDS = /factory|manufact|生产|工厂|加工/i;
+// a listing's main picture, whether the scraper gives a link, a list of links, or objects with a url
+const firstImage = (v: Any): string | null => { if (!v) return null; if (typeof v === "string") return v; if (Array.isArray(v)) { for (const x of v) { const u = firstImage(x); if (u) return u; } return null; } if (typeof v === "object") return firstImage(v.url ?? v.imageUrl ?? v.src ?? v.fullPathImageURI ?? v.imgUrl ?? null); return null; };
 function normalise(it: Any, keyword: string): Any[] {
   if (it && it.provider === "1688" && it.product_id && !it.error) {
     const tags: string[] = Array.isArray(it.tags) ? it.tags.map(String) : [];
@@ -217,7 +219,7 @@ function normalise(it: Any, keyword: string): Any[] {
     return [{ title: String(it.title ?? "").slice(0, 300), url: String(it.detailUrl ?? `https://detail.1688.com/offer/${it.offerId}.html`), supplier: String(sp.companyName || sp.legalCompanyName || "Unknown supplier").slice(0, 200),
       shopUrl: String(it.winportUrl || sp.shopUrl || ""), city: [it.province, it.city].filter(Boolean).join(", ").slice(0, 100), price: num(it.price?.min ?? it.price), moq: num(it.minOrderQuantity), years,
       isFactory, sales: num(it.saledCount ?? it.orderCount), signals, quality: q, address: sp.address ?? null, keyword: it.sourceKeyword || keyword,
-      raw: { offerId: it.offerId, title: it.title, url: it.detailUrl, imageUrl: pick(it, ["imageUrl", "image", "mainImage", "mainImageUrl", "imgUrl", "picUrl", "images.0", "imageUrls.0"]) ?? null, priceCny: it.price?.min ?? null, minimumOrderQuantity: it.minOrderQuantity, orderCount: it.orderCount ?? null, saledCount: it.saledCount ?? null,
+      raw: { offerId: it.offerId, title: it.title, url: it.detailUrl, imageUrl: firstImage(pick(it, ["imageUrl", "image", "mainImage", "mainImageUrl", "imgUrl", "picUrl", "images", "imageUrls", "skuImages"])), priceCny: it.price?.min ?? null, minimumOrderQuantity: it.minOrderQuantity, orderCount: it.orderCount ?? null, saledCount: it.saledCount ?? null,
         rating: q.product_rating, reviewCount: q.product_reviews, positiveRate: q.product_positive_rate, serviceScore: q.service_score, repeatRate: q.repeat_rate, supplierPositiveRate: q.positive_review_rate, isFactory, years, supplier: sp.companyName, location: [it.province, it.city].filter(Boolean).join(" ") } }];
   }
   if (it && (it.supplierName || it.supplierId) && Array.isArray(it.representativeOffers)) {
@@ -322,6 +324,13 @@ async function search1688(sb: SupabaseClient, body: Any) {
   if (photoMode) {
     try { (await apifyImage(body.photo_urls, 40)).forEach((it: Any) => normalise(it, "photo").forEach((l: Any) => { if (l.url && l.title) scanned.push(l); })); }
     catch (e) { errors.push((e as Error).message); }
+    // 1688's image search sometimes finds nothing (small or busy photos); then search by the Chinese terms
+    // and let the design check below keep only listings that look like the photo
+    const fallback: string[] = (r.spec?.search_terms_zh ?? []).slice(0, 3);
+    if (!scanned.length && fallback.length) {
+      try { (await apify1688(fallback, 30, "relevance")).forEach((it: Any) => normalise(it, fallback[0]).forEach((l: Any) => { if (l.url && l.title) scanned.push(l); })); errors.length = 0; body._fellBack = true; }
+      catch (e) { errors.push((e as Error).message); }
+    }
   } else if (RATED_ACTOR) {
     // one run for all terms; ask for more than we keep because the quality filter drops many
     const perTerm = Math.max(20, Math.floor(Number(Deno.env.get("SOURCING_SCAN_PER_TERM") ?? "40")));
@@ -398,7 +407,7 @@ async function search1688(sb: SupabaseClient, body: Any) {
     await sb.from("sourcing_requests").update({ spec: { ...(r.spec ?? {}), used_terms: used } }).eq("id", r.id);
   }
   const ranked = body.skip_rank ? { ranked: 0 } : await rank(sb, { request_id: r.id });
-  return { ok: true, searched: photoMode ? ["photo"] : terms, photo: photoMode, listings: listings.length, new_candidates: rows.length, new_factories: newFactories.length, errors, filter: filterSummary, ...ranked };
+  return { ok: true, searched: photoMode ? (body._fellBack ? ["photo → text"] : ["photo"]) : terms, photo: photoMode, fell_back: !!body._fellBack, listings: listings.length, new_candidates: rows.length, new_factories: newFactories.length, errors, filter: filterSummary, ...ranked };
 }
 
 async function searchPhoto(sb: SupabaseClient, body: Any) {
