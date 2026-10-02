@@ -217,7 +217,7 @@ function normalise(it: Any, keyword: string): Any[] {
     return [{ title: String(it.title ?? "").slice(0, 300), url: String(it.detailUrl ?? `https://detail.1688.com/offer/${it.offerId}.html`), supplier: String(sp.companyName || sp.legalCompanyName || "Unknown supplier").slice(0, 200),
       shopUrl: String(it.winportUrl || sp.shopUrl || ""), city: [it.province, it.city].filter(Boolean).join(", ").slice(0, 100), price: num(it.price?.min ?? it.price), moq: num(it.minOrderQuantity), years,
       isFactory, sales: num(it.saledCount ?? it.orderCount), signals, quality: q, address: sp.address ?? null, keyword: it.sourceKeyword || keyword,
-      raw: { offerId: it.offerId, title: it.title, url: it.detailUrl, priceCny: it.price?.min ?? null, minimumOrderQuantity: it.minOrderQuantity, orderCount: it.orderCount ?? null, saledCount: it.saledCount ?? null,
+      raw: { offerId: it.offerId, title: it.title, url: it.detailUrl, imageUrl: pick(it, ["imageUrl", "image", "mainImage", "mainImageUrl", "imgUrl", "picUrl", "images.0", "imageUrls.0"]) ?? null, priceCny: it.price?.min ?? null, minimumOrderQuantity: it.minOrderQuantity, orderCount: it.orderCount ?? null, saledCount: it.saledCount ?? null,
         rating: q.product_rating, reviewCount: q.product_reviews, positiveRate: q.product_positive_rate, serviceScore: q.service_score, repeatRate: q.repeat_rate, supplierPositiveRate: q.positive_review_rate, isFactory, years, supplier: sp.companyName, location: [it.province, it.city].filter(Boolean).join(" ") } }];
   }
   if (it && (it.supplierName || it.supplierId) && Array.isArray(it.representativeOffers)) {
@@ -262,7 +262,52 @@ function qualityCheck(l: Any, f: Any): string | null {
   if (f.min_years > 0 && q.years !== null && q.years < f.min_years) return "years";
   return null;
 }
-const DROP_LABEL: Record<string, string> = { already_seen: "factories already shown", trader: "traders, not factories", service: "low 1688 service score", reviews: "few or poor reviews", repeat: "low repeat-buyer rate", years: "too new on 1688" };
+const DROP_LABEL: Record<string, string> = { already_seen: "factories already shown", trader: "traders, not factories", service: "low 1688 service score", reviews: "few or poor reviews", repeat: "low repeat-buyer rate", years: "too new on 1688", design: "a different design from your photos", no_photo: "no product photo to compare" };
+
+// ---------- design check: compare each listing's photo with the buyer's reference photos ----------
+// 1688 (text or image search) returns "similar" products; this keeps only the ones whose design actually
+// matches what the buyer wants, scored by Claude looking at both pictures.
+const b64 = (buf: ArrayBuffer) => { const u = new Uint8Array(buf); let s = ""; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); };
+async function imageBlock(url: string): Promise<Any | null> {
+  let u = String(url || ""); if (!u) return null; if (u.startsWith("//")) u = "https:" + u;
+  const tries = /alicdn\.com/.test(u) && /\.(jpe?g|png|webp)$/i.test(u) ? [u + "_400x400.jpg", u] : [u];
+  for (const t of tries) {
+    try {
+      const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 12000);
+      const res = await fetch(t, { signal: ctl.signal, headers: { "user-agent": "Mozilla/5.0" } }); clearTimeout(timer);
+      if (!res.ok) continue;
+      const type = (res.headers.get("content-type") || "").split(";")[0].trim();
+      if (!/^image\/(jpeg|png|webp|gif)$/.test(type)) continue;
+      const buf = await res.arrayBuffer(); if (buf.byteLength < 500 || buf.byteLength > 4_500_000) continue;
+      return { type: "image", source: { type: "base64", media_type: type, data: b64(buf) } };
+    } catch { /* try the next form of the url */ }
+  }
+  return null;
+}
+async function designCheck(sb: SupabaseClient, r: Any, listings: Any[]): Promise<{ checked: boolean; refs: number }> {
+  const paths: string[] = (r.spec?.photos ?? []).slice(-2);
+  if (!paths.length || !listings.length) return { checked: false, refs: 0 };
+  const { data: signed } = await sb.storage.from("photos").createSignedUrls(paths, 600);
+  const refs = (await Promise.all((signed ?? []).map((x: Any) => x.signedUrl ? imageBlock(x.signedUrl) : null))).filter(Boolean);
+  if (!refs.length) return { checked: false, refs: 0 };
+  const imgs = await Promise.all(listings.map((l) => l.raw?.imageUrl ? imageBlock(l.raw.imageUrl) : Promise.resolve(null)));
+  const idx = listings.map((_, i) => i).filter((i) => imgs[i]);
+  const product = r.spec?.product_name || r.title;
+  const batches: number[][] = []; for (let i = 0; i < idx.length; i += 8) batches.push(idx.slice(i, i + 8));
+  const run = async (batch: number[]) => {
+    const content: Any[] = [{ type: "text", text: `REFERENCE: the exact design the buyer wants (${product}).` }, ...refs];
+    batch.forEach((i, n) => { content.push({ type: "text", text: `Candidate ${n + 1}` }); content.push(imgs[i]); });
+    content.push({ type: "text", text: `For each candidate, score 0-100 how closely its PRODUCT DESIGN matches the REFERENCE: same kind of product, same overall shape and structure, same mechanism and construction (how it holds or works, folding style, number of arms, hooks or slots, base type), same key features. Ignore colour, background, watermarks, text overlays, camera angle and lighting. 90-100 same design (colour may differ); 70-89 very similar, small differences; 40-69 same kind of product but a different design; under 40 a different product. Return only a JSON array: [{"n": number, "score": number, "note": "max 12 words: the key difference, or 'same design'"}].` });
+    try {
+      let { text } = await callClaude(content, 1200, MODEL);
+      let arr = tryJson(text);
+      if (!Array.isArray(arr)) { const fix = await callClaude([{ type: "text", text: "Return exactly the same content as a valid JSON array, nothing else:\n\n" + text }], 1500, MODEL); arr = tryJson(fix.text); }
+      (Array.isArray(arr) ? arr : []).forEach((o: Any) => { const i = batch[Number(o?.n) - 1]; if (i === undefined) return; listings[i].raw = { ...(listings[i].raw ?? {}), designMatch: Math.max(0, Math.min(100, Math.round(Number(o.score) || 0))), designNote: String(o.note ?? "").slice(0, 120) }; });
+    } catch { /* a failed batch leaves those listings unscored */ }
+  };
+  for (let i = 0; i < batches.length; i += 3) await Promise.all(batches.slice(i, i + 3).map(run));
+  return { checked: true, refs: refs.length };
+}
 
 async function search1688(sb: SupabaseClient, body: Any) {
   const r = await getRequest(sb, body.request_id);
@@ -275,7 +320,7 @@ async function search1688(sb: SupabaseClient, body: Any) {
   const scanned: Any[] = [];
   const errors: string[] = [];
   if (photoMode) {
-    try { (await apifyImage(body.photo_urls, 30)).forEach((it: Any) => normalise(it, "photo").forEach((l: Any) => { if (l.url && l.title) scanned.push(l); })); }
+    try { (await apifyImage(body.photo_urls, 40)).forEach((it: Any) => normalise(it, "photo").forEach((l: Any) => { if (l.url && l.title) scanned.push(l); })); }
     catch (e) { errors.push((e as Error).message); }
   } else if (RATED_ACTOR) {
     // one run for all terms; ask for more than we keep because the quality filter drops many
@@ -298,7 +343,19 @@ async function search1688(sb: SupabaseClient, body: Any) {
   for (const c of prior ?? []) if (c.factories && (body.exclude_existing || c.status === "rejected")) { if (c.factories.source_url) seen.add(String(c.factories.source_url).toLowerCase()); seen.add(String(c.factories.name).toLowerCase()); }
   const passed = listings.length;
   if (seen.size) for (let i = listings.length - 1; i >= 0; i--) { const l = listings[i]; if (seen.has((l.shopUrl || "").toLowerCase()) || seen.has(l.supplier.toLowerCase())) { listings.splice(i, 1); dropped.already_seen = (dropped.already_seen ?? 0) + 1; } }
-  const filterSummary = { scanned: scanned.length, kept: listings.length, dropped, filters, rated: scanned.some((l) => l.quality) };
+  // design check against the buyer's photos (when the request has any): keep only listings that look like the wanted design
+  const minDesign = Number(body.filters?.min_design ?? 60);
+  let design: Any = { checked: false };
+  if (listings.length && body.design_check !== false && minDesign > 0) {
+    design = await designCheck(sb, r, listings);
+    if (design.checked) for (let i = listings.length - 1; i >= 0; i--) {
+      const m = listings[i].raw?.designMatch;
+      if (m === undefined) { listings.splice(i, 1); dropped.no_photo = (dropped.no_photo ?? 0) + 1; }
+      else if (m < minDesign) { listings.splice(i, 1); dropped.design = (dropped.design ?? 0) + 1; }
+    }
+  }
+  const filterSummary = { scanned: scanned.length, kept: listings.length, dropped, filters, rated: scanned.some((l) => l.quality), design_checked: !!design.checked };
+  if (!listings.length && design.checked && (dropped.design || dropped.no_photo)) throw new HttpError(422, `Checked ${scanned.length} listings against your photos: none matched the design closely enough (${dropped.design ?? 0} were a different design). Try Search by photo, a clearer photo of the product alone, or a more specific Chinese search term.`);
   if (!listings.length && passed) throw new HttpError(422, `Found ${passed} well-rated listings, but all are from factories already shown for this request. Try other feedback or a different search term.`);
   if (!listings.length) {
     const why = Object.entries(dropped).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${DROP_LABEL[k] ?? k}`).join(", ");
@@ -407,8 +464,8 @@ async function rank(sb: SupabaseClient, body: Any) {
   const r = await getRequest(sb, body.request_id);
   const { data: cands } = await sb.from("request_candidates").select("id, listing_title, listing_url, price_cny, moq, listing_data, factories(name, city, platform_years, verification, is_verified_factory)").eq("request_id", r.id).neq("status", "rejected").limit(80);
   if (!cands?.length) return { ranked: 0 };
-  const compact = cands.map((c: Any, i: number) => ({ i, title: c.listing_title, price_cny: c.price_cny, moq: c.moq, supplier: c.factories?.name, city: c.factories?.city, years: c.factories?.platform_years, claims_factory: c.factories?.verification?.listing_claims_factory, sales: c.factories?.verification?.sales, service_score: c.listing_data?.serviceScore ?? c.factories?.verification?.service_scores?.composite ?? null, product_rating: c.listing_data?.rating ?? null, reviews: c.listing_data?.reviewCount ?? null, supplier_positive_rate: c.listing_data?.supplierPositiveRate ?? c.factories?.verification?.positive_review_rate ?? null, repeat_rate: c.listing_data?.repeatRate ?? c.factories?.verification?.repeat_rate ?? null, photo_match_rank: c.listing_data?.fromPhoto ? c.listing_data?.imageRank ?? null : null }));
-  const out = await askJson(`You rank 1688 listings for a sourcing request. Score each listing 0-100 on how well it fits the spec (product match, materials/features, MOQ vs quantity, price vs target, supplier looks like a real factory in a relevant industrial cluster, tenure, sales, and supplier quality: 1688 service score out of 5, product rating and review count, positive-review and repeat-buyer rates; prefer well-rated factories). If the spec has buyer feedback (spec.feedback), score down listings that match what the buyer disliked. photo_match_rank comes from 1688's search by the buyer's photo (1 = closest look-alike).
+  const compact = cands.map((c: Any, i: number) => ({ i, title: c.listing_title, price_cny: c.price_cny, moq: c.moq, supplier: c.factories?.name, city: c.factories?.city, years: c.factories?.platform_years, claims_factory: c.factories?.verification?.listing_claims_factory, sales: c.factories?.verification?.sales, service_score: c.listing_data?.serviceScore ?? c.factories?.verification?.service_scores?.composite ?? null, product_rating: c.listing_data?.rating ?? null, reviews: c.listing_data?.reviewCount ?? null, supplier_positive_rate: c.listing_data?.supplierPositiveRate ?? c.factories?.verification?.positive_review_rate ?? null, repeat_rate: c.listing_data?.repeatRate ?? c.factories?.verification?.repeat_rate ?? null, photo_match_rank: c.listing_data?.fromPhoto ? c.listing_data?.imageRank ?? null : null, design_match: c.listing_data?.designMatch ?? null }));
+  const out = await askJson(`You rank 1688 listings for a sourcing request. design_match (0-100, when present) is how closely the listing's photo matches the buyer's reference design; it matters most: a listing under 75 must score below any listing at 85 or more. Score each listing 0-100 on how well it fits the spec (product match, materials/features, MOQ vs quantity, price vs target, supplier looks like a real factory in a relevant industrial cluster, tenure, sales, and supplier quality: 1688 service score out of 5, product rating and review count, positive-review and repeat-buyer rates; prefer well-rated factories). If the spec has buyer feedback (spec.feedback), score down listings that match what the buyer disliked. photo_match_rank comes from 1688's search by the buyer's photo (1 = closest look-alike).
 Spec: ${specText(r)}
 Listings (JSON): ${JSON.stringify(compact)}
 Return a JSON array of {i, score, reason} with a one-sentence reason each (English). Include every i.`);
@@ -720,7 +777,7 @@ async function startJob(sb: SupabaseClient, body: Any) {
     try {
       const out: Any = kind === "search_1688" ? await search1688(sb, args) : kind === "search_photo" ? await searchPhoto(sb, args) : await refreshSearch(sb, args);
       const result = { listings: out.listings, new_candidates: out.new_candidates, new_factories: out.new_factories, ranked: out.ranked, replaced: out.replaced ?? null, terms: out.terms ?? out.searched ?? null,
-        scanned: out.filter?.scanned ?? null, kept: out.filter?.kept ?? null, dropped: out.filter?.dropped ?? null };
+        scanned: out.filter?.scanned ?? null, kept: out.filter?.kept ?? null, dropped: out.filter?.dropped ?? null, design_checked: out.filter?.design_checked ?? false };
       await sb.from("jobs").update({ status: "done", result, finished_at: new Date().toISOString() }).eq("id", job.id);
     } catch (e) {
       await sb.from("jobs").update({ status: "failed", error: String((e as Error).message ?? e).slice(0, 500), finished_at: new Date().toISOString() }).eq("id", job.id);
