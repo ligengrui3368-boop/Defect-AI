@@ -121,6 +121,7 @@ textarea{min-height:90px;resize:vertical}
 .nextbar b{display:block;font-size:16px;margin:2px 0}.nextbar span{font-size:13.5px;color:var(--muted)}
 .nextbar.working{border-left-color:var(--hivis,#F2B705)}.spin{width:22px;height:22px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--harbor);animation:spin 1s linear infinite;flex-shrink:0}
 @keyframes spin{to{transform:rotate(360deg)}}
+.tl{list-style:none;margin:6px 0 0;padding:0}.tl li{display:grid;grid-template-columns:92px 1fr;gap:2px 12px;padding:7px 0;border-top:1px solid var(--line);font-size:13.5px;line-height:1.45}.tl li:first-child{border-top:0}.tl time{color:var(--muted);font-size:12.5px}.tl small{grid-column:2;color:var(--muted);font-size:12px}
 .reply{background:var(--harbor-bg);border-radius:12px;padding:12px 14px;margin-top:10px;font-size:14px;line-height:1.5}
 .reply pre{white-space:pre-wrap;font:inherit;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0}
 .rbox{display:none;margin-top:10px;border:1px dashed var(--line2);border-radius:12px;padding:12px}
@@ -398,13 +399,15 @@ function liveRefresh() {
   }, 600);
 }
 async function load() {
-  const [r, c, f, a, fl] = await Promise.all([
+  const [r, c, f, a, fl, fh] = await Promise.all([
     sb.from('sourcing_requests').select('*, clients(name, company)').eq('workspace_id', ws).order('updated_at', { ascending: false }),
     sb.from('clients').select('*').eq('workspace_id', ws).order('created_at', { ascending: false }),
     sb.from('factories').select('*').eq('workspace_id', ws).order('updated_at', { ascending: false }),
     sb.from('cost_assumptions').select('*').eq('workspace_id', ws).order('effective_date', { ascending: false }),
     sb.from('request_flow').select('*').eq('workspace_id', ws),
+    sb.from('factory_history').select('*').eq('workspace_id', ws).gt('negotiated', 0),
   ]);
+  D.fhist = Object.fromEntries((fh.data || []).map(x => [x.factory_id, x]));
   D.requests = r.data || []; D.clients = c.data || []; D.factories = f.data || []; D.rates = a.data || [];
   D.flow = Object.fromEntries((fl.data || []).map(x => [x.id, x]));
   $('navReq').textContent = D.requests.filter(x => !['closed', 'ordered'].includes(x.status)).length || '';
@@ -493,6 +496,16 @@ function flowNext(fl) {
   return { t: fl.next_title, h: esc(fl.next_hint || '') + (fl.next_key === 'working' && fl.job_started ? ` <span class="mut">Started ${ago(fl.job_started)}.</span>` : ''), working: fl.next_key === 'working',
     b: a?.[0], act: a?.[1], arg: fl.next_key === 'build_quote' ? fl.offer_neg_id : a?.[2], ...(fl.next_key === 'search_photo' ? { b2: 'Search by text', act2: 'search' } : {}) };
 }
+function histBadge(fid, reqId) {
+  const h = fid && D.fhist?.[fid]; if (!h) return '';
+  const la = h.last_agreed;
+  if (la && la.request_id !== reqId) return `<div class="sm"><span class="badge b-pass">Worked with before</span> agreed ${cny(la.price_cny)} on ${esc(la.title || 'another request')}</div>`;
+  if (h.negotiated > 1 || (h.negotiated === 1 && !(la && la.request_id === reqId))) return `<div class="sm"><span class="badge">Talked before</span> on ${h.negotiated} request${h.negotiated === 1 ? '' : 's'}</div>`;
+  return '';
+}
+const who = (a) => !a ? 'Lathe' : a === ME?.email ? 'You' : a;
+const when = (d) => { const t = new Date(d), m = (Date.now() - t) / 60000; return m < 1 ? 'just now' : m < 60 ? Math.round(m) + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : t.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
+const actItem = (a) => `<li><time>${when(a.at)}</time><span>${esc(a.body)}</span><small>${esc(who(a.actor))}</small></li>`;
 const ago = (d) => { const m = Math.round((Date.now() - new Date(d).getTime()) / 60000); return m < 1 ? 'just now' : m === 1 ? '1 min ago' : m + ' min ago'; };
 let LIST_FILTER = 'all', FLOW_NOW = null;
 function stepsBar(status, view) { const i = STATUSES.indexOf(status); return `<div class="steps" title="Click a step to open it">${STATUSES.map((s, k) => `<div data-step="${s}" class="${k < i ? 'done' : k === i ? 'on' : ''}${view && TAB_OF[s] === view ? ' view' : ''}">${SLABEL[s]}</div>`).join('')}</div>`; }
@@ -508,14 +521,16 @@ const unlines = (t) => String(t || '').split('\n').map(x => x.trim()).filter(Boo
 
 async function viewRequest(id) {
   const r = D.requests.find(x => x.id === id); if (!r) return `<p>Request not found.</p>`;
-  const [c, n, q, req, o, fx] = await Promise.all([
+  const [c, n, q, req, o, fx, ax] = await Promise.all([
     sb.from('request_candidates').select('*, factories(*)').eq('request_id', id).order('rank', { ascending: true, nullsFirst: false }),
     sb.from('negotiations').select('*, factories(*)').eq('request_id', id).order('updated_at', { ascending: false }),
     sb.from('quotes').select('*, factories(name)').eq('request_id', id).order('created_at', { ascending: false }),
     sb.from('client_requirements').select('*').eq('request_id', id).order('created_at'),
     sb.from('sourcing_orders').select('*').eq('request_id', id),
     sb.from('request_flow').select('*').eq('id', id).maybeSingle(),
+    sb.from('activity').select('at, actor, body').eq('request_id', id).order('at', { ascending: false }).limit(60),
   ]);
+  const acts = ax.data || [];
   FLOW_NOW = fx.data || null;
   const cands = c.data || [], negs = n.data || [], quotes = q.data || [], reqs = req.data || [], orders = o.data || [];
   const active = cands.filter(k => k.status !== 'rejected'), rejected = cands.filter(k => k.status === 'rejected');
@@ -581,7 +596,7 @@ async function viewRequest(id) {
       </div>
       <p class="sm mut">Agent searches 1688 with the Chinese terms from the spec, saves each supplier as a factory, and scores listings against the spec. Release the ones you want the client to see.</p>
       ${active.length ? `<div class="wrap"><table><thead><tr><th>#</th><th>Listing</th><th>Supplier</th><th class="right">¥</th><th class="right">MOQ</th><th>Fit</th><th></th></tr></thead><tbody>
-      ${active.map(k => `<tr><td><span class="score">${k.rank ?? '·'}</span></td><td>${k.listing_data?.imageUrl ? `<img class="lthumb" src="${esc(k.listing_data.imageUrl)}" referrerpolicy="no-referrer" loading="lazy" alt="">` : ''}<a href="${esc(k.listing_url || '#')}" target="_blank">${esc(k.listing_title || 'Listing')}</a>${k.listing_data?.fromPhoto ? ` <span class="badge">photo match${k.listing_data.imageRank ? ' #' + k.listing_data.imageRank : ''}</span>` : ''}${qualityBits(k.listing_data)}<div class="sm mut">${esc(k.notes || '')}</div></td><td>${k.factories ? `<a href="#/factory/${k.factory_id}">${esc(k.factories.name)}</a><div class="sm mut">${esc(k.factories.city || '')}${k.factories.is_verified_factory === true ? ' · <span class="badge b-pass">verified</span>' : k.factories.is_verified_factory === false ? ' · <span class="badge b-fail">trader</span>' : ''}</div>${contactBits(k.factories, false)}` : '—'}</td><td class="right">${cny(k.price_cny)}</td><td class="right">${fmt(k.moq, 0)}</td><td>${k.match_score != null ? `<b>${fmt(k.match_score, 0)}</b>` : '—'} <span class="badge">${esc(k.status)}</span></td>
+      ${active.map(k => `<tr><td><span class="score">${k.rank ?? '·'}</span></td><td>${k.listing_data?.imageUrl ? `<img class="lthumb" src="${esc(k.listing_data.imageUrl)}" referrerpolicy="no-referrer" loading="lazy" alt="">` : ''}<a href="${esc(k.listing_url || '#')}" target="_blank">${esc(k.listing_title || 'Listing')}</a>${k.listing_data?.fromPhoto ? ` <span class="badge">photo match${k.listing_data.imageRank ? ' #' + k.listing_data.imageRank : ''}</span>` : ''}${qualityBits(k.listing_data)}<div class="sm mut">${esc(k.notes || '')}</div></td><td>${k.factories ? `<a href="#/factory/${k.factory_id}">${esc(k.factories.name)}</a><div class="sm mut">${esc(k.factories.city || '')}${k.factories.is_verified_factory === true ? ' · <span class="badge b-pass">verified</span>' : k.factories.is_verified_factory === false ? ' · <span class="badge b-fail">trader</span>' : ''}</div>${histBadge(k.factory_id, id)}${contactBits(k.factories, false)}` : '—'}</td><td class="right">${cny(k.price_cny)}</td><td class="right">${fmt(k.moq, 0)}</td><td>${k.match_score != null ? `<b>${fmt(k.match_score, 0)}</b>` : '—'} <span class="badge">${esc(k.status)}</span></td>
         <td class="right"><div class="bar" style="justify-content:flex-end"><button class="btn sm" data-neg="${k.id}" data-fac="${k.factory_id || ''}">Negotiate</button><button class="btn sm" data-rel="${k.id}" data-on="${k.released_to_client ? 0 : 1}">${k.released_to_client ? 'Hide' : 'Release'}</button><button class="btn sm" data-rej="${k.id}">✕</button></div></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">${rejected.length ? 'No candidates left. Press Refresh results or Search 1688.' : 'No candidates yet.'}</div>`}
       ${rejected.length ? `<details class="sm" style="margin-top:10px"><summary>Rejected or replaced (${rejected.length}) · these factories won't be suggested again for this request</summary>${rejected.map(k => `<div class="bar" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0"><span><a href="${esc(k.listing_url || '#')}" target="_blank">${esc(k.listing_title || 'Listing')}</a> <span class="mut">· ${esc(k.factories?.name || '')} · ${cny(k.price_cny)}</span></span><button class="btn sm" data-restore="${k.id}">Restore</button></div>`).join('')}</details>` : ''}
       <div class="panel-foot"><button class="btn" data-goto="negotiating">Next: negotiate →</button></div>
@@ -617,6 +632,9 @@ async function viewRequest(id) {
       <div id="calcOut"></div>
       ${quotes.length ? `<h3>Saved quotes</h3>${quotes.map(qt => `<div class="card"><div class="bar" style="justify-content:space-between"><div><b>${usd(qt.landed_unit_cost, 2)} landed</b> → ${usd(qt.client_unit_price)} <span class="mut">· margin ${fmt(qt.margin_pct, 1)}%</span><div class="sm mut">${esc(qt.factories?.name || '')} · ${dt(qt.created_at)} · ${esc(qt.status)}${qt.released_to_client ? ' · <span class="badge b-pass">released</span>' : ''}</div></div><div class="bar"><button class="btn sm" data-qrel="${qt.id}" data-on="${qt.released_to_client ? 0 : 1}">${qt.released_to_client ? 'Hide from client' : 'Release to client'}</button><button class="btn sm" data-order="${qt.id}" data-fac="${qt.factory_id || ''}" data-qty="${qt.inputs?.qty || r.quantity || ''}" data-price="${qt.inputs?.factory_price_cny || ''}" data-cp="${qt.client_unit_price || ''}">Create order</button></div></div></div>`).join('')}` : ''}
     </div>
+    <div class="panel" data-tab="intake sourcing negotiating quote order"><h2>Activity <span class="mut sm">${acts.length}</span></h2>
+      ${acts.length ? `<ul class="tl">${acts.slice(0, 8).map(actItem).join('')}</ul>${acts.length > 8 ? `<details class="sm" style="margin-top:6px"><summary>Show all ${acts.length}</summary><ul class="tl">${acts.slice(8).map(actItem).join('')}</ul></details>` : ''}` : '<p class="sm mut">Nothing yet. Everything that happens on this request shows up here: searches, offers, quotes, client answers.</p>'}
+    </div>
     <div class="panel" data-tab="intake sourcing"><h2>Client requirements &amp; notes <span class="mut sm">${reqs.length}</span></h2>
       ${reqs.length ? reqs.map(x => `<div class="card" style="padding:8px 12px"><span class="badge ${x.kind === 'defect_to_watch' ? 'b-fail' : x.kind === 'question' ? 'b-rev' : x.kind === 'approval' ? 'b-pass' : ''}">${esc(x.kind.replace('_', ' '))}</span> <span class="sm mut">${esc(x.author)} · ${dt(x.created_at)}</span><div>${esc(x.body)}</div></div>`).join('') : `<p class="sm mut">Nothing yet. Clients add these in their portal; they feed the QC standard.</p>`}
       <div class="bar" style="margin-top:10px"><select id="rqKind" class="btn sm" style="width:auto"><option value="requirement">requirement</option><option value="defect_to_watch">defect to watch</option><option value="question">question</option></select><input id="rqBody" placeholder="Add a note as the team" style="flex:1"><button class="btn sm" id="rqAdd">Add</button></div>
@@ -637,7 +655,8 @@ function viewFactories() {
 
 async function viewFactory(id) {
   const f = D.factories.find(x => x.id === id); if (!f) return '<p>Not found.</p>';
-  const { data: cands } = await sb.from('request_candidates').select('id, request_id, listing_title, price_cny, moq, match_score, sourcing_requests(title)').eq('factory_id', id);
+  const [{ data: cands }, { data: fnegs }] = await Promise.all([sb.from('request_candidates').select('id, request_id, listing_title, price_cny, moq, match_score, sourcing_requests(title)').eq('factory_id', id),
+    sb.from('negotiations').select('request_id, status, current_offer_cny, agreed_cny, moq, lead_time_days, updated_at, sourcing_requests(title)').eq('factory_id', id).order('updated_at', { ascending: false })]);
   const v = f.verification || {};
   return `<div class="hello"><div><a class="sm" href="#/factories">← Factories</a><h1>${esc(f.name)}</h1><p>${esc(f.city || '')} ${f.source_url ? `· <a href="${esc(f.source_url)}" target="_blank">${esc(f.source)} page ↗</a>` : '· ' + esc(f.source)}</p></div></div>
   <div class="cols"><div class="panel"><h2>Details</h2>
@@ -651,6 +670,7 @@ async function viewFactory(id) {
     ${`<p class="sm mut" style="margin-top:8px">${f.verification?.registry?.checked_at ? (f.verification.registry.matched ? `Contacts from the company registry (天眼查) ${dt(f.verification.registry.checked_at)}${f.verification.registry.legal_person ? ' · legal rep ' + esc(f.verification.registry.legal_person) : ''}. ` : `Not found in the company registry under “${esc(f.verification.registry.keyword || '')}”. Set the Chinese name above and look up again. `) : ''}<button class="link" style="background:none;border:0;padding:0;color:var(--harbor);cursor:pointer;font-weight:600" data-getc="${f.id}" data-force="1">${f.verification?.registry?.checked_at ? 'Look up again' : 'Look up in company registry'}</button></p>`}
     <label>Notes</label><textarea id="fNotes">${esc(f.notes || '')}</textarea>
     <div class="bar" style="margin-top:12px"><button class="btn primary" id="fSave">Save</button></div>
+    <h3>History with you</h3>${(fnegs || []).length ? fnegs.map(g => `<div class="sm" style="padding:4px 0"><a href="#/request/${g.request_id}">${esc(g.sourcing_requests?.title || 'Request')}</a> · ${g.agreed_cny ? `<b>agreed ${cny(g.agreed_cny)}</b>` : g.current_offer_cny ? `offered ${cny(g.current_offer_cny)}` : 'no offer yet'}${g.moq ? ` · MOQ ${fmt(g.moq, 0)}` : ''}${g.lead_time_days ? ` · ${g.lead_time_days} days` : ''} · <span class="mut">${esc(g.status.replace('_', ' '))}, ${dt(g.updated_at)}</span></div>`).join('') : '<p class="sm mut">You haven\u2019t negotiated with this factory yet. Once you do, its prices and terms show here and on future requests.</p>'}
     <h3>Listings for requests</h3>${(cands || []).length ? cands.map(k => `<div class="sm"><a href="#/request/${k.request_id}">${esc(k.sourcing_requests?.title)}</a> · ${esc(k.listing_title || '')} · ${cny(k.price_cny)} · MOQ ${fmt(k.moq, 0)} · fit ${fmt(k.match_score, 0)}</div>`).join('') : '<p class="sm mut">None.</p>'}
   </div>
   <div class="panel"><h2>Verification</h2>
@@ -977,7 +997,7 @@ function wire(page, id) {
   await load(); await render();
   window.addEventListener('hashchange', render);
   const ch = sb.channel('sourcing');
-  ['sourcing_requests', 'request_candidates', 'negotiations', 'quotes', 'client_requirements', 'sourcing_orders', 'factories', 'clients'].forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb, filter: 'workspace_id=eq.' + ws }, liveRefresh));
+  ['sourcing_requests', 'request_candidates', 'negotiations', 'quotes', 'client_requirements', 'sourcing_orders', 'factories', 'clients', 'activity'].forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb, filter: 'workspace_id=eq.' + ws }, liveRefresh));
   const seenJobs = new Set();
   ch.on('postgres_changes', { event: '*', schema: 'public', table: 'jobs', filter: 'workspace_id=eq.' + ws }, (p) => { const j = p.new; if (j && j.status !== 'running' && !seenJobs.has(j.id)) { seenJobs.add(j.id); jobToast(j); } liveRefresh(); });
   ch.subscribe();
