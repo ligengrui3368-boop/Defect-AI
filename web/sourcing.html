@@ -97,6 +97,25 @@ textarea{min-height:90px;resize:vertical}
 #cfm .box{background:var(--panel);border-radius:16px;max-width:440px;width:100%;padding:22px 22px 18px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
 #cfm h3{margin:0 0 8px;font-size:18px}#cfm p{margin:0 0 6px;font-size:14px;line-height:1.5;color:var(--ink)}#cfm p.mut{color:var(--muted)}
 #cfm .bar{justify-content:flex-end;margin-top:16px}#cfm label:first-of-type{margin-top:4px}#cfm .req{color:var(--fail)}#cfm .go{background:var(--fail);border-color:var(--fail);color:#fff}#cfm .go:hover{filter:brightness(.92)}
+.phases{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:18px 0 14px}
+.phases button{border:0;border-radius:999px;padding:10px 12px;background:var(--sunk);color:var(--muted);font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
+.phases button span{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11.5px;background:rgba(0,0,0,.07)}
+.phases button.done{background:var(--harbor-bg);color:var(--harbor)}.phases button.done span{background:var(--harbor);color:#fff}
+.phases button.on{background:var(--ink);color:var(--panel)}.phases button.on span{background:rgba(255,255,255,.22)}
+.phases button.view{box-shadow:0 0 0 2px var(--harbor)}.phases button:hover{filter:brightness(.96)}
+@media (max-width:760px){.phases{display:flex;overflow-x:auto}.phases button{flex:0 0 auto}}
+.nextbar{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--harbor);border-radius:12px;padding:14px 18px;margin-bottom:16px}
+.nextbar small{display:block;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--harbor);font-weight:700}
+.nextbar b{display:block;font-size:16px;margin:2px 0}.nextbar span{font-size:13.5px;color:var(--muted)}
+.panel-foot{display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--line);margin-top:16px;padding-top:12px}
+.filt{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.filt button{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:7px 14px;font:inherit;font-size:13.5px;cursor:pointer;color:var(--ink)}
+.filt button b{color:var(--muted);font-weight:600;margin-left:5px}.filt button[aria-pressed=true]{background:var(--ink);color:var(--panel);border-color:var(--ink)}.filt button[aria-pressed=true] b{color:inherit;opacity:.7}
+.rows .rq{display:flex;align-items:center;gap:14px}
+.rqimg{width:64px;height:64px;border-radius:10px;background:var(--sunk) center/cover no-repeat;flex-shrink:0;display:grid;place-items:center;color:var(--muted)}.rqimg svg{width:24px;height:24px;opacity:.5}
+.rq .t{min-width:0}.prog{display:flex;gap:4px;margin-top:8px;width:200px;max-width:100%}.prog i{flex:1;height:5px;border-radius:3px;background:var(--line)}.prog i.done{background:var(--harbor)}.prog i.on{background:var(--ink)}
+.nxt{margin-left:auto;text-align:right;flex-shrink:0;max-width:260px;padding-left:10px}.nxt small{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}.nxt b{font-size:13.5px;font-weight:600}
+@media (max-width:700px){.nxt{display:none}.rqimg{width:52px;height:52px}}
 .glance{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px;margin:12px 0 4px}
 .glance div{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0}
 .glance small{display:block;color:var(--muted);font-size:12px;line-height:1.3}
@@ -127,7 +146,7 @@ details.more .kv{margin-top:10px;font-size:13px}details.more .chip{font-size:12p
     <div class="grow"></div>
     <a class="quiet" href="site/">Website</a>
     <div class="meta" id="sync">Connecting…</div>
-  </nav><script src="nav.js?v=3"></script>
+  </nav><script src="nav.js?v=4"></script>
   <main id="app"><p class="mut">Loading…</p></main>
 </div>
 <script>
@@ -291,13 +310,21 @@ async function load() {
 
 // ---------- views ----------
 function viewRequests() {
-  const open = D.requests.filter(r => r.status !== 'closed');
-  const counts = STATUSES.map(s => [s, D.requests.filter(r => r.status === s).length]);
-  return `<div class="hello"><div><h1>Requests</h1><p>What clients want made, and where each one stands.</p></div>
-    <div class="bar"><a class="btn" href="#/clients">Clients</a><a class="btn primary" href="#/new">New request</a></div></div>
-  <div class="steps">${counts.map(([s, n]) => `<div class="${n ? 'on' : ''}">${SLABEL[s]} ${n}</div>`).join('')}</div>
-  ${open.length ? `<ul class="rows" style="margin-top:18px">${open.map(r => `<li class="withdel"><a class="row" href="#/request/${r.id}"><span class="ring ${r.status === 'intake' && !r.spec?.intake_at ? '' : 'half'}"></span><span class="t"><b>${esc(r.title)}</b><small>${esc(SLABEL[r.status])}${r.quantity ? ', ' + fmt(r.quantity, 0) + ' units' : ''}${r.target_unit_price ? ', target ' + usd(r.target_unit_price) : ''}</small></span><span class="chips">${r.deadline ? `<span class="tag">${dt(r.deadline)}</span>` : ''}${r.clients ? `<span class="tag">${esc(r.clients.company || r.clients.name)}</span>` : ''}</span></a><button class="delbtn" data-delreq="${r.id}" title="Delete request" aria-label="Delete request">${TRASH}</button></li>`).join('')}</ul>` : `<div class="dc-empty" style="margin-top:18px">No requests yet. <a href="#/new">Create the first one</a>, or tell Operator on the <a href="./">Home page</a> what the client wants made.</div>`}
-  ${D.requests.some(r => r.status === 'closed') ? `<p class="sm mut">${D.requests.filter(r => r.status === 'closed').length} closed.</p>` : ''}`;
+  const live = D.requests.filter(r => r.status !== 'closed');
+  const inPhase = (k) => D.requests.filter(r => TAB_OF[r.status] === k && (k === 'order' || r.status !== 'closed'));
+  const shown = LIST_FILTER === 'all' ? live : inPhase(LIST_FILTER);
+  const box = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg>';
+  return `<div class="hello"><div><h1>Requests</h1><p>What clients want made, and the next step on each one.</p></div>
+    <div class="bar"><a class="btn primary" href="#/new">New request</a></div></div>
+  <div class="filt" role="group" aria-label="Filter by step"><button data-lf="all" aria-pressed="${LIST_FILTER === 'all'}">All<b>${live.length}</b></button>${PHASES.map(([k, l]) => `<button data-lf="${k}" aria-pressed="${LIST_FILTER === k}">${l}<b>${inPhase(k).length}</b></button>`).join('')}</div>
+  ${shown.length ? `<ul class="rows" style="margin-top:16px">${shown.map(r => { const pi = phaseIdx(r.status), ph = (r.spec?.photos || [])[0];
+    return `<li class="withdel"><a class="row rq" href="#/request/${r.id}"><span class="rqimg" ${ph ? `data-rqimg="${esc(ph)}"` : ''}>${ph ? '' : box}</span>
+      <span class="t"><b>${esc(r.title)}</b><small>${[r.clients ? esc(r.clients.company || r.clients.name) : '', r.quantity ? fmt(r.quantity, 0) + ' units' : '', r.target_unit_price ? 'target ' + usd(r.target_unit_price) : '', r.deadline ? 'due ' + dt(r.deadline) : ''].filter(Boolean).join(' · ') || 'No details yet'}</small>
+        <span class="prog" title="${esc(PHASES[pi]?.[1] || '')}">${PHASES.map((p, i) => `<i class="${r.status === 'closed' || i < pi ? 'done' : i === pi ? 'on' : ''}"></i>`).join('')}</span></span>
+      <span class="nxt"><small>${esc(PHASES[pi]?.[1] || '')} · next</small><b>${esc(listNext(r))}</b></span></a>
+      <button class="delbtn" data-delreq="${r.id}" title="Delete request" aria-label="Delete request">${TRASH}</button></li>`; }).join('')}</ul>`
+    : `<div class="dc-empty" style="margin-top:18px">${D.requests.length ? 'Nothing at this step.' : `No requests yet. <a href="#/new">Create the first one</a>: drop in photos, write the spec, and Lathe takes it from there.`}</div>`}
+  ${LIST_FILTER === 'all' && D.requests.some(r => r.status === 'closed') ? `<p class="sm mut">${D.requests.filter(r => r.status === 'closed').length} closed (under Order).</p>` : ''}`;
 }
 
 // photos picked on the New request form (kept across re-renders until the request is created)
@@ -344,6 +371,39 @@ document.addEventListener('paste', (e) => {
 // the request page shows one stage at a time; click any step (earlier or later) to open it
 const TAB_OF = { intake: 'intake', sourcing: 'sourcing', shortlisted: 'sourcing', negotiating: 'negotiating', quoted: 'quote', approved: 'quote', ordered: 'order', closed: 'order' };
 const VIEW_TAB = {};
+// one flow, five steps; the eight detailed statuses fold into them
+const PHASES = [['intake', 'Spec'], ['sourcing', 'Find factories'], ['negotiating', 'Negotiate'], ['quote', 'Quote'], ['order', 'Order']];
+const phaseIdx = (status) => PHASES.findIndex(p => p[0] === TAB_OF[status]);
+function phaseBar(status, view) {
+  const pi = phaseIdx(status);
+  return `<div class="phases">${PHASES.map(([k, l], i) => `<button type="button" data-phase="${k}" class="${status === 'closed' || i < pi ? 'done' : i === pi ? 'on' : ''}${k === view ? ' view' : ''}"><span>${status === 'closed' || i < pi ? '✓' : i + 1}</span>${l}</button>`).join('')}</div>`;
+}
+// what the request needs next, from the status alone (used on the list)
+function listNext(r) {
+  const s = r.spec || {};
+  return { intake: s.intake_at ? 'Find factories on 1688' : (r.raw_brief || (s.photos || []).length ? 'Let the AI read the spec' : 'Add the spec or photos'),
+    sourcing: 'Pick factories to negotiate with', shortlisted: 'Pick factories to negotiate with', negotiating: 'Get prices and agree one',
+    quoted: 'Waiting on the client', approved: 'Place the order', ordered: 'Track the order', closed: 'Done' }[r.status] || '';
+}
+// what the request needs next, from everything on it (used on the request page)
+function requestNext(r, s, active, negs, quotes, orders) {
+  const agreed = negs.find(g => g.agreed_cny), offer = agreed || negs.find(g => g.current_offer_cny), relQ = quotes.find(q => q.released_to_client);
+  const qs = (s.questions || []).length;
+  if (r.status === 'closed') return { t: 'This request is closed', h: 'Reopen it from the stage menu if anything changes.' };
+  if (orders.length) return { t: 'Track the order', h: 'Tick off the deposit, production and balance as they happen.', b: 'Open order', act: 'tab', arg: 'order' };
+  if (r.status === 'approved' && quotes.length) return { t: 'The client approved. Place the order', h: `${usd(quotes[0].client_unit_price)} / unit${quotes[0].factories?.name ? ' with ' + esc(quotes[0].factories.name) : ''}.`, b: 'Create order', act: 'order' };
+  if (quotes.length && !relQ) return { t: 'Send the quote to the client', h: 'Releasing it puts it in their portal, where they can approve it.', b: 'Release to client', act: 'release' };
+  if (quotes.length) return { t: 'Waiting on the client', h: 'Mark it approved when they say yes.', b: 'Mark approved', act: 'approve' };
+  if (offer) return { t: 'Build the client quote', h: `${esc(offer.factories?.name || 'Factory')} at ${cny(offer.agreed_cny || offer.current_offer_cny)}${offer.agreed_cny ? ' (agreed)' : ' (latest offer)'}. Lathe adds freight, duty and your margin.`, b: 'Build quote', act: 'quote', arg: offer.id };
+  if (negs.length) return { t: 'Get prices from the factories', h: 'Draft the Chinese RFQ, send it on 1688 or WeChat, then log each offer here.', b: 'Open negotiations', act: 'tab', arg: 'negotiating' };
+  if (active.length) return { t: 'Pick 2–3 factories to negotiate with', h: `${active.length} candidate${active.length === 1 ? '' : 's'}, best match first. Press Negotiate on the ones you like, or Refresh results for different factories.`, b: 'Review factories', act: 'tab', arg: 'sourcing' };
+  if (!s.intake_at && !r.raw_brief && !(s.photos || []).length) return { t: 'Add the spec', h: 'Write what the client wants, or drop in product photos.', b: 'Edit spec', act: 'edit' };
+  if (!s.intake_at) return { t: 'Let the AI read the spec', h: 'It structures the spec' + ((s.photos || []).length ? ', reads the photos' : '') + ' and writes the Chinese 1688 search terms.', b: 'Run intake', act: 'intake' };
+  const hint = qs ? `${qs} open question${qs === 1 ? '' : 's'} for the client on the Spec step; you can search meanwhile.` : '';
+  if ((s.photos || []).length) return { t: 'Find factories on 1688', h: hint || 'Search with your product photos, or with the Chinese search terms.', b: 'Search by photo', act: 'photosearch', b2: 'Search by text', act2: 'search' };
+  return { t: 'Find factories on 1688', h: hint || `Searches ${esc((s.search_terms_zh || []).slice(0, 2).join(', '))}.`, b: 'Search 1688', act: 'search' };
+}
+let LIST_FILTER = 'all';
 function stepsBar(status, view) { const i = STATUSES.indexOf(status); return `<div class="steps" title="Click a step to open it">${STATUSES.map((s, k) => `<div data-step="${s}" class="${k < i ? 'done' : k === i ? 'on' : ''}${view && TAB_OF[s] === view ? ' view' : ''}">${SLABEL[s]}</div>`).join('')}</div>`; }
 function openLightbox(src) {
   if (!src) return; const lb = document.createElement('div'); lb.id = 'lb';
@@ -380,10 +440,11 @@ async function viewRequest(id) {
       <div class="dzt"><b>Drop photos here</b>, paste them, or <u>choose files</u></div></div><input type="file" id="rFiles" accept="image/*" multiple hidden>`;
   return `<div class="hello"><div><a class="sm" href="#/requests">← Requests</a><h1>${esc(r.title)}</h1><p>${esc(client ? (client.company || client.name) : 'No client')} · created ${dt(r.created_at)}${r.hts_code ? ` · HTS ${esc(r.hts_code)}` : ''}</p></div>
     <div class="bar"><select id="stSel" class="btn" style="width:auto">${STATUSES.map(x => `<option value="${x}" ${x === r.status ? 'selected' : ''}>${SLABEL[x]}</option>`).join('')}</select>${client ? `<a class="btn" target="_blank" href="portal.html?c=${esc(client.portal_token)}">Client portal ↗</a>` : ''}<button class="btn danger" id="delReq">Delete</button></div></div>
-  ${stepsBar(r.status, tab)}
+  ${phaseBar(r.status, tab)}
+  ${(() => { const n = requestNext(r, s, active, negs, quotes, orders); return `<div class="nextbar"><div><small>Next step</small><b>${esc(n.t)}</b>${n.h ? `<span>${n.h}</span>` : ''}</div>${n.b ? `<div class="bar">${n.b2 ? `<button class="btn" id="nextGo2" data-act="${n.act2}">${esc(n.b2)}</button>` : ''}<button class="btn primary" id="nextGo" data-act="${n.act}" data-arg="${esc(n.arg || '')}">${esc(n.b)} →</button></div>` : ''}</div>`; })()}
   <div class="tabbed" data-show="${tab}" id="tabbed">
   <div>
-    <div class="panel" data-tab="intake"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">1 · Intake &amp; spec</h2><div class="bar"><button class="btn sm" id="editSpec">Edit</button><button class="btn sm primary" id="runIntake">${s.intake_at ? 'Re-run intake' : 'Run intake agent'}</button></div></div>
+    <div class="panel" data-tab="intake"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">1 · Spec</h2><div class="bar"><button class="btn sm" id="editSpec">Edit</button><button class="btn sm primary" id="runIntake">${s.intake_at ? 'Re-run intake' : 'Run intake agent'}</button></div></div>
       ${s.summary ? `<p style="margin:8px 0 0">${esc(s.summary)}</p>` : `<p class="mut">${r.raw_brief ? 'Intake not run yet.' : 'No brief yet.'}</p>`}
       <div id="specEdit" class="cbox" style="display:none;margin-top:10px">
         <label style="margin-top:0">Client</label><select id="eClient">${clientOptions(r.client_id)}</select>
@@ -412,9 +473,10 @@ async function viewRequest(id) {
         ${s.industrial_clusters ? `<b>Clusters</b><span>${list(s.industrial_clusters)}</span>` : ''}
         ${s.search_terms_zh ? `<b>1688 search terms</b><span>${list(s.search_terms_zh)}</span>` : ''}</div></details>` : ''}
       ${s.questions?.length ? `<details class="more"><summary>${s.questions.length} open question${s.questions.length === 1 ? '' : 's'} for the client</summary><ol style="margin:8px 0;padding-left:20px;font-size:14px">${s.questions.map(x => `<li>${esc(x)}</li>`).join('')}</ol><label>Answers (then re-run intake)</label><textarea id="answers" placeholder="Paste the client's answers here"></textarea></details>` : ''}
+      <div class="panel-foot"><button class="btn" data-goto="sourcing">Next: find factories →</button></div>
     </div>
 
-    <div class="panel" data-tab="sourcing"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">2 · Factory candidates <span class="mut sm">${active.length}</span></h2>
+    <div class="panel" data-tab="sourcing"><div class="bar" style="justify-content:space-between"><h2 style="margin:0">2 · Find factories <span class="mut sm">${active.length}</span></h2>
       <div class="bar"><input id="term" placeholder="Chinese search term (optional)" style="width:220px"><button class="btn sm primary" id="search1688">Search 1688</button><button class="btn sm" id="photoBtn">Search by photo</button><input type="file" id="photoIn" accept="image/*" multiple hidden>${cands.length ? `<button class="btn sm" id="refreshBtn">Refresh results</button><button class="btn sm" id="rerank">Re-rank</button><button class="btn sm" id="getContacts" ${CONTACTS.running ? 'disabled' : ''}>${CONTACTS.running ? 'Looking up…' : 'Get contacts'}</button>` : ''}<button class="btn sm" id="addCand">Add manually</button></div></div>
       ${filterBar()}
       ${(s.photos || []).length ? `<div class="pstrip"><span>Your photos:</span>${s.photos.map(p => `<img data-sp="${esc(p)}" alt="">`).join('')}<button class="btn sm" id="photoAgain">Search again with these</button></div>` : ''}
@@ -429,9 +491,10 @@ async function viewRequest(id) {
       ${active.map(k => `<tr><td><span class="score">${k.rank ?? '·'}</span></td><td>${k.listing_data?.imageUrl ? `<img class="lthumb" src="${esc(k.listing_data.imageUrl)}" referrerpolicy="no-referrer" loading="lazy" alt="">` : ''}<a href="${esc(k.listing_url || '#')}" target="_blank">${esc(k.listing_title || 'Listing')}</a>${k.listing_data?.fromPhoto ? ` <span class="badge">photo match${k.listing_data.imageRank ? ' #' + k.listing_data.imageRank : ''}</span>` : ''}${qualityBits(k.listing_data)}<div class="sm mut">${esc(k.notes || '')}</div></td><td>${k.factories ? `<a href="#/factory/${k.factory_id}">${esc(k.factories.name)}</a><div class="sm mut">${esc(k.factories.city || '')}${k.factories.is_verified_factory === true ? ' · <span class="badge b-pass">verified</span>' : k.factories.is_verified_factory === false ? ' · <span class="badge b-fail">trader</span>' : ''}</div>${contactBits(k.factories, false)}` : '—'}</td><td class="right">${cny(k.price_cny)}</td><td class="right">${fmt(k.moq, 0)}</td><td>${k.match_score != null ? `<b>${fmt(k.match_score, 0)}</b>` : '—'} <span class="badge">${esc(k.status)}</span></td>
         <td class="right"><div class="bar" style="justify-content:flex-end"><button class="btn sm" data-neg="${k.id}" data-fac="${k.factory_id || ''}">Negotiate</button><button class="btn sm" data-rel="${k.id}" data-on="${k.released_to_client ? 0 : 1}">${k.released_to_client ? 'Hide' : 'Release'}</button><button class="btn sm" data-rej="${k.id}">✕</button></div></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">${rejected.length ? 'No candidates left. Press Refresh results or Search 1688.' : 'No candidates yet.'}</div>`}
       ${rejected.length ? `<details class="sm" style="margin-top:10px"><summary>Rejected or replaced (${rejected.length}) · these factories won't be suggested again for this request</summary>${rejected.map(k => `<div class="bar" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0"><span><a href="${esc(k.listing_url || '#')}" target="_blank">${esc(k.listing_title || 'Listing')}</a> <span class="mut">· ${esc(k.factories?.name || '')} · ${cny(k.price_cny)}</span></span><button class="btn sm" data-restore="${k.id}">Restore</button></div>`).join('')}</details>` : ''}
+      <div class="panel-foot"><button class="btn" data-goto="negotiating">Next: negotiate →</button></div>
     </div>
 
-    <div class="panel" data-tab="negotiating"><h2>3 · Negotiations <span class="mut sm">${negs.length}</span></h2>
+    <div class="panel" data-tab="negotiating"><h2>3 · Negotiate <span class="mut sm">${negs.length}</span></h2>
       <p class="sm mut">You negotiate. Log each offer here so the quote uses the agreed price. "Draft RFQ" writes the first Chinese message.</p>
       ${negs.length ? negs.map(g => `<div class="card"><div class="bar" style="justify-content:space-between"><b>${esc(g.factories?.name || 'Factory')}</b> <span class="badge ${g.status === 'agreed' ? 'b-pass' : g.status === 'dropped' ? 'b-fail' : 'b-harbor'}">${esc(g.status.replace('_', ' '))}</span></div>${g.factories ? `<div class="cbox">${contactBits(g.factories, true) || '<span class="sm mut">No contact details yet. Add them on the factory page.</span>'}</div>` : ''}
         <div class="kv" style="margin-top:6px"><b>Current offer</b><span>${cny(g.current_offer_cny)}</span><b>Target</b><span>${cny(g.target_cny)}</span><b>Agreed</b><span>${g.agreed_cny ? '<b>' + cny(g.agreed_cny) + '</b>' : '—'}</span><b>MOQ / lead time</b><span>${fmt(g.moq, 0)} / ${g.lead_time_days ?? '—'} days</span><b>Terms</b><span>${esc(g.incoterm || '')} ${esc(g.payment_terms || '')}</span>${g.next_action ? `<b>Next</b><span>${esc(g.next_action)}</span>` : ''}</div>
@@ -439,11 +502,12 @@ async function viewRequest(id) {
         <div class="bar" style="margin-top:10px"><input data-lognote="${g.id}" placeholder="Log note (e.g. 他们报¥26，说MOQ 500)" style="flex:1;min-width:160px"><input data-logoffer="${g.id}" type="number" step="0.01" placeholder="¥ offer" style="width:100px"><button class="btn sm" data-log="${g.id}">Log</button>
           <select data-negst="${g.id}" class="btn sm" style="width:auto">${['open', 'waiting_factory', 'waiting_us', 'sample', 'agreed', 'dropped'].map(x => `<option value="${x}" ${x === g.status ? 'selected' : ''}>${x.replace('_', ' ')}</option>`).join('')}</select>
           <button class="btn sm" data-agree="${g.id}">Set agreed ¥</button><button class="btn sm" data-rfq="${g.id}" data-fac="${g.factory_id || ''}">Draft RFQ</button><button class="btn sm primary" data-quote="${g.id}" data-fac="${g.factory_id || ''}" data-price="${g.agreed_cny || g.current_offer_cny || ''}">Quote →</button></div>
-        <div id="rfq-${g.id}"></div></div>`).join('') : `<div class="empty">No negotiations yet. Pick a candidate above and press Negotiate.</div>`}
+        <div id="rfq-${g.id}"></div></div>`).join('') : `<div class="empty">No negotiations yet. On the Find factories step, press Negotiate on the factories you like.</div>`}
+      <div class="panel-foot"><button class="btn" data-goto="quote">Next: quote →</button></div>
     </div>
   </div>
   <div>
-    <div class="panel" data-tab="quote"><h2>4 · Landed cost &amp; margin</h2>
+    <div class="panel" data-tab="quote"><h2>4 · Quote <span class="mut sm">landed cost &amp; margin</span></h2>
       ${rate ? `<p class="sm mut">Rate card: <b>${esc(rate.name)}</b> (${dt(rate.effective_date)}) · <a href="#/rates">edit rates</a></p>` : `<p class="sm mut">No rate card. <a href="#/rates">Create one</a>.</p>`}
       <div class="grid2"><div><label>Factory price (¥/unit)</label><input id="qPrice" type="number" step="0.01" value="${quotes[0]?.inputs?.factory_price_cny ?? s.estimated_factory_price_cny ?? ''}"></div><div><label>Quantity</label><input id="qQty" type="number" value="${r.quantity || 1000}"></div>
         <div><label>Domestic freight to port (¥ total)</label><input id="qDom" type="number" step="1" value="${quotes[0]?.inputs?.domestic_freight_cny ?? 0}"></div><div><label>Intl freight (USD total)</label><input id="qIntl" type="number" step="1" value="${quotes[0]?.inputs?.intl_freight_usd ?? 0}"></div>
@@ -457,10 +521,10 @@ async function viewRequest(id) {
       ${reqs.length ? reqs.map(x => `<div class="card" style="padding:8px 12px"><span class="badge ${x.kind === 'defect_to_watch' ? 'b-fail' : x.kind === 'question' ? 'b-rev' : x.kind === 'approval' ? 'b-pass' : ''}">${esc(x.kind.replace('_', ' '))}</span> <span class="sm mut">${esc(x.author)} · ${dt(x.created_at)}</span><div>${esc(x.body)}</div></div>`).join('') : `<p class="sm mut">Nothing yet. Clients add these in their portal; they feed the QC standard.</p>`}
       <div class="bar" style="margin-top:10px"><select id="rqKind" class="btn sm" style="width:auto"><option value="requirement">requirement</option><option value="defect_to_watch">defect to watch</option><option value="question">question</option></select><input id="rqBody" placeholder="Add a note as the team" style="flex:1"><button class="btn sm" id="rqAdd">Add</button></div>
     </div>
-    <div class="panel" data-tab="order"><h2>5 · Order &amp; QC</h2>
+    <div class="panel" data-tab="order"><h2>5 · Order</h2>
       ${orders.length ? orders.map(od => `<div class="card"><b>${esc(od.status)}</b> · ${fmt(od.qty, 0)} units · ${cny(od.unit_price_cny)} → ${usd(od.client_unit_price)}<div class="bar sm" style="margin-top:8px"><label style="margin:0"><input type="checkbox" ${od.deposit_paid ? 'checked' : ''} data-dep="${od.id}" style="width:auto"> deposit paid</label><label style="margin:0"><input type="checkbox" ${od.balance_paid ? 'checked' : ''} data-bal="${od.id}" style="width:auto"> balance paid</label>
         <select data-odst="${od.id}" class="btn sm" style="width:auto">${['deposit', 'production', 'qc', 'balance', 'shipped', 'arrived', 'closed'].map(x => `<option ${x === od.status ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
-        <div class="sm" style="margin-top:8px">${od.po_id ? `<a href="ops.html#/po/${od.po_id}">Open purchase order &amp; QC →</a>` : `<a href="ops.html#/new">Create the purchase order in Orders</a>, then its factory link runs the sampled inspection.`}${r.product_id ? ` · <a href="app.html">QC standard</a>` : ` · <a href="app.html?go=new">Set up the QC standard</a> from the spec's watch list`}</div></div>`).join('') : `<p class="sm mut">No order yet. Save a quote and press "Create order".</p>`}
+        ${window.LATHE_SHOW_QC ? '' : '<!--'}<div class="sm" style="margin-top:8px">${od.po_id ? `<a href="ops.html#/po/${od.po_id}">Open purchase order &amp; QC →</a>` : `<a href="ops.html#/new">Create the purchase order in Orders</a>, then its factory link runs the sampled inspection.`}${r.product_id ? ` · <a href="app.html">QC standard</a>` : ` · <a href="app.html?go=new">Set up the QC standard</a> from the spec's watch list`}</div>${window.LATHE_SHOW_QC ? '' : '-->'}</div>`).join('') : `<p class="sm mut">No order yet. When the client approves a quote, press "Create order" on it.</p>`}
     </div>
   </div></div>`;
 }
@@ -533,6 +597,11 @@ const refresh = async () => { await load(); await render(); };
 
 function wire(page, id) {
   const on = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(ev, fn));
+  if (!page || page === 'requests') {
+    on('[data-lf]', 'click', (e) => { LIST_FILTER = e.currentTarget.dataset.lf; render(); });
+    const ps = [...new Set([...document.querySelectorAll('[data-rqimg]')].map(x => x.dataset.rqimg))];
+    if (ps.length) sb.storage.from('photos').createSignedUrls(ps, 3600).then(({ data }) => (data || []).forEach((d, i) => { if (d.signedUrl) document.querySelectorAll(`[data-rqimg="${CSS.escape(ps[i])}"]`).forEach(el => { el.style.backgroundImage = `url("${d.signedUrl}")`; }); }));
+  }
   const copy = (txt) => navigator.clipboard.writeText(txt).then(() => true, () => { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); return ok; });
   on('[data-cp]', 'click', async (e) => { e.stopPropagation(); if (await copy(e.currentTarget.dataset.cp)) toast('Copied'); });
   on('[data-wx]', 'click', async (e) => { e.stopPropagation(); await copy(e.currentTarget.dataset.wx); toast('Number copied. In WeChat tap ＋ → Add Contacts, paste it and search.'); });
@@ -586,7 +655,22 @@ function wire(page, id) {
   if (page === 'request') {
     const r = D.requests.find(x => x.id === id);
     $('stSel').onchange = (e) => { delete VIEW_TAB[id]; upd('sourcing_requests', { status: e.target.value }, id); };
-    on('[data-step]', 'click', (e) => { const t = TAB_OF[e.currentTarget.dataset.step]; VIEW_TAB[id] = t; $('tabbed').dataset.show = t; document.querySelectorAll('[data-step]').forEach(x => x.classList.toggle('view', TAB_OF[x.dataset.step] === t)); });
+    const setTab = (t, scroll) => { VIEW_TAB[id] = t; $('tabbed').dataset.show = t; document.querySelectorAll('[data-phase]').forEach(x => x.classList.toggle('view', x.dataset.phase === t)); if (scroll) $('tabbed').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    on('[data-phase]', 'click', (e) => setTab(e.currentTarget.dataset.phase));
+    on('[data-goto]', 'click', async (e) => { const t = e.currentTarget.dataset.goto; setTab(t, true); if (t === 'sourcing' && r.status === 'intake' && r.spec?.intake_at) await sb.from('sourcing_requests').update({ status: 'sourcing' }).eq('id', id); });
+    const nextAct = async (act, arg, btn) => {
+      if (act === 'tab') return setTab(arg, true);
+      if (act === 'edit') { setTab('intake'); $('specEdit').style.display = 'block'; return $('specEdit').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      if (act === 'intake') { setTab('intake'); delete VIEW_TAB[id]; return $('runIntake').click(); }
+      if (act === 'search') { setTab('sourcing'); return $('search1688').click(); }
+      if (act === 'photosearch') { setTab('sourcing'); return photoSearch(id, { paths: (r.spec?.photos || []).slice(-3) }, btn); }
+      if (act === 'quote') { setTab('quote', true); const b = document.querySelector(`[data-quote="${arg}"]`); if (b) b.click(); return; }
+      if (act === 'release') { const q = (await sb.from('quotes').select('id').eq('request_id', id).order('created_at', { ascending: false }).limit(1)).data?.[0]; if (!q) return; await sb.from('quotes').update({ released_to_client: true, status: 'sent' }).eq('id', q.id); toast(r.client_id ? 'Quote released to the client portal' : 'Quote released. Add a client (Spec → Edit) so they can see it.'); return refresh(); }
+      if (act === 'approve') { delete VIEW_TAB[id]; return upd('sourcing_requests', { status: 'approved' }, id); }
+      if (act === 'order') { delete VIEW_TAB[id]; const b = document.querySelector('[data-order]'); if (b) b.click(); else setTab('quote', true); }
+    };
+    if ($('nextGo')) $('nextGo').onclick = (e) => nextAct(e.currentTarget.dataset.act, e.currentTarget.dataset.arg, e.currentTarget);
+    if ($('nextGo2')) $('nextGo2').onclick = (e) => nextAct(e.currentTarget.dataset.act, '', e.currentTarget);
     REQ_UPLOAD = async (files) => {
       const have = r.spec?.photos || []; const room = 6 - have.length;
       const imgs = [...files].filter(f => /^image\//.test(f.type)).slice(0, Math.max(0, room));
@@ -627,7 +711,7 @@ function wire(page, id) {
       Object.assign(r, patch); toast('Saved'); await refresh();
     };
     if (r.spec?.intake_at && !(r.spec.at_a_glance || []).length && !GLANCE_TRIED.has(id)) { GLANCE_TRIED.add(id); call('spec_glance', { request_id: id }).then(o => { if ((o.at_a_glance || []).length) { r.spec.at_a_glance = o.at_a_glance; render(); } }).catch(() => {}); }
-    $('runIntake').onclick = async (e) => { busy(e.target, true); try { await call('intake', { request_id: id, answers: $('answers')?.value || '' }); toast('Spec updated'); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
+    $('runIntake').onclick = async (e) => { busy(e.target, true); try { await call('intake', { request_id: id, answers: $('answers')?.value || '' }); toast('Spec updated'); delete VIEW_TAB[id]; await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
     $('search1688').onclick = async (e) => { busy(e.target, true); try { const t = $('term').value.trim(); const out = await call('search_1688', { request_id: id, terms: t ? [t] : undefined, filters: QF }); const fs = out.filter; toast(fs?.rated ? `Scanned ${fs.scanned} listings, kept ${fs.kept} well-rated` + (Object.keys(fs.dropped || {}).length ? ` (dropped ${Object.entries(fs.dropped).map(([k, n]) => n + ' ' + ({ trader: 'traders', service: 'low service score', reviews: 'weak reviews', repeat: 'low repeat rate', years: 'too new' }[k] || k)).join(', ')})` : '') + ` · ${out.new_candidates} new` : `${out.listings} listings, ${out.new_candidates} new, ranked ${out.ranked}`); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
     if ($('rerank')) $('rerank').onclick = async (e) => { busy(e.target, true); try { await call('rank', { request_id: id }); await refresh(); } catch (err) { busy(e.target, false); toast(err.message); } };
     $('photoBtn').onclick = () => $('photoIn').click();
