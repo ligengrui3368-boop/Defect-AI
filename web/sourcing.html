@@ -174,7 +174,7 @@ details.more .kv{margin-top:10px;font-size:13px}details.more .chip{font-size:12p
     <div class="grow"></div>
     <a class="quiet" href="site/">Website</a>
     <div class="meta" id="sync">Connecting…</div>
-  </nav><script src="nav.js?v=6"></script>
+  </nav><script src="nav.js?v=7"></script>
   <main id="app"><p class="mut">Loading…</p></main>
 </div>
 <script>
@@ -539,7 +539,8 @@ function orderCard(od, r, links, sess) {
 function qcSpecFrom(s) {
   const arr = (x) => Array.isArray(x) ? x : x ? [String(x)] : [];
   return { material: arr(s.materials).join(', '), colors: arr(s.colors).join(', '), packaging: s.packaging || '', finish: '',
-    mustHave: [...arr(s.must_haves), ...arr(s.features)].slice(0, 20), watch: arr(s.defects_to_watch || s.qc_watch).slice(0, 20),
+    // only things a photo can show: drop price, cost, delivery and paperwork items
+    mustHave: [...arr(s.must_haves), ...arr(s.features)].filter(x => !/\$|¥|cost|price|landed|duty|tariff|freight|deliver|lead time|deadline|MOQ|invoice|payment/i.test(x)).slice(0, 20), watch: arr(s.defects_to_watch || s.qc_watch).slice(0, 20),
     officialSpecs: [s.summary, s.dimensions && 'Size: ' + s.dimensions, s.weight && 'Weight: ' + s.weight].filter(Boolean), goodLooks: s.summary || '' };
 }
 function stepsBar(status, view) { const i = STATUSES.indexOf(status); return `<div class="steps" title="Click a step to open it">${STATUSES.map((s, k) => `<div data-step="${s}" class="${k < i ? 'done' : k === i ? 'on' : ''}${view && TAB_OF[s] === view ? ' view' : ''}">${SLABEL[s]}</div>`).join('')}</div>`; }
