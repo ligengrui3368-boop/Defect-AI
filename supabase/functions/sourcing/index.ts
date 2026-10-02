@@ -54,6 +54,18 @@ async function askJson(prompt: string, maxTokens = 3000, model = MODEL): Promise
   try { return JSON.parse(clean); } catch { const m = clean.match(/[\[{][\s\S]*[\]}]/); if (m) return JSON.parse(m[0]); throw new HttpError(502, "Claude did not return JSON"); }
 }
 
+async function askText(prompt: string, maxTokens = 3000, model = MODEL): Promise<string> {
+  if (!ANTHROPIC_API_KEY) throw new HttpError(500, "ANTHROPIC_API_KEY is not set in Edge Function Secrets.");
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] }),
+  });
+  if (!res.ok) throw new HttpError(502, `Claude API ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  return (data.content ?? []).filter((c: Any) => c.type === "text").map((c: Any) => c.text).join("\n");
+}
+
 // ---------- helpers ----------
 async function getRequest(sb: SupabaseClient, id: string) {
   const { data, error } = await sb.from("sourcing_requests").select("*, clients(name, company)").eq("id", id).single();
@@ -269,12 +281,16 @@ async function translate(body: Any, auth: string) {
   texts.forEach((t, i) => { const z = known.get(keys[i]); if (z) zh[t] = z as string; else miss.push(i); });
   if (miss.length) {
     const src = miss.map((i) => texts[i]);
-    const out = await askJson(`Translate each item below into natural Simplified Chinese for a sourcing and quality-control app used by Chinese and American business people. Items are interface text, names, notes, product specs and short explanations. Keep brand and company names (Lathe, SUNNYPRO, Amazon, Apify, 1688), model numbers and codes (HTS, MOQ, FOB, MPF, HMF, QC, AQL, VAT, 600D), numbers, currency amounts, units and URLs exactly as written. Translate everything else. Be concise; no notes or explanations.
-Return a JSON array of strings, same order and same length as the input.
-Input: ${JSON.stringify(src)}`, 8000, TRANSLATE_MODEL);
-    const arr = Array.isArray(out) ? out : [];
+    // Numbered lines rather than JSON: quotation marks inside a translation can't break the format.
+    const numbered = src.map((t, k) => `${k + 1}| ${t.replace(/\s+/g, " ")}`).join("\n");
+    const raw = await askText(`Translate each numbered item below into natural Simplified Chinese for a sourcing and quality-control app used by Chinese and American business people. Items are interface text, names, notes, product specs and short explanations. Keep brand and company names (Lathe, SUNNYPRO, Amazon, Apify, 1688), model numbers and codes (HTS, MOQ, FOB, MPF, HMF, QC, AQL, VAT, 600D), numbers, currency amounts, units and URLs exactly as written. Translate everything else. Be concise; no notes or explanations.
+Reply with exactly ${src.length} lines and nothing else. Each line is the item number, a vertical bar, a space, then the translation on one line, for example "3| 翻译".
+
+${numbered}`, 8000, TRANSLATE_MODEL);
+    const byNum = new Map<number, string>();
+    for (const line of raw.split("\n")) { const m = line.match(/^\s*(\d+)\s*\|\s?(.*)$/); if (m && m[2].trim()) byNum.set(Number(m[1]), m[2].trim()); }
     const rows: Any[] = [];
-    miss.forEach((i, k) => { const z = typeof arr[k] === "string" ? arr[k].trim() : ""; if (z) { zh[texts[i]] = z; rows.push({ src_hash: keys[i], src: texts[i], zh: z }); } });
+    miss.forEach((i, k) => { const z = byNum.get(k + 1) ?? ""; if (z) { zh[texts[i]] = z; rows.push({ src_hash: keys[i], src: texts[i], zh: z }); } });
     if (rows.length) await admin.from("translation_cache").upsert(rows);
   }
   return { ok: true, zh };
