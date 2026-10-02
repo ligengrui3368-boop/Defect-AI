@@ -47,11 +47,11 @@ body{margin:0;font-size:15px;line-height:1.5}
     <div class="grow"></div>
     <a class="quiet" href="site/">Website</a>
     <div class="meta" id="sync">Connecting…</div>
-  </nav><script src="nav.js?v=3"></script>
+  </nav><script src="nav.js?v=4"></script>
 
   <main class="dc-main">
     <div class="dc-bar"><h1>Home</h1><div class="sp"></div>
-      <a class="pill" href="ops.html#/new">New order</a>
+      <a class="pill" href="ops.html#/new" id="qcNewOrder" hidden>New order</a>
       <a class="pill dark" href="sourcing.html#/new"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>New request</a>
     </div>
     <div class="dc-wrap" id="app"><p style="color:var(--muted)">Loading…</p></div>
@@ -114,7 +114,7 @@ function render() {
   ${shown.length ? `<ul class="rows">${shown.map(r => { const [step, ring] = nextStep(r); const attn = waiting.includes(r);
       return `<li><a class="row" href="sourcing.html#/request/${r.id}"><span class="ring ${ring}"></span><span class="t"><b>${esc(r.title)}</b><small>${esc(step)}${r.quantity ? `, ${Number(r.quantity).toLocaleString()} units` : ''}</small></span><span class="chips">${attn ? '<span class="tag dot" title="Needs you"></span>' : ''}${due(r.deadline)}${r.client_id ? `<span class="tag">${esc(clientName(r.client_id))}</span>` : ''}</span></a></li>`; }).join('')}</ul>`
     : `<div class="dc-empty">${open.length ? 'Nothing for this client.' : 'Tell Operator what a client wants made, or <a href="sourcing.html#/new">create a request</a>. It structures the spec, finds factories and works out the landed cost.'}</div>`}
-  ${openPos.length ? `<div class="dc-sec">Orders in progress</div><ul class="rows">${openPos.map(p => `<li><a class="row" href="ops.html#/po/${p.id}"><span class="ring half"></span><span class="t"><b>${esc(p.po_number)}</b><small>${esc(p.supplier_name || 'Factory')}${p.supplier_city ? ', ' + esc(p.supplier_city) : ''}</small></span><span class="chips">${due(p.ship_by)}<span class="tag">Order</span></span></a></li>`).join('')}</ul>` : ''}`;
+  ${window.LATHE_SHOW_QC && openPos.length ? `<div class="dc-sec">Orders in progress</div><ul class="rows">${openPos.map(p => `<li><a class="row" href="ops.html#/po/${p.id}"><span class="ring half"></span><span class="t"><b>${esc(p.po_number)}</b><small>${esc(p.supplier_name || 'Factory')}${p.supplier_city ? ', ' + esc(p.supplier_city) : ''}</small></span><span class="chips">${due(p.ship_by)}<span class="tag">Order</span></span></a></li>`).join('')}</ul>` : ''}`;
   app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
   document.querySelectorAll('[data-client]').forEach(a => a.onclick = (e) => { e.preventDefault(); tab = a.dataset.client; render(); });
 }
