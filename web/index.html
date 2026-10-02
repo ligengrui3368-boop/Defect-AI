@@ -198,7 +198,7 @@ drawLog(false);
   if (!CFG.supabaseUrl || !window.supabase) { app.innerHTML = '<p>Setup needed: add your Supabase URL and anon key to config.js.</p>'; return; }
   sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
   let { data: { session } } = await sb.auth.getSession();
-  if (!session) { const { data, error } = await sb.auth.signInAnonymously(); if (error) { app.innerHTML = `<p>Could not open your workspace: ${esc(error.message)}</p>`; return; } session = data.session; }
+  if (!session) { location.replace('sourcing.html#/login'); return; }
   // after an email sign-in link, continue to where the person was going (account page, an invite, …)
   let next = null; try { next = localStorage.getItem('lathe-after-login'); } catch (e) {}
   if (next && !session.user.is_anonymous) { try { localStorage.removeItem('lathe-after-login'); } catch (e) {} location.replace(next); return; }
