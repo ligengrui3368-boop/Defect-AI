@@ -121,6 +121,9 @@ textarea{min-height:90px;resize:vertical}
 .nextbar b{display:block;font-size:16px;margin:2px 0}.nextbar span{font-size:13.5px;color:var(--muted)}
 .nextbar.working{border-left-color:var(--hivis,#F2B705)}.spin{width:22px;height:22px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--harbor);animation:spin 1s linear infinite;flex-shrink:0}
 @keyframes spin{to{transform:rotate(360deg)}}
+.reply{background:var(--harbor-bg);border-radius:12px;padding:12px 14px;margin-top:10px;font-size:14px;line-height:1.5}
+.reply pre{white-space:pre-wrap;font:inherit;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0}
+.rbox{display:none;margin-top:10px;border:1px dashed var(--line2);border-radius:12px;padding:12px}
 .panel-foot{display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--line);margin-top:16px;padding-top:12px}
 .filt{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
 .filt button{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:7px 14px;font:inherit;font-size:13.5px;cursor:pointer;color:var(--ink)}
@@ -389,7 +392,7 @@ function liveRefresh() {
   clearTimeout(LIVE_T);
   LIVE_T = setTimeout(async function go() {
     const a = document.activeElement, open = (id) => { const el = document.getElementById(id); return el && el.style.display === 'block'; };
-    const busyNow = (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && app.contains(a)) || open('specEdit') || open('refreshBox') || document.getElementById('cfm') || document.getElementById('lb');
+    const busyNow = (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && app.contains(a)) || open('specEdit') || open('refreshBox') || [...document.querySelectorAll('[data-rbox]')].some(el => el.style.display === 'block') || document.getElementById('cfm') || document.getElementById('lb');
     if (busyNow) { LIVE_T = setTimeout(go, 1500); return; }
     await refresh();
   }, 600);
@@ -592,6 +595,13 @@ async function viewRequest(id) {
         <div class="bar" style="margin-top:10px"><input data-lognote="${g.id}" placeholder="Log note (e.g. 他们报¥26，说MOQ 500)" style="flex:1;min-width:160px"><input data-logoffer="${g.id}" type="number" step="0.01" placeholder="¥ offer" style="width:100px"><button class="btn sm" data-log="${g.id}">Log</button>
           <select data-negst="${g.id}" class="btn sm" style="width:auto">${['open', 'waiting_factory', 'waiting_us', 'sample', 'agreed', 'dropped'].map(x => `<option value="${x}" ${x === g.status ? 'selected' : ''}>${x.replace('_', ' ')}</option>`).join('')}</select>
           <button class="btn sm" data-agree="${g.id}">Set agreed ¥</button><button class="btn sm" data-rfq="${g.id}" data-fac="${g.factory_id || ''}">Draft RFQ</button><button class="btn sm primary" data-quote="${g.id}" data-fac="${g.factory_id || ''}" data-price="${g.agreed_cny || g.current_offer_cny || ''}">Quote →</button></div>
+        ${g.terms?.last_reply && g.status === 'waiting_us' ? `<div class="reply"><b>Factory replied ${dt(g.terms.last_reply.at)}.</b> ${esc(g.terms.last_reply.summary || '')}${g.terms.last_reply.tiers?.length ? `<div class="sm mut">Tiers: ${g.terms.last_reply.tiers.map(t => `${fmt(t.qty, 0)} pcs ${cny(t.price_cny)}`).join(' · ')}</div>` : ''}
+          <div style="margin-top:6px">Your counter${g.terms.last_reply.counter_cny ? ` (aim for <b>${cny(g.terms.last_reply.counter_cny)}</b>)` : ''}:</div><pre>${esc(g.terms.last_reply.counter_zh || '')}</pre>
+          <details class="sm"><summary>English</summary><div style="margin-top:4px">${esc(g.terms.last_reply.counter_en || '')}</div></details>
+          <div class="bar" style="margin-top:8px"><button class="btn sm primary" data-cp="${esc(g.terms.last_reply.counter_zh || '')}">Copy Chinese</button><button class="btn sm" data-sent="${g.id}">I sent it</button></div></div>` : ''}
+        <div class="bar" style="margin-top:10px"><button class="btn sm" data-paste="${g.id}">Paste factory reply</button><span class="sm mut">Paste their WeChat or 1688 message, or a screenshot. Lathe reads the price and terms and drafts your answer.</span></div>
+        <div class="rbox" data-rbox="${g.id}"><textarea data-rtext="${g.id}" rows="4" placeholder="Paste what the factory sent… (you can also paste a screenshot here)"></textarea>
+          <div class="bar" style="margin-top:8px"><label class="btn sm" style="margin:0">Add screenshot<input type="file" accept="image/*" data-rfile="${g.id}" hidden></label><span class="sm mut" data-rshot="${g.id}"></span><button class="btn sm primary" data-read="${g.id}">Read reply</button></div></div>
         <div id="rfq-${g.id}"></div></div>`).join('') : `<div class="empty">No negotiations yet. On the Find factories step, press Negotiate on the factories you like.</div>`}
       <div class="panel-foot"><button class="btn" data-goto="quote">Next: quote →</button></div>
     </div>
@@ -893,6 +903,29 @@ function wire(page, id) {
       const { data: cur } = await sb.from('negotiations').select('log').eq('id', g).single(); const patch = { log: [...(cur?.log || []), { at: new Date().toISOString(), note, offer_cny: offer }], last_contact_at: new Date().toISOString() }; if (offer) patch.current_offer_cny = offer; await upd('negotiations', patch, g); });
     on('[data-negst]', 'change', (e) => upd('negotiations', { status: e.currentTarget.value }, e.currentTarget.dataset.negst));
     on('[data-agree]', 'click', (e) => { const v = parseFloat(prompt('Agreed unit price ¥') || ''); if (!v) return; upd('negotiations', { agreed_cny: v, status: 'agreed' }, e.currentTarget.dataset.agree); });
+    const SHOTS = {};
+    on('[data-paste]', 'click', (e) => { const box = document.querySelector(`[data-rbox="${e.currentTarget.dataset.paste}"]`); box.style.display = box.style.display === 'block' ? 'none' : 'block'; if (box.style.display === 'block') box.querySelector('textarea').focus(); });
+    const setShot = (gid, f) => { if (!f || !/^image\//.test(f.type)) return; SHOTS[gid] = f; document.querySelector(`[data-rshot="${gid}"]`).textContent = 'Screenshot added ✓'; };
+    on('[data-rfile]', 'change', (e) => setShot(e.currentTarget.dataset.rfile, e.currentTarget.files[0]));
+    on('[data-rtext]', 'paste', (e) => { const f = [...(e.clipboardData?.files || [])].find(x => /^image\//.test(x.type)); if (f) { e.preventDefault(); setShot(e.currentTarget.dataset.rtext, f); } });
+    on('[data-read]', 'click', async (e) => {
+      const btn = e.currentTarget, gid = btn.dataset.read, text = document.querySelector(`[data-rtext="${gid}"]`).value.trim();
+      if (!text && !SHOTS[gid]) return toast('Paste the factory\u2019s message or add a screenshot');
+      busy(btn, true);
+      try {
+        let photo_path = null;
+        if (SHOTS[gid]) { const blob = await shrinkPhoto(SHOTS[gid], 1600); photo_path = `${ws}/negotiations/${gid}/${crypto.randomUUID()}.jpg`; const up = await sb.storage.from('photos').upload(photo_path, blob, { contentType: 'image/jpeg' }); if (up.error) throw up.error; }
+        const out = await call('parse_reply', { negotiation_id: gid, text, photo_path });
+        toast(out.agreed ? `They agreed at ${cny(out.offer_cny)}. Next: build the quote.` : out.offer_cny ? `Offer ${cny(out.offer_cny)}${out.moq ? ', MOQ ' + fmt(out.moq, 0) : ''}${out.lead_time_days ? ', ' + out.lead_time_days + ' days' : ''}. Your counter is ready.` : 'Read their reply. Your answer is ready.');
+        delete SHOTS[gid]; document.querySelector(`[data-rbox="${gid}"]`).style.display = 'none'; await refresh();
+      } catch (err) { busy(btn, false); toast(err.message || String(err)); }
+    });
+    on('[data-sent]', 'click', async (e) => {
+      const gid = e.currentTarget.dataset.sent; const { data: g } = await sb.from('negotiations').select('log, terms').eq('id', gid).single();
+      const lr = g?.terms?.last_reply || {}; const terms = { ...(g?.terms || {}) }; delete terms.last_reply;
+      const { error } = await sb.from('negotiations').update({ status: 'waiting_factory', next_action: 'Wait for their answer', last_contact_at: new Date().toISOString(), terms, log: [...(g?.log || []), { at: new Date().toISOString(), note: 'We replied: ' + (lr.counter_zh || '').slice(0, 600), offer_cny: null }] }).eq('id', gid);
+      if (error) return toast(error.message); toast('Logged. Waiting on the factory.'); refresh();
+    });
     on('[data-rfq]', 'click', async (e) => { const b = e.currentTarget; busy(b, true); try { const out = await call('draft_rfq', { request_id: id, factory_id: b.dataset.fac || undefined }); $('rfq-' + b.dataset.rfq).innerHTML = `<h3>${esc(out.subject_zh || 'RFQ')}</h3><div class="msg">${esc(out.message_zh)}\n\n${esc(out.spec_list_zh || '')}</div><button class="btn sm" style="margin-top:6px" onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(()=>this.textContent='Copied')">Copy Chinese</button><details class="sm" style="margin-top:8px"><summary>English translation &amp; tips</summary><div class="msg" style="margin-top:6px">${esc(out.message_en || '')}</div><ul>${(out.negotiation_tips || []).map(t => `<li>${esc(t)}</li>`).join('')}</ul></details>`; } catch (err) { toast(err.message); } busy(b, false); });
     on('[data-quote]', 'click', (e) => { const b = e.currentTarget; if (b.dataset.price) $('qPrice').value = b.dataset.price; if (b.dataset.fac) $('qFac').value = b.dataset.fac; $('qFac').dataset.neg = b.dataset.quote; $('calc').click(); $('qPrice').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
     let lastCalc = null;
