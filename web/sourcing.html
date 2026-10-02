@@ -116,6 +116,8 @@ textarea{min-height:90px;resize:vertical}
 .rq .t{min-width:0}.prog{display:flex;gap:4px;margin-top:8px;width:200px;max-width:100%}.prog i{flex:1;height:5px;border-radius:3px;background:var(--line)}.prog i.done{background:var(--harbor)}.prog i.on{background:var(--ink)}
 .nxt{margin-left:auto;text-align:right;flex-shrink:0;max-width:260px;padding-left:10px}.nxt small{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}.nxt b{font-size:13.5px;font-weight:600}
 @media (max-width:700px){.nxt{display:none}.rqimg{width:52px;height:52px}}
+.warnbox{background:var(--harbor-bg);border-radius:10px;padding:12px 14px;margin:6px 0 4px;font-size:14px;line-height:1.5}
+.prow{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--line);padding:9px 0;flex-wrap:wrap}
 .glance{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px;margin:12px 0 4px}
 .glance div{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0}
 .glance small{display:block;color:var(--muted);font-size:12px;line-height:1.3}
@@ -146,7 +148,7 @@ details.more .kv{margin-top:10px;font-size:13px}details.more .chip{font-size:12p
     <div class="grow"></div>
     <a class="quiet" href="site/">Website</a>
     <div class="meta" id="sync">Connecting…</div>
-  </nav><script src="nav.js?v=4"></script>
+  </nav><script src="nav.js?v=5"></script>
   <main id="app"><p class="mut">Loading…</p></main>
 </div>
 <script>
@@ -251,6 +253,54 @@ function clientDialog(prefill = {}) {
 const clientOptions = (sel) => `<option value="">— no client yet —</option>${D.clients.map(c => `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${esc(c.company || c.name)}</option>`).join('')}<option value="__new">+ Add a new client…</option>`;
 // New request form: what's typed survives re-renders (e.g. live updates) until the request is created
 let NEW_FORM = {};
+// ---------- account, team and invites ----------
+let ME = null;
+const SITE = new URL('./', location.href).href.split('?')[0].split('#')[0];
+const joinUrl = (token) => SITE + 'sourcing.html#/join/' + token;
+const afterLogin = (target) => { try { localStorage.setItem('lathe-after-login', target); } catch (e) {} };
+const useWorkspace = (id) => { try { if (id) localStorage.setItem('lathe-ws', id); else localStorage.removeItem('lathe-ws'); } catch (e) {} };
+async function viewAccount() {
+  const { data: { user } } = await sb.auth.getUser(); ME = user;
+  const anon = !user || user.is_anonymous;
+  const { data: mems } = await sb.from('workspace_members').select('workspace_id, role, workspaces(name)').eq('user_id', user.id).order('created_at');
+  const cur = (mems || []).find(x => x.workspace_id === ws); const owner = cur?.role === 'owner';
+  const [pp, iv] = await Promise.all([sb.rpc('workspace_people', { p_ws: ws }), sb.from('workspace_invites').select('*').eq('workspace_id', ws).is('accepted_at', null).order('created_at', { ascending: false })]);
+  const people = pp.data || [], invites = iv.data || [];
+  return `<div class="hello"><div><h1>Account &amp; team</h1><p>Who you're signed in as, and who can work in this workspace.</p></div></div>
+  <div class="panel" style="max-width:780px"><h2>Your account</h2>
+    ${anon ? `<div class="warnbox"><b>You're not signed in.</b> Your work is saved in the cloud, but only this browser can open it. Sign in with an email and password so it's safe and works on any device.</div>
+      <div class="grid2"><div><label>Email</label><input id="aEmail" type="email" autocomplete="email"></div><div><label>Password <span class="mut">(at least 8 characters)</span></label><input id="aPass" type="password" autocomplete="current-password"></div></div>
+      <div class="bar" style="margin-top:12px"><button class="btn primary" id="aSave">Create account and keep this workspace</button><button class="btn" id="aIn">Sign in to my existing account</button></div>
+      <p class="sm mut" style="margin-top:8px">No password, or forgot it? <button class="link" id="aLink" style="background:none;border:0;padding:0;color:var(--harbor);cursor:pointer;font-weight:600">Email me a sign-in link</button></p>`
+    : `<div class="prow" style="border:0"><div>Signed in as <b>${esc(user.email)}</b></div><div class="bar"><button class="btn sm" id="aPw">Set or change password</button><button class="btn sm" id="aOut">Sign out</button></div></div>
+      <div id="pwRow" class="bar" style="display:none;margin-top:6px"><input id="newPw" type="password" autocomplete="new-password" placeholder="New password (at least 8 characters)" style="max-width:320px"><button class="btn sm primary" id="pwSave">Save password</button></div>`}
+  </div>
+  <div class="panel" style="max-width:780px"><h2>Workspace</h2>
+    <div class="bar"><input id="wsName" value="${esc(cur?.workspaces?.name || '')}" ${owner ? '' : 'disabled'} style="max-width:320px">${owner ? '<button class="btn sm" id="wsRename">Rename</button>' : ''}<span class="sm mut">Your role: ${esc(cur?.role || '—')}</span></div>
+    ${(mems || []).length > 1 ? `<h3 style="margin-top:18px">Your workspaces</h3>${mems.map(m => `<div class="prow"><span>${esc(m.workspaces?.name || 'Workspace')} <span class="sm mut">· ${esc(m.role)}</span></span>${m.workspace_id === ws ? '<span class="badge b-pass">open now</span>' : `<button class="btn sm" data-wsw="${m.workspace_id}">Switch to this</button>`}</div>`).join('')}` : ''}
+    <h3 style="margin-top:18px">People</h3>
+    ${people.map(p => `<div class="prow"><span>${esc(p.email || 'Not signed in (one browser only)')}${p.is_you ? ' <span class="sm mut">(you)</span>' : ''} <span class="badge">${esc(p.role)}</span></span>${owner && !p.is_you ? `<button class="btn sm danger" data-rmm="${p.user_id}" data-em="${esc(p.email || 'this person')}">Remove</button>` : ''}</div>`).join('')}
+    ${!owner ? '' : anon ? `<p class="sm mut" style="margin-top:12px">Sign in above before inviting people.</p>` : `<h3 style="margin-top:18px">Invite someone</h3>
+      <div class="bar"><input id="invEmail" type="email" placeholder="their email" style="max-width:260px"><select id="invRole" class="btn" style="width:auto"><option value="member">Member: full access, can't manage people</option><option value="owner">Owner: can also invite and remove people</option></select><button class="btn primary" id="invGo">Create invite link</button></div>
+      <p class="sm mut" style="margin-top:8px">Lathe makes a private link. Send it on WeChat or email; they open it, sign in with that email, and they're in.</p>
+      ${invites.length ? `<h3 style="margin-top:14px">Waiting to join</h3>${invites.map(i => `<div class="prow"><span>${esc(i.email)} <span class="badge">${esc(i.role)}</span> <span class="sm mut">invited ${dt(i.created_at)}</span></span><span class="bar"><button class="btn sm" data-cp="${esc(joinUrl(i.token))}">Copy invite link</button><button class="btn sm danger" data-rminv="${i.id}">Cancel</button></span></div>`).join('')}` : ''}`}
+  </div>`;
+}
+async function viewJoin(token) {
+  const { data: { user } } = await sb.auth.getUser(); ME = user;
+  const anon = !user || user.is_anonymous;
+  const { data } = await sb.rpc('invite_preview', { p_token: token }); const inv = (data || [])[0];
+  const wrap = (inner) => `<div class="panel" style="max-width:560px;margin:40px auto">${inner}</div>`;
+  if (!inv) return wrap(`<h2>This invite link isn't valid</h2><p class="mut">It may have been cancelled. Ask for a new one.</p>`);
+  if (inv.accepted) return wrap(`<h2>This invite has been used</h2><p class="mut">If it was yours, sign in on the account page to open the workspace.</p><a class="btn primary" href="#/account">Go to account</a>`);
+  const head = `<h2>Join ${esc(inv.workspace_name || 'a workspace')} on Lathe</h2><p class="mut">${inv.inviter_email ? esc(inv.inviter_email) + ' invited ' : 'Invite for '}<b>${esc(inv.email)}</b>.</p>`;
+  if (!anon && (user.email || '').toLowerCase() === inv.email.toLowerCase()) return wrap(head + `<button class="btn primary" id="jJoin" data-t="${esc(token)}">Join workspace</button>`);
+  if (!anon) return wrap(head + `<p>You're signed in as <b>${esc(user.email)}</b>, but this invite is for <b>${esc(inv.email)}</b>.</p><button class="btn" id="jOut">Sign out and switch</button>`);
+  return wrap(head + `<label>Email</label><input id="jEmail" type="email" value="${esc(inv.email)}" disabled>
+    <label>Password <span class="mut">(new: choose one, at least 8 characters)</span></label><input id="jPass" type="password" autocomplete="new-password">
+    <div class="bar" style="margin-top:14px"><button class="btn primary" id="jUp" data-t="${esc(token)}">Create my account and join</button><button class="btn" id="jIn" data-t="${esc(token)}">I already have an account</button></div>
+    <p class="sm mut" style="margin-top:10px">Or <button id="jLink" data-t="${esc(token)}" style="background:none;border:0;padding:0;color:var(--harbor);cursor:pointer;font-weight:600">email me a sign-in link</button> instead.</p>`);
+}
 async function deleteRequest(id) {
   const r = D.requests.find(x => x.id === id); if (!r) return false;
   const cnt = async (t) => (await sb.from(t).select('id', { count: 'exact', head: true }).eq('request_id', id)).count || 0;
@@ -590,7 +640,7 @@ function calcRows(c) {
 async function render() {
   const h = location.hash || '#/requests'; const [, page, id] = h.split('/');
   document.querySelectorAll('.rail a[data-nav]').forEach(a => { const on = a.dataset.nav === page || (page === 'request' && a.dataset.nav === 'requests') || (page === 'factory' && a.dataset.nav === 'factories') || (page === 'new' && a.dataset.nav === 'requests'); if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
-  app.innerHTML = page === 'new' ? viewNew() : page === 'request' ? await viewRequest(id) : page === 'factories' ? viewFactories() : page === 'factory' ? await viewFactory(id) : page === 'clients' ? viewClients() : page === 'rates' ? viewRates() : viewRequests();
+  app.innerHTML = page === 'account' ? await viewAccount() : page === 'join' ? await viewJoin(id) : page === 'new' ? viewNew() : page === 'request' ? await viewRequest(id) : page === 'factories' ? viewFactories() : page === 'factory' ? await viewFactory(id) : page === 'clients' ? viewClients() : page === 'rates' ? viewRates() : viewRequests();
   wire(page, id);
 }
 const refresh = async () => { await load(); await render(); };
@@ -609,6 +659,63 @@ function wire(page, id) {
   on('[data-delreq]', 'click', async (e) => { e.preventDefault(); e.stopPropagation(); if (await deleteRequest(e.currentTarget.dataset.delreq)) render(); });
   if ($('delReq')) $('delReq').onclick = async () => { if (await deleteRequest(id)) location.hash = '#/requests'; };
   const upd = async (t, patch, eq) => { const { error } = await sb.from(t).update(patch).eq('id', eq); if (error) toast(error.message); else await refresh(); };
+  if (page === 'account') {
+    const authErr = (err) => toast(/not authorized/i.test(err.message) ? 'Lathe can\u2019t email that address yet (email sending isn\u2019t set up). Use a password instead.' : err.message);
+    const creds = () => ({ email: ($('aEmail')?.value || '').trim(), password: $('aPass')?.value || '' });
+    if ($('aSave')) $('aSave').onclick = async (e) => {
+      const { email, password } = creds(); if (!email || password.length < 8) return toast('Enter an email and a password of at least 8 characters');
+      busy(e.target, true);
+      const { data, error } = await sb.auth.updateUser({ email }, { emailRedirectTo: SITE });
+      if (error) { busy(e.target, false); return authErr(error); }
+      if (data.user?.email) { const r2 = await sb.auth.updateUser({ password }); if (r2.error) { busy(e.target, false); return toast(r2.error.message); } toast('Account created. You can now sign in anywhere with this email.'); return render(); }
+      afterLogin('sourcing.html#/account'); busy(e.target, false); toast('Check your email and click the confirmation link, then set your password here.');
+    };
+    if ($('aIn')) $('aIn').onclick = async (e) => {
+      const { email, password } = creds(); if (!email || !password) return toast('Enter your email and password');
+      busy(e.target, true); const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) { busy(e.target, false); return toast(error.message === 'Invalid login credentials' ? 'Wrong email or password' : error.message); }
+      useWorkspace(null); location.hash = '#/requests'; location.reload();
+    };
+    if ($('aLink')) $('aLink').onclick = async () => {
+      const email = ($('aEmail').value || '').trim(); if (!email) return toast('Enter your email first');
+      const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: SITE } }); if (error) return authErr(error);
+      afterLogin('sourcing.html#/requests'); toast('Check your email for a sign-in link.');
+    };
+    if ($('aPw')) $('aPw').onclick = () => { $('pwRow').style.display = 'flex'; $('newPw').focus(); };
+    if ($('pwSave')) $('pwSave').onclick = async () => { const p = $('newPw').value; if (p.length < 8) return toast('At least 8 characters'); const { error } = await sb.auth.updateUser({ password: p }); if (error) return toast(error.message); toast('Password saved'); $('pwRow').style.display = 'none'; };
+    if ($('aOut')) $('aOut').onclick = async () => { if (!await confirmBox({ title: 'Sign out?', body: 'Your work stays saved. Sign in again with your email to get back to it.', confirmLabel: 'Sign out' })) return; await sb.auth.signOut(); useWorkspace(null); location.hash = '#/account'; location.reload(); };
+    if ($('wsRename')) $('wsRename').onclick = async () => { const name = $('wsName').value.trim(); if (!name) return; const { error } = await sb.from('workspaces').update({ name }).eq('id', ws); if (error) return toast(error.message); $('sync').textContent = name; toast('Renamed'); };
+    on('[data-wsw]', 'click', (e) => { useWorkspace(e.currentTarget.dataset.wsw); location.hash = '#/requests'; location.reload(); });
+    on('[data-rmm]', 'click', async (e) => { const b = e.currentTarget; if (!await confirmBox({ title: 'Remove from workspace?', body: `<b>${esc(b.dataset.em)}</b> will lose access to this workspace. Their past work stays.`, confirmLabel: 'Remove' })) return; const { error } = await sb.from('workspace_members').delete().eq('workspace_id', ws).eq('user_id', b.dataset.rmm); if (error) return toast(error.message); toast('Removed'); render(); });
+    if ($('invGo')) $('invGo').onclick = async (e) => {
+      const email = $('invEmail').value.trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return toast('Enter their email');
+      busy(e.target, true); const { data, error } = await sb.from('workspace_invites').insert({ workspace_id: ws, email, role: $('invRole').value }).select('token').single();
+      if (error) { busy(e.target, false); return toast(error.message); }
+      try { await navigator.clipboard.writeText(joinUrl(data.token)); toast('Invite link copied. Send it to them on WeChat or email.'); } catch (err) { toast('Invite created. Use "Copy invite link" below.'); }
+      render();
+    };
+    on('[data-rminv]', 'click', async (e) => { const { error } = await sb.from('workspace_invites').delete().eq('id', e.currentTarget.dataset.rminv); if (error) return toast(error.message); render(); });
+  }
+  if (page === 'join') {
+    const joinNow = async (t) => { const { data, error } = await sb.rpc('accept_invite', { p_token: t }); if (error) return toast(error.message); useWorkspace(data); toast('You\u2019re in'); location.hash = '#/requests'; location.reload(); };
+    const authErr = (err) => toast(/not authorized/i.test(err.message) ? 'Lathe can\u2019t send email to that address yet. Ask the person who invited you to finish email setup, or use a password.' : err.message);
+    if ($('jJoin')) $('jJoin').onclick = (e) => joinNow(e.currentTarget.dataset.t);
+    if ($('jOut')) $('jOut').onclick = async () => { await sb.auth.signOut(); useWorkspace(null); location.reload(); };
+    if ($('jUp')) $('jUp').onclick = async (e) => {
+      const t = e.currentTarget.dataset.t, email = $('jEmail').value, password = $('jPass').value; if (password.length < 8) return toast('Choose a password of at least 8 characters');
+      busy(e.target, true); const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: SITE } });
+      if (error) { busy(e.target, false); return authErr(error); }
+      if (data.session) return joinNow(t);
+      afterLogin('sourcing.html#/join/' + t); busy(e.target, false); toast('Check your email and click the confirmation link to finish joining.');
+    };
+    if ($('jIn')) $('jIn').onclick = async (e) => {
+      const t = e.currentTarget.dataset.t, email = $('jEmail').value, password = $('jPass').value; if (!password) return toast('Enter your password');
+      busy(e.target, true); const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) { busy(e.target, false); return toast(error.message === 'Invalid login credentials' ? 'Wrong password. Try "email me a sign-in link".' : error.message); }
+      joinNow(t);
+    };
+    if ($('jLink')) $('jLink').onclick = async (e) => { const t = e.currentTarget.dataset.t; const { error } = await sb.auth.signInWithOtp({ email: $('jEmail').value, options: { emailRedirectTo: SITE } }); if (error) return authErr(error); afterLogin('sourcing.html#/join/' + t); toast('Check your email for a sign-in link, open it on this device, then press Join.'); };
+  }
   if (page === 'new') {
     const drop = $('drop'), input = $('nFiles');
     drop.onclick = (e) => { if (!e.target.closest('[data-rmf]')) input.click(); };
@@ -783,9 +890,12 @@ function wire(page, id) {
   sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
   let { data: { session } } = await sb.auth.getSession();
   if (!session) { const { data, error } = await sb.auth.signInAnonymously(); if (error) { app.innerHTML = `<p>Could not open your workspace: ${esc(error.message)}</p>`; return; } session = data.session; }
-  const { data: m } = await sb.from('workspace_members').select('workspace_id, workspaces(name)').eq('user_id', session.user.id).order('created_at').limit(1);
+  ME = session.user;
+  const { data: m } = await sb.from('workspace_members').select('workspace_id, workspaces(name)').eq('user_id', session.user.id).order('created_at');
   if (!m || !m.length) { app.innerHTML = '<p>No workspace found for this account. Open the <a href="./">home page</a> once first.</p>'; return; }
-  ws = m[0].workspace_id; $('sync').textContent = m[0].workspaces?.name || 'My workspace';
+  let pref = null; try { pref = localStorage.getItem('lathe-ws'); } catch (e) {}
+  const curWs = m.find(x => x.workspace_id === pref) || m[0];
+  ws = curWs.workspace_id; $('sync').textContent = (curWs.workspaces?.name || 'My workspace') + (session.user.is_anonymous ? ' · not signed in' : '');
   await load(); await render();
   window.addEventListener('hashchange', render);
   let t; const ch = sb.channel('sourcing');
