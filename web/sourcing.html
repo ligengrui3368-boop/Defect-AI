@@ -2,6 +2,18 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Sourcing · Lathe</title>
+<script>
+// Signed-out visitors go to the login page before anything of the app is drawn.
+(function () {
+  var s = location.search, h = location.hash;
+  if (/[?&](f|demo)=/.test(s) || /access_token=|error_description=|[?&]code=/.test(s + h)) return;
+  var ok = false;
+  try { for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (/^sb-.*-auth-token$/.test(k)) { var t = JSON.parse(localStorage.getItem(k) || 'null'); ok = !!(t && t.refresh_token && !(t.user && t.user.is_anonymous)); } } } catch (e) {}
+  if (ok) return;
+  var m = h.match(/^#\/join\/([0-9a-f]+)/), page = location.pathname.split('/').pop();
+  location.replace('login.html' + (m ? '?join=' + m[1] : (page && page !== 'index.html' ? '?next=' + encodeURIComponent(page + h) : '')));
+})();
+</script>
 <meta name="theme-color" content="#17222B">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
@@ -261,45 +273,16 @@ let NEW_FORM = {};
 // ---------- account, team and invites ----------
 let ME = null;
 const SITE = new URL('./', location.href).href.split('?')[0].split('#')[0];
-const joinUrl = (token) => SITE + 'sourcing.html#/join/' + token;
+const joinUrl = (token) => SITE + 'login.html?join=' + token;
 const afterLogin = (target) => { try { localStorage.setItem('lathe-after-login', target); } catch (e) {} };
 const useWorkspace = (id) => { try { if (id) localStorage.setItem('lathe-ws', id); else localStorage.removeItem('lathe-ws'); } catch (e) {} };
-// ---------- signed out: sign-in screen and invite page ----------
+// ---------- Google sign-in button (account and invite pages; signed-out visitors use login.html) ----------
 const GLOGO = '<svg viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.6 13.2l7.9 6.2C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.7c4.3-4 6.9-9.9 6.9-17z"/><path fill="#FBBC05" d="M10.5 28.6c-.5-1.4-.8-2.9-.8-4.6s.3-3.2.8-4.6l-7.9-6.2C1 16.6 0 20.2 0 24s1 7.4 2.6 10.8l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.3-8.5 2.3-6.3 0-11.6-4.1-13.5-9.9l-7.9 6.2C6.6 42.6 14.6 48 24 48z"/></svg>';
 // show "Continue with Google" only once Google sign-in is switched on in Supabase
 let AUTH_SETTINGS = null;
 async function hideGoogleIfOff() {
   try { if (!AUTH_SETTINGS) AUTH_SETTINGS = await fetch(CFG.supabaseUrl + '/auth/v1/settings', { headers: { apikey: CFG.supabaseAnonKey } }).then(r => r.json()); } catch (e) { return; }
   if (!AUTH_SETTINGS?.external?.google) document.querySelectorAll('.gbtn').forEach(b => { const o = b.nextElementSibling; if (o && o.classList.contains('orline')) o.remove(); b.remove(); });
-}
-function signInBox(title, sub, email, lockEmail) {
-  return `<div class="panel signin"><h2>${title}</h2><p class="mut">${sub}</p>
-    <button class="btn gbtn" id="siGoogle">${GLOGO}Continue with Google</button>
-    <div class="orline">or with email</div>
-    <label>Email</label><input id="siEmail" type="email" autocomplete="email" value="${esc(email || '')}" ${lockEmail ? 'disabled' : ''}>
-    <label>Password</label><input id="siPass" type="password" autocomplete="current-password" placeholder="at least 8 characters">
-    <div class="bar" style="margin-top:14px"><button class="btn primary" id="siIn">Sign in</button><button class="btn" id="siUp">Create account</button></div>
-    <p class="sm mut" style="margin:12px 0 0">Forgot your password? <button id="siLink" style="background:none;border:0;padding:0;color:var(--harbor);cursor:pointer;font-weight:600">Email me a sign-in link</button></p></div>`;
-}
-async function showSignedOut() {
-  const h = location.hash || ''; const token = (h.match(/^#\/join\/([0-9a-f]+)/) || [])[1];
-  let inv = null;
-  if (token) { const { data } = await sb.rpc('invite_preview', { p_token: token }); inv = (data || [])[0] || null; }
-  $('sync').textContent = 'Not signed in';
-  if (token && !inv) app.innerHTML = `<div class="panel signin"><h2>This invite link isn't valid</h2><p class="mut">It may have been cancelled. Ask for a new one.</p></div>`;
-  else if (inv && inv.accepted) app.innerHTML = signInBox('This invite has been used', 'If it was yours, sign in to open the workspace.', inv.email, false);
-  else if (inv) app.innerHTML = signInBox(`Join ${esc(inv.workspace_name || 'a workspace')} on Lathe`, `${inv.inviter_email ? esc(inv.inviter_email) + ' invited ' : 'Invite for '}<b>${esc(inv.email)}</b>. Sign in with that email, or with Google if it's a Google account.`, inv.email, true);
-  else app.innerHTML = signInBox('Sign in to Lathe', 'Sourcing from China, from spec to order.', '', false);
-  const next = token ? 'sourcing.html#/join/' + token : 'sourcing.html#/requests';
-  const authErr = (err) => toast(/not authorized/i.test(err.message) ? 'Lathe can\u2019t send email to that address yet. Use Google or a password.' : /provider is not enabled|Unsupported provider/i.test(err.message) ? 'Google sign-in isn\u2019t switched on yet. Use email and password for now.' : err.message === 'Invalid login credentials' ? 'Wrong email or password' : err.message);
-  const creds = () => ({ email: ($('siEmail').value || '').trim(), password: $('siPass').value || '' });
-  const done = () => { location.hash = next.split('sourcing.html')[1]; location.reload(); };
-  $('siGoogle').onclick = async () => { afterLogin(next); const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: SITE, queryParams: { prompt: 'select_account' } } }); if (error) authErr(error); };
-  $('siIn').onclick = async (e) => { const { email, password } = creds(); if (!email || !password) return toast('Enter your email and password'); busy(e.target, true); const { error } = await sb.auth.signInWithPassword({ email, password }); if (error) { busy(e.target, false); return authErr(error); } done(); };
-  $('siUp').onclick = async (e) => { const { email, password } = creds(); if (!email || password.length < 8) return toast('Enter your email and a password of at least 8 characters'); busy(e.target, true); const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: SITE } }); if (error) { busy(e.target, false); return authErr(error); } if (data.session) return done(); afterLogin(next); busy(e.target, false); toast('Check your email and click the confirmation link to finish.'); };
-  $('siLink').onclick = async () => { const { email } = creds(); if (!email) return toast('Enter your email first'); const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: SITE } }); if (error) return authErr(error); afterLogin(next); toast('Check your email for a sign-in link.'); };
-  ['siEmail', 'siPass'].forEach(k => $(k).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('siIn').click(); }));
-  hideGoogleIfOff();
 }
 async function viewAccount() {
   const { data: { user } } = await sb.auth.getUser(); ME = user;
@@ -728,7 +711,7 @@ function wire(page, id) {
     if ($('aGoogle')) $('aGoogle').onclick = async () => { afterLogin('sourcing.html#/requests'); const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: SITE, queryParams: { prompt: 'select_account' } } }); if (error) toast(/not enabled|Unsupported provider/i.test(error.message) ? 'Google sign-in isn\u2019t switched on yet.' : error.message); };
     if ($('aPw')) $('aPw').onclick = () => { $('pwRow').style.display = 'flex'; $('newPw').focus(); };
     if ($('pwSave')) $('pwSave').onclick = async () => { const p = $('newPw').value; if (p.length < 8) return toast('At least 8 characters'); const { error } = await sb.auth.updateUser({ password: p }); if (error) return toast(error.message); toast('Password saved'); $('pwRow').style.display = 'none'; };
-    if ($('aOut')) $('aOut').onclick = async () => { if (!await confirmBox({ title: 'Sign out?', body: 'Your work stays saved. Sign in again with your email to get back to it.', confirmLabel: 'Sign out' })) return; await sb.auth.signOut(); useWorkspace(null); location.hash = '#/login'; location.reload(); };
+    if ($('aOut')) $('aOut').onclick = async () => { if (!await confirmBox({ title: 'Sign out?', body: 'Your work stays saved. Sign in again with your email to get back to it.', confirmLabel: 'Sign out' })) return; await sb.auth.signOut(); useWorkspace(null); location.replace('login.html'); };
     if ($('wsRename')) $('wsRename').onclick = async () => { const name = $('wsName').value.trim(); if (!name) return; const { error } = await sb.from('workspaces').update({ name }).eq('id', ws); if (error) return toast(error.message); $('sync').textContent = name; toast('Renamed'); };
     on('[data-wsw]', 'click', (e) => { useWorkspace(e.currentTarget.dataset.wsw); location.hash = '#/requests'; location.reload(); });
     on('[data-rmm]', 'click', async (e) => { const b = e.currentTarget; if (!await confirmBox({ title: 'Remove from workspace?', body: `<b>${esc(b.dataset.em)}</b> will lose access to this workspace. Their past work stays.`, confirmLabel: 'Remove' })) return; const { error } = await sb.from('workspace_members').delete().eq('workspace_id', ws).eq('user_id', b.dataset.rmm); if (error) return toast(error.message); toast('Removed'); render(); });
@@ -935,7 +918,7 @@ function wire(page, id) {
   if (!CFG.supabaseUrl || !window.supabase) { app.innerHTML = '<p>Setup needed: add your Supabase URL and anon key to config.js.</p>'; return; }
   sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
   let { data: { session } } = await sb.auth.getSession();
-  if (!session) { await showSignedOut(); window.addEventListener('hashchange', () => showSignedOut()); return; }
+  if (!session || session.user.is_anonymous) { const jm = (location.hash || '').match(/^#\/join\/([0-9a-f]+)/); location.replace('login.html' + (jm ? '?join=' + jm[1] : '?next=' + encodeURIComponent('sourcing.html' + location.hash))); return; }
   if (/^#\/login/.test(location.hash)) location.hash = '#/requests';
   ME = session.user;
   const { data: m } = await sb.from('workspace_members').select('workspace_id, workspaces(name)').eq('user_id', session.user.id).order('created_at');
