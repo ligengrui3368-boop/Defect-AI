@@ -103,7 +103,7 @@ function due(s) {
   return `<span class="tag ${diff < 0 ? 'red' : diff === 0 ? 'blue' : ''}">${IC.cal}${label}</span>`;
 }
 const ago = d => { const s = (Date.now() - new Date(d).getTime()) / 1000; if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s / 60) + ' min ago'; if (s < 86400) return Math.floor(s / 3600) + ' h ago'; return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
-let sb, ws, D = { reqs: [], clients: [], pos: [], negs: [], quotes: [], flow: {} }, tab = 'all', ANON = false;
+let sb, ws, D = { reqs: [], clients: [], pos: [], negs: [], quotes: [], flow: {}, acts: [] }, tab = 'all', ANON = false, ME_EMAIL = null;
 
 // What each request needs next comes from the shared engine (the request_flow view), the same one
 // the requests list, the request page and Operator use.
@@ -127,6 +127,8 @@ function render() {
   ${shown.length ? `<ul class="rows">${shown.map(r => { const [step, ring] = nextStep(r); const attn = waiting.includes(r);
       return `<li><a class="row" href="sourcing.html#/request/${r.id}"><span class="ring ${ring}"></span><span class="t"><b>${esc(r.title)}</b><small>${esc(step)}${r.quantity ? `, ${Number(r.quantity).toLocaleString()} units` : ''}</small></span><span class="chips">${attn ? '<span class="tag dot" title="Needs you"></span>' : ''}${due(r.deadline)}${r.client_id ? `<span class="tag">${esc(clientName(r.client_id))}</span>` : ''}</span></a></li>`; }).join('')}</ul>`
     : `<div class="dc-empty">${open.length ? 'Nothing for this client.' : 'Tell Operator what a client wants made, or <a href="sourcing.html#/new">create a request</a>. It structures the spec, finds factories and works out the landed cost.'}</div>`}
+  ${(D.acts || []).length ? `<div class="dc-sec">What changed</div><ul class="rows">${D.acts.map(a => { const rq = D.reqs.find(x => x.id === a.request_id); const m = (Date.now() - new Date(a.at)) / 60000; const t = m < 1 ? 'just now' : m < 60 ? Math.round(m) + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : new Date(a.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return `<li><a class="row" href="${rq ? 'sourcing.html#/request/' + rq.id : 'sourcing.html#/requests'}"><span class="t"><b>${esc(a.body)}</b><small>${rq ? esc(rq.title) + ' · ' : ''}${esc(a.actor === ME_EMAIL ? 'You' : (a.actor || 'Lathe'))} · ${t}</small></span></a></li>`; }).join('')}</ul>` : ''}
   ${window.LATHE_SHOW_QC && openPos.length ? `<div class="dc-sec">Orders in progress</div><ul class="rows">${openPos.map(p => `<li><a class="row" href="ops.html#/po/${p.id}"><span class="ring half"></span><span class="t"><b>${esc(p.po_number)}</b><small>${esc(p.supplier_name || 'Factory')}${p.supplier_city ? ', ' + esc(p.supplier_city) : ''}</small></span><span class="chips">${due(p.ship_by)}<span class="tag">Order</span></span></a></li>`).join('')}</ul>` : ''}`;
   app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
   document.querySelectorAll('[data-client]').forEach(a => a.onclick = (e) => { e.preventDefault(); tab = a.dataset.client; render(); });
@@ -141,7 +143,9 @@ async function load() {
     q('negotiations', 'id, request_id, status', 'updated_at'),
     q('quotes', 'id, request_id, released_to_client, status', 'created_at'),
     sb.from('request_flow').select('*').eq('workspace_id', ws),
+    sb.from('activity').select('at, actor, body, request_id').eq('workspace_id', ws).order('at', { ascending: false }).limit(8),
   ]);
+  D.acts = r[6].data || [];
   [D.reqs, D.clients, D.pos, D.negs, D.quotes] = r.slice(0, 5).map(x => x.data || []);
   D.flow = Object.fromEntries((r[5].data || []).map(x => [x.id, x]));
 }
@@ -280,10 +284,10 @@ drawLog(false);
   if (!m0 || !m0.length) { app.innerHTML = '<p>No workspace found for this account.</p>'; return; }
   let pref = null; try { pref = localStorage.getItem('lathe-ws'); } catch (e) {}
   const m = [m0.find(x => x.workspace_id === pref) || m0[0]];
-  ws = m[0].workspace_id; ANON = !!session.user.is_anonymous;
+  ws = m[0].workspace_id; ANON = !!session.user.is_anonymous; ME_EMAIL = session.user.email || null;
   await load(); render(); opInit();
   let t = null; const ch = sb.channel('home-' + ws);
-  ['sourcing_requests', 'clients', 'purchase_orders', 'negotiations', 'quotes', 'request_candidates', 'sourcing_orders', 'jobs'].forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb, filter: 'workspace_id=eq.' + ws }, () => { clearTimeout(t); t = setTimeout(async () => { await load(); render(); refreshSugs(false); }, 500); }));
+  ['sourcing_requests', 'clients', 'purchase_orders', 'negotiations', 'quotes', 'request_candidates', 'sourcing_orders', 'jobs', 'activity'].forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb, filter: 'workspace_id=eq.' + ws }, () => { clearTimeout(t); t = setTimeout(async () => { await load(); render(); refreshSugs(false); }, 500); }));
   ch.subscribe(st => { $('sync').textContent = st === 'SUBSCRIBED' ? (m[0].workspaces?.name || 'My workspace') + ', live' : 'Reconnecting…'; });
 })();
 })();
