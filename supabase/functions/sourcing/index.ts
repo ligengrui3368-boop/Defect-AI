@@ -1,4 +1,4 @@
-// Defect Check sourcing agents. One function, several tasks (all with the caller's JWT, so
+// Lathe sourcing agents. One function, several tasks (all with the caller's JWT, so
 // row level security applies):
 //   intake      – turn a client's brief into a structured spec, Chinese search terms, an HTS
 //                 guess and follow-up questions; writes sourcing_requests.spec
@@ -206,7 +206,7 @@ async function operator(sb: SupabaseClient, body: Any) {
   const { data: negs } = await sb.from("negotiations").select("request_id, status, current_offer_cny, agreed_cny").limit(200);
   const today = new Date().toISOString().slice(0, 10);
   const open = (reqs ?? []).map((r: Any) => ({ id: r.id, title: r.title, status: r.status, quantity: r.quantity, target_usd: r.target_unit_price, deadline: r.deadline, client: (clients ?? []).find((c: Any) => c.id === r.client_id)?.company ?? null, open_questions: r.spec?.questions?.length ?? 0, negotiations: (negs ?? []).filter((n: Any) => n.request_id === r.id).map((n: Any) => n.status) }));
-  const out = await askJson(`You are Operator, the assistant inside Defect Check. Gary runs it: US brands tell him what they want made, he sources it from Chinese factories (1688), negotiates himself, quotes the full landed cost, and checks quality before the balance is paid.
+  const out = await askJson(`You are Operator, the assistant inside Lathe. Gary runs it: US brands tell him what they want made, he sources it from Chinese factories (1688), negotiates himself, quotes the full landed cost, and checks quality before the balance is paid.
 Today is ${today}.
 Clients: ${JSON.stringify((clients ?? []).map((c: Any) => ({ name: c.name, company: c.company })))}
 Open requests: ${JSON.stringify(open)}
