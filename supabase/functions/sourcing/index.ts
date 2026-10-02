@@ -55,12 +55,12 @@ class HttpError extends Error { constructor(public status: number, m: string) { 
 type Any = any;
 
 // ---------- Claude ----------
-async function askJson(prompt: string, maxTokens = 3000, model = MODEL): Promise<Any> {
+async function askJson(prompt: string, maxTokens = 3000, model = MODEL, images: string[] = []): Promise<Any> {
   if (!ANTHROPIC_API_KEY) throw new HttpError(500, "ANTHROPIC_API_KEY is not set in Edge Function Secrets.");
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt + "\n\nReply with only the JSON value, no other text." }] }),
+    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "user", content: [...images.map((url) => ({ type: "image", source: { type: "url", url } })), { type: "text", text: prompt + "\n\nReply with only the JSON value, no other text." }] }] }),
   });
   if (!res.ok) throw new HttpError(502, `Claude API ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
@@ -87,14 +87,19 @@ async function getRequest(sb: SupabaseClient, id: string) {
   if (error || !data) throw new HttpError(404, "Request not found (or not in your workspace)");
   return data;
 }
-const specText = (r: Any) => JSON.stringify({ title: r.title, brief: r.raw_brief, spec: r.spec, quantity: r.quantity, target_unit_price_usd: r.target_unit_price, deadline: r.deadline, destination: r.destination }, null, 1);
+const specText = (r: Any) => JSON.stringify({ title: r.title, brief: r.raw_brief, spec: r.spec ? (({ photos: _p, ...rest }: Any) => rest)(r.spec) : null, quantity: r.quantity, target_unit_price_usd: r.target_unit_price, deadline: r.deadline, destination: r.destination }, null, 1);
 
 // ---------- tasks ----------
 async function intake(sb: SupabaseClient, body: Any) {
   const r = await getRequest(sb, body.request_id);
   const extra = String(body.answers ?? "").trim();
+  // product photos on the request are shown to Claude too (signed links, row level security applies)
+  let images: string[] = [];
+  const photos: string[] = (r.spec?.photos ?? []).slice(-4);
+  if (photos.length) { const { data } = await sb.storage.from("photos").createSignedUrls(photos, 600); images = (data ?? []).map((x: Any) => x.signedUrl).filter(Boolean); }
   const out = await askJson(`You are the intake agent of a China sourcing service for US importers. Turn this client request into a structured product spec.
 Request (JSON): ${specText(r)}
+${images.length ? `${images.length} product photo(s) are attached. Read the product type, construction, materials, colors, features and any visible text or logos from them. Where the written spec and the photos disagree, the written spec wins; mention the conflict in questions.` : ""}
 ${extra ? `Client's answers to earlier questions: ${extra}` : ""}
 Return a JSON object with exactly these keys:
  product_name (string), category (string), summary (1-2 sentences),
@@ -109,11 +114,13 @@ Return a JSON object with exactly these keys:
  estimated_factory_price_cny (number or null – rough ex-works unit price range midpoint),
  questions (string[] – up to 5 follow-up questions for the client, only where an answer changes the spec or price; empty if the brief is complete),
  at_a_glance ({label, value}[] – the 5-6 facts a buyer checks first, e.g. frame, fabric, size, weight, load rating, colors; label 1-2 words, value at most 4 words with units, no parentheses, no "to be confirmed"),
+ request_title (string – short title for this request, e.g. "Foldable camping chairs, 1,000 pcs"),
  confidence ("high"|"medium"|"low").
-Keep existing spec values unless the brief contradicts them.`);
+Keep existing spec values unless the brief contradicts them.`, 3000, MODEL, images);
   const spec = { ...(r.spec ?? {}), ...out, intake_at: new Date().toISOString() };
   const upd: Any = { spec };
   if (!r.hts_code && out.hts_guess) upd.hts_code = out.hts_guess;
+  if ((body.set_title || !r.title || r.title === "Untitled request") && out.request_title) upd.title = String(out.request_title).slice(0, 120);
   if (r.status === "intake" && (!out.questions || out.questions.length === 0)) upd.status = "sourcing";
   const { error } = await sb.from("sourcing_requests").update(upd).eq("id", r.id);
   if (error) throw new HttpError(500, error.message);
