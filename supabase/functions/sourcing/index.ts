@@ -25,6 +25,7 @@
 //                 registered phone, email, website and address, plus business scope, registered capital
 //                 and insured staff for the factory-vs-trader check. Only fills empty fields; results are
 //                 kept on the factory so each company is paid for once (force: true re-checks).
+//   start_job   – run search_1688 / search_photo / refresh_search in the background (jobs table, live updates)
 //   operator_suggest – fresh suggested prompts for the Operator panel, from current work and memory
 //   operator    – the Home page assistant: reads the workspace's clients and open requests,
 //                 answers questions, or returns one action for the page to carry out
@@ -504,7 +505,6 @@ async function registryContacts(sb: SupabaseClient, body: Any) {
 // Context it sees: the workspace's clients and open requests with their stage, best factories, offers and
 // quotes; plus its own memory (per person + workspace): the conversation and running notes on what the
 // person is working on. Every reply also returns fresh suggested prompts and updated notes.
-const NEXT_OF: Record<string, string> = { intake: "run intake / answer open questions", sourcing: "pick factories to negotiate with", shortlisted: "pick factories to negotiate with", negotiating: "get offers and agree a price", quoted: "waiting on the client to approve the quote", approved: "place the order", ordered: "track deposit, production and balance" };
 async function operatorContext(sb: SupabaseClient, ws: string | null) {
   const scope = (q: Any) => (ws ? q.eq("workspace_id", ws) : q);
   const [{ data: clients }, { data: reqs }] = await Promise.all([
@@ -512,15 +512,16 @@ async function operatorContext(sb: SupabaseClient, ws: string | null) {
     scope(sb.from("sourcing_requests").select("id, title, status, quantity, target_unit_price, deadline, client_id, spec, updated_at")).neq("status", "closed").order("updated_at", { ascending: false }).limit(15),
   ]);
   const ids = (reqs ?? []).map((r: Any) => r.id);
-  const [{ data: cands }, { data: negs }, { data: quotes }] = ids.length ? await Promise.all([
+  const [{ data: cands }, { data: negs }, { data: quotes }, { data: flow }] = ids.length ? await Promise.all([
     sb.from("request_candidates").select("request_id, rank, price_cny, moq, listing_title, status, factories(name)").in("request_id", ids).neq("status", "rejected").order("rank", { ascending: true, nullsFirst: false }).limit(300),
     sb.from("negotiations").select("request_id, status, current_offer_cny, agreed_cny, target_cny, updated_at, factories(name)").in("request_id", ids).limit(200),
     sb.from("quotes").select("request_id, released_to_client, status, client_unit_price, created_at").in("request_id", ids).limit(100),
-  ]) : [{ data: [] }, { data: [] }, { data: [] }] as Any[];
+    sb.from("request_flow").select("id, next_title, next_hint, needs_you, phase").in("id", ids),
+  ]) : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }] as Any[];
   const open = (reqs ?? []).map((r: Any) => {
     const cs = (cands ?? []).filter((c: Any) => c.request_id === r.id);
     return {
-      id: r.id, title: r.title, status: r.status, next_step: NEXT_OF[r.status] ?? "", quantity: r.quantity, target_usd: r.target_unit_price, deadline: r.deadline,
+      id: r.id, title: r.title, status: r.status, ...(() => { const f = (flow ?? []).find((x: Any) => x.id === r.id); return { next_step: f ? `${f.next_title}. ${f.next_hint}` : "", needs_user: f?.needs_you ?? null }; })(), quantity: r.quantity, target_usd: r.target_unit_price, deadline: r.deadline,
       client: (clients ?? []).find((c: Any) => c.id === r.client_id)?.company ?? (clients ?? []).find((c: Any) => c.id === r.client_id)?.name ?? null,
       product: r.spec?.product_name ?? null, open_questions: (r.spec?.questions ?? []).slice(0, 5), est_factory_cny: r.spec?.estimated_factory_price_cny ?? null,
       candidates: cs.length, top_factories: cs.slice(0, 3).map((c: Any) => ({ factory: c.factories?.name, price_cny: c.price_cny, moq: c.moq })),
@@ -538,6 +539,34 @@ async function loadMemory(sb: SupabaseClient, ws: string | null) {
 }
 const cleanSugs = (a: Any, avoid: string[] = []) => (Array.isArray(a) ? a : []).map((x: Any) => String(x ?? "").trim().replace(/^["'“]|["'”]$/g, "")).filter((x: string) => x && x.length <= 110 && !avoid.includes(x)).slice(0, 4);
 const SUG_RULES = `Suggestions: 4 short things the user could ask Operator next (each under 75 characters, written as the user would type them, in the user's language). Make them specific to the current work: name the actual products, factories, clients and numbers. Cover different kinds: a status check, the next action on the most pressing request, drafting a message (a counter-offer or follow-up to a factory in Chinese, or an update to a client), and an analysis or advice question. Prefer requests that are stuck or have a next step, and threads from the memory and recent conversation. Operator can answer questions, give advice, draft messages, create requests and clients, and open pages; it cannot itself search 1688, contact factories or place orders, so never suggest those (suggest opening the request page instead). Each suggestion under 75 characters.`;
+
+// ---------- background jobs ----------
+// Long 1688 searches run after the response is sent, so the screen never freezes; progress and results
+// are written to the jobs table, which the app watches live.
+const JOB_LABEL: Record<string, string> = { search_1688: "Searching 1688", search_photo: "Searching 1688 by photo", refresh_search: "Finding different factories" };
+async function startJob(sb: SupabaseClient, body: Any) {
+  const kind = String(body.kind ?? "");
+  if (!JOB_LABEL[kind]) throw new HttpError(400, "Unknown job");
+  const r = await getRequest(sb, body.request_id);
+  const { data: running } = await sb.from("jobs").select("id").eq("request_id", r.id).eq("status", "running").gt("created_at", new Date(Date.now() - 10 * 60000).toISOString()).limit(1);
+  if (running?.length) throw new HttpError(409, "A search is already running for this request.");
+  const { data: job, error } = await sb.from("jobs").insert({ workspace_id: r.workspace_id, request_id: r.id, kind, label: JOB_LABEL[kind] }).select("id").single();
+  if (error) throw new HttpError(500, error.message);
+  const args = { ...(body.args ?? {}), request_id: r.id };
+  const work = (async () => {
+    try {
+      const out: Any = kind === "search_1688" ? await search1688(sb, args) : kind === "search_photo" ? await searchPhoto(sb, args) : await refreshSearch(sb, args);
+      const result = { listings: out.listings, new_candidates: out.new_candidates, new_factories: out.new_factories, ranked: out.ranked, replaced: out.replaced ?? null, terms: out.terms ?? out.searched ?? null,
+        scanned: out.filter?.scanned ?? null, kept: out.filter?.kept ?? null, dropped: out.filter?.dropped ?? null };
+      await sb.from("jobs").update({ status: "done", result, finished_at: new Date().toISOString() }).eq("id", job.id);
+    } catch (e) {
+      await sb.from("jobs").update({ status: "failed", error: String((e as Error).message ?? e).slice(0, 500), finished_at: new Date().toISOString() }).eq("id", job.id);
+    }
+  })();
+  const rt = (globalThis as Any).EdgeRuntime;
+  if (rt?.waitUntil) rt.waitUntil(work); else await work;
+  return { ok: true, job_id: job.id, label: JOB_LABEL[kind] };
+}
 
 async function operator(sb: SupabaseClient, body: Any) {
   const message = String(body.message ?? "").trim().slice(0, 4000);
@@ -664,6 +693,7 @@ Deno.serve(async (req) => {
       case "verify": return json(await verify(sb, body));
       case "operator": return json(await operator(sb, body));
       case "operator_suggest": return json(await operatorSuggest(sb, body));
+      case "start_job": return json(await startJob(sb, body));
       case "registry_contacts": return json(await registryContacts(sb, body));
       case "status": return json({ ok: true, anthropic: Boolean(ANTHROPIC_API_KEY), apify: Boolean(APIFY_TOKEN), registry: Boolean(TYC_TOKEN), actor: APIFY_ACTOR, model: MODEL });
       default: return json({ error: "Unknown task" }, 400);
