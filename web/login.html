@@ -66,8 +66,8 @@ button{font:inherit;cursor:pointer}
   const SITE = new URL('./', location.href).href.split('?')[0].split('#')[0];
   const params = new URLSearchParams(location.search);
   const join = (params.get('join') || '').replace(/[^0-9a-f]/g, '');
-  const safeNext = (n) => (n && /^(index\.html|sourcing\.html)?(#\/[\w\/-]*)?$/.test(n) ? n : '');
-  const next = safeNext(params.get('next') || '') || './';
+  // after signing in, everyone lands on Home (an invite is accepted first)
+  const next = './';
   const afterLogin = (t) => { try { localStorage.setItem('lathe-after-login', t); } catch (e) {} };
 
   // already signed in: go straight to the app
