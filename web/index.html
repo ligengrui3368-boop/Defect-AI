@@ -243,6 +243,7 @@ async function send(text) {
       if (error) throw error;
       reply += `\n\nTheir portal link: ${new URL('portal.html?c=' + c.portal_token, location.href).href}`; done = 'Client added';
     } else if (a?.type === 'open' && a.href) { reply += `\n\n[Open it](${a.href})`; }
+    if (!done && out.done?.length) done = out.done.length === 1 ? 'Done' : `${out.done.length} things done`;
     log.push({ role: 'op', text: reply, at: new Date().toISOString(), done }); saveLog();
     await load(); render();
   } catch (e) {
