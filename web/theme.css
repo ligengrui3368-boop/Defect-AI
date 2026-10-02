@@ -1,4 +1,4 @@
-/* Defect Check theme: quiet light workspace, rounded rows, pill chips.
+/* Lathe theme: quiet light workspace, rounded rows, pill chips.
    Loaded after each page's own styles, so the overrides below win. */
 :root:root:root{
   --bg:#F7F7F5; --paper:#F7F7F5; --panel:#FFFFFF; --sunk:#F1F1EF; --chip:#F2F2F0;
