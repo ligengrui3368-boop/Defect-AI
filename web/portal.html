@@ -73,6 +73,11 @@ const list = (a) => (a && a.length) ? a.map(x => `<span class="chip">${esc(x)}</
 function steps(st) { const i = STATUSES.indexOf(st); return `<div class="steps">${STATUSES.map((s, k) => `<div class="${k < i ? 'done' : k === i ? 'on' : ''}">${SLABEL[s]}</div>`).join('')}</div>`; }
 function quoteRows(b) {
   const row = (l, v, strong) => `<tr><td>${l}</td><td class="r">${strong ? '<b>' + v + '</b>' : v}</td></tr>`;
+  // exporter quotes: the buyer sees only our price and terms, never our costs
+  if (b.pricing_model === 'exporter') {
+    const TL = { exw: 'EXW (factory)', fob: 'FOB China port', cif: 'CIF destination port', ddp_us: 'DDP United States', ddp_eu: 'DDP Spain / EU' };
+    return `<table><tbody>${row('Terms', TL[b.terms] || (b.terms || '').toUpperCase())}${row('Unit price', usd(b.client_unit_price), 1)}${row('Quantity', fmt(b.qty, 0) + ' units')}${row('Total', usd((b.client_unit_price || 0) * (b.qty || 0)), 1)}</tbody></table>`;
+  }
   return `<table><tbody>${row('Goods (ex-works)', usd(b.goods_usd))}${row('Domestic freight', usd(b.domestic_freight_usd))}${b.vat_rebate_usd ? row('VAT rebate', '−' + usd(b.vat_rebate_usd)) : ''}${row('FOB value', usd(b.fob_usd), 1)}${row('International freight', usd(b.intl_freight_usd))}${row(`Duties &amp; tariffs (${fmt(b.duty_pct_total, 2)}%)`, usd(b.duty_usd))}${row('MPF', usd(b.mpf_usd))}${row('HMF', usd(b.hmf_usd))}${row('Customs broker', usd(b.broker_fee_usd))}${row('Insurance', usd(b.insurance_usd))}${row('Payment fees', usd(b.payment_fee_usd))}${row('Landed total', usd(b.landed_total_usd), 1)}${row('Landed cost per unit', usd(b.landed_unit_usd, 4), 1)}${row(`Lathe commission (${fmt(b.commission_pct, 1)}%)`, usd(b.commission_usd))}${b.client_unit_price != null ? row('Your selling price per unit', usd(b.client_unit_price)) + row('Your profit per unit', usd(b.profit_unit_usd, 4), 1) : ''}</tbody></table>
   ${b.margin_pct != null ? `<div style="margin-top:10px">Your margin at that price: <span class="num" style="color:${b.margin_pct < 0 ? 'var(--fail)' : b.margin_pct < 15 ? 'var(--review)' : 'var(--pass)'}">${fmt(b.margin_pct, 1)}%</span></div>` : ''}`;
 }
