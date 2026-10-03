@@ -109,13 +109,19 @@ textarea{min-height:90px;resize:vertical}
 #cfm .box{background:var(--panel);border-radius:16px;max-width:440px;width:100%;padding:22px 22px 18px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
 #cfm h3{margin:0 0 8px;font-size:18px}#cfm p{margin:0 0 6px;font-size:14px;line-height:1.5;color:var(--ink)}#cfm p.mut{color:var(--muted)}
 #cfm .bar{justify-content:flex-end;margin-top:16px}#cfm label:first-of-type{margin-top:4px}#cfm .req{color:var(--fail)}#cfm .go{background:var(--fail);border-color:var(--fail);color:#fff}#cfm .go:hover{filter:brightness(.92)}
-.phases{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:18px 0 14px}
+.phases{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:18px 0 14px}
 .phases button{border:0;border-radius:999px;padding:10px 12px;background:var(--sunk);color:var(--muted);font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
 .phases button span{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11.5px;background:rgba(0,0,0,.07)}
 .phases button.done{background:var(--harbor-bg);color:var(--harbor)}.phases button.done span{background:var(--harbor);color:#fff}
 .phases button.on{background:var(--ink);color:var(--panel)}.phases button.on span{background:rgba(255,255,255,.22)}
 .phases button.view{box-shadow:0 0 0 2px var(--harbor)}.phases button:hover{filter:brightness(.96)}
-@media (max-width:760px){.phases{display:flex;overflow-x:auto}.phases button{flex:0 0 auto}}
+@media (max-width:760px){
+  /* phones: four steps fit as a grid; headers and button rows wrap instead of widening the page */
+  .phases{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;overflow:visible}
+  .phases button{flex:initial;min-width:0;padding:8px 4px;font-size:12px;gap:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;justify-content:center}.phases button span{flex:0 0 auto}
+  #app,main{min-width:0;max-width:100%}.hello>div{min-width:0;max-width:100%}.hello .bar{flex-wrap:wrap;gap:8px}
+  #ownSel{max-width:170px;text-overflow:ellipsis}.nextbar>div{min-width:0}.nextbar .bar{flex-wrap:wrap}.filt{flex-wrap:wrap}
+}
 .nextbar{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--harbor);border-radius:12px;padding:14px 18px;margin-bottom:16px}
 .nextbar small{display:block;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--harbor);font-weight:700}
 .nextbar b{display:block;font-size:16px;margin:2px 0}.nextbar span{font-size:13.5px;color:var(--muted)}
