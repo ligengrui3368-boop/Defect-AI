@@ -631,6 +631,15 @@ async function draftRfq(sb: SupabaseClient, body: Any) {
   let factory: Any = null;
   if (body.factory_id) { const { data } = await sb.from("factories").select("*").eq("id", body.factory_id).single(); factory = data; }
   const target = body.target_cny ?? r.spec?.estimated_factory_price_cny ?? null;
+  // a nudge: short follow-up to a factory that hasn't answered our RFQ
+  if (body.kind === "nudge") {
+    const days = Math.max(1, Math.round(Number(body.days) || 2));
+    const out = await askJson(`Write a SHORT, polite follow-up on WeChat / 1688 chat to a Chinese factory that hasn't replied to our quote request for ${days} days.
+Product: ${r.spec?.product_name || r.title}; quantity ${r.quantity ?? "?"}; needed by ${r.deadline ?? "soon"}. Factory: ${factory?.name ?? "unknown"}.
+Natural Simplified Chinese, 1-2 lines, under 60 characters: a friendly reminder, restate product and quantity in a few words, ask for their price and MOQ, and say we are comparing quotes this week. No greeting paragraph.
+Return JSON: { "message_zh": string, "message_en": faithful English translation }.`, 600);
+    return { ok: true, message_zh: String(out?.message_zh ?? "").trim(), message_en: String(out?.message_en ?? "").trim(), tips: [], template: false, nudge: true };
+  }
   // the workspace's own template, when there is one, decides the wording and structure
   const { data: tpl } = await sb.from("message_templates").select("body").eq("workspace_id", r.workspace_id).eq("kind", "rfq").maybeSingle();
   const template = String(tpl?.body ?? "").trim();
