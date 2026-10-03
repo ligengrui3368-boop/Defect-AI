@@ -125,6 +125,9 @@ textarea{min-height:90px;resize:vertical}
 .ms span.done{background:var(--harbor-bg);color:var(--harbor)}.ms span.on{background:var(--ink);color:var(--panel)}
 .oact{background:var(--sunk);border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.5}.oact .bar{margin-top:10px}
 .tl{list-style:none;margin:6px 0 0;padding:0}.tl li{display:grid;grid-template-columns:92px 1fr;gap:2px 12px;padding:7px 0;border-top:1px solid var(--line);font-size:13.5px;line-height:1.45}.tl li:first-child{border-top:0}.tl time{color:var(--muted);font-size:12.5px}.tl small{grid-column:2;color:var(--muted);font-size:12px}
+.rfqd{margin-top:10px;border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--panel)}
+.rfqd textarea{width:100%;font:inherit;font-size:14px;line-height:1.6;white-space:pre-wrap;resize:vertical;margin-top:8px}
+#tpl textarea{width:100%;min-height:260px;font:inherit;font-size:14px;line-height:1.6}
 .reply{background:var(--harbor-bg);border-radius:12px;padding:12px 14px;margin-top:10px;font-size:14px;line-height:1.5}
 .reply pre{white-space:pre-wrap;font:inherit;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0}
 .rbox{display:none;margin-top:10px;border:1px dashed var(--line2);border-radius:12px;padding:12px}
@@ -245,6 +248,38 @@ function confirmBox({ title, body, note = '', confirmLabel = 'Delete' }) {
     const key = (e) => { if (e.key === 'Escape') done(false); };
     el.onclick = (e) => { if (e.target === el) done(false); const b = e.target.closest('[data-x]'); if (b) done(b.dataset.x === '1'); };
     document.addEventListener('keydown', key); document.body.appendChild(el); el.querySelector('[data-x="0"]').focus();
+  });
+}
+// ---------- RFQ drafts: editable, kept across live refreshes; workspace templates ----------
+const RFQ = {}; // negotiation id -> { text, en, tips, template }
+function rfqBox(gid, fac) {
+  const d = RFQ[gid]; if (!d) return '';
+  const rows = Math.min(16, Math.max(6, d.text.split('\n').length + 1));
+  return `<div class="rfqd"><div class="bar" style="justify-content:space-between"><b>RFQ draft</b><span class="sm mut">${d.template ? 'Follows your template' : 'Lathe\u2019s short default'} · <a href="#" data-tpl="rfq">${d.template ? 'Edit template' : 'Use my own template'}</a></span></div>
+    <textarea data-rfqtext="${gid}" rows="${rows}">${esc(d.text)}</textarea>
+    <div class="bar" style="margin-top:8px"><button class="btn sm primary" data-rfqcopy="${gid}">Copy</button><button class="btn sm" data-rfqsent="${gid}">I sent it</button><button class="btn sm" data-rfq="${gid}" data-fac="${fac || ''}">Redraft</button><button class="btn sm" data-rfqtpl="${gid}">Save as my template</button><button class="btn sm" data-rfqx="${gid}">Close</button></div>
+    ${d.en || (d.tips || []).length ? `<details class="sm" style="margin-top:8px"><summary>English${(d.tips || []).length ? ' &amp; tips' : ''}</summary><div style="white-space:pre-wrap;margin-top:6px">${esc(d.en || '')}</div>${(d.tips || []).length ? `<ul>${d.tips.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}</details>` : ''}</div>`;
+}
+async function saveTemplate(kind, body) {
+  const t = String(body || '').trim();
+  if (!t) { const { error } = await sb.from('message_templates').delete().eq('workspace_id', ws).eq('kind', kind); return error; }
+  const { error } = await sb.from('message_templates').upsert({ workspace_id: ws, kind, body: t.slice(0, 6000), updated_at: new Date().toISOString() }); return error;
+}
+async function templateDialog(kind = 'rfq') {
+  const { data } = await sb.from('message_templates').select('body').eq('workspace_id', ws).eq('kind', kind).maybeSingle();
+  return new Promise((resolve) => {
+    const el = document.createElement('div'); el.id = 'cfm';
+    el.innerHTML = `<div class="box" id="tpl" role="dialog" aria-modal="true" style="max-width:640px;width:calc(100vw - 32px)"><h3>Your RFQ template</h3>
+      <p class="sm mut">Drafts follow this message's wording, order and tone, and fill in each request's details. Put placeholders where details go: <b>{产品}</b> <b>{数量}</b> <b>{交期}</b> <b>{规格}</b> <b>{目标价}</b> <b>{工厂}</b>. Leave it empty to use Lathe's short default.</p>
+      <textarea id="tplBody" placeholder="您好！我们是采购代理，想询价{产品}，首批{数量}，{交期}前交货。\n1. 是否源头工厂？\n2. 阶梯报价和起订量？\n3. 打样费用和周期？\n规格：{规格}\n谢谢！">${esc(data?.body || '')}</textarea>
+      <div class="bar" style="margin-top:12px"><button class="btn" data-x="0">Cancel</button>${data ? '<button class="btn" data-x="clear">Use Lathe\u2019s default</button>' : ''}<button class="btn go" data-x="1">Save template</button></div></div>`;
+    const done = async (v) => {
+      if (v === '1' || v === 'clear') { const err = await saveTemplate(kind, v === 'clear' ? '' : el.querySelector('#tplBody').value); if (err) return toast(err.message); toast(v === 'clear' ? 'Back to Lathe\u2019s short default.' : 'Template saved. New drafts will follow it.'); }
+      el.remove(); document.removeEventListener('keydown', key); resolve(v);
+    };
+    const key = (e) => { if (e.key === 'Escape') done('0'); };
+    el.onclick = (e) => { if (e.target === el) done('0'); const b = e.target.closest('[data-x]'); if (b) done(b.dataset.x); };
+    document.addEventListener('keydown', key); document.body.appendChild(el); el.querySelector('#tplBody').focus();
   });
 }
 // add-client form in a dialog; resolves with the new client row, or null if cancelled
@@ -645,7 +680,7 @@ async function viewRequest(id) {
     </div>
 
     <div class="panel" data-tab="negotiating"><h2>3 · Negotiate <span class="mut sm">${negs.length}</span></h2>
-      <p class="sm mut">You negotiate. Log each offer here so the quote uses the agreed price. "Draft RFQ" writes the first Chinese message.</p>
+      <p class="sm mut">You negotiate. Log each offer here so the quote uses the agreed price. "Draft RFQ" writes the first Chinese message · <a href="#" data-tpl="rfq">RFQ template</a></p>
       ${negs.length ? negs.map(g => `<div class="card"><div class="bar" style="justify-content:space-between"><b>${esc(g.factories?.name || 'Factory')}</b> <span class="badge ${g.status === 'agreed' ? 'b-pass' : g.status === 'dropped' ? 'b-fail' : 'b-harbor'}">${esc(g.status.replace('_', ' '))}</span></div>${g.factories ? `<div class="cbox">${contactBits(g.factories, true) || '<span class="sm mut">No contact details yet. Add them on the factory page.</span>'}</div>` : ''}
         <div class="kv" style="margin-top:6px"><b>Current offer</b><span>${cny(g.current_offer_cny)}</span><b>Target</b><span>${cny(g.target_cny)}</span><b>Agreed</b><span>${g.agreed_cny ? '<b>' + cny(g.agreed_cny) + '</b>' : '—'}</span><b>MOQ / lead time</b><span>${fmt(g.moq, 0)} / ${g.lead_time_days ?? '—'} days</span><b>Terms</b><span>${esc(g.incoterm || '')} ${esc(g.payment_terms || '')}</span>${g.next_action ? `<b>Next</b><span>${esc(g.next_action)}</span>` : ''}</div>
         ${(g.log || []).length ? `<details class="sm" style="margin-top:6px"><summary>${g.log.length} log entries</summary>${g.log.slice().reverse().map(l => `<div style="padding:4px 0;border-top:1px solid var(--line)"><span class="mut">${dt(l.at)}</span> ${esc(l.note)}${l.offer_cny ? ` · <b>${cny(l.offer_cny)}</b>` : ''}</div>`).join('')}</details>` : ''}
@@ -659,7 +694,7 @@ async function viewRequest(id) {
         <div class="bar" style="margin-top:10px"><button class="btn sm" data-paste="${g.id}">Paste factory reply</button><span class="sm mut">Paste their WeChat or 1688 message, or a screenshot. Lathe reads the price and terms and drafts your answer.</span></div>
         <div class="rbox" data-rbox="${g.id}"><textarea data-rtext="${g.id}" rows="4" placeholder="Paste what the factory sent… (you can also paste a screenshot here)"></textarea>
           <div class="bar" style="margin-top:8px"><label class="btn sm" style="margin:0">Add screenshot<input type="file" accept="image/*" data-rfile="${g.id}" hidden></label><span class="sm mut" data-rshot="${g.id}"></span><button class="btn sm primary" data-read="${g.id}">Read reply</button></div></div>
-        <div id="rfq-${g.id}"></div></div>`).join('') : `<div class="empty">No negotiations yet. On the Find factories step, press Negotiate on the factories you like.</div>`}
+        <div id="rfq-${g.id}">${rfqBox(g.id, g.factory_id)}</div></div>`).join('') : `<div class="empty">No negotiations yet. On the Find factories step, press Negotiate on the factories you like.</div>`}
       <div class="panel-foot"><button class="btn" data-goto="quote">Next: quote →</button></div>
     </div>
   </div>
@@ -993,7 +1028,26 @@ function wire(page, id) {
       const { error } = await sb.from('negotiations').update({ status: 'waiting_factory', next_action: 'Wait for their answer', last_contact_at: new Date().toISOString(), terms, log: [...(g?.log || []), { at: new Date().toISOString(), note: 'We replied: ' + (lr.counter_zh || '').slice(0, 600), offer_cny: null }] }).eq('id', gid);
       if (error) return toast(error.message); toast('Logged. Waiting on the factory.'); refresh();
     });
-    on('[data-rfq]', 'click', async (e) => { const b = e.currentTarget; busy(b, true); try { const out = await call('draft_rfq', { request_id: id, factory_id: b.dataset.fac || undefined }); $('rfq-' + b.dataset.rfq).innerHTML = `<h3>${esc(out.subject_zh || 'RFQ')}</h3><div class="msg">${esc(out.message_zh)}\n\n${esc(out.spec_list_zh || '')}</div><button class="btn sm" style="margin-top:6px" onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(()=>this.textContent='Copied')">Copy Chinese</button><details class="sm" style="margin-top:8px"><summary>English translation &amp; tips</summary><div class="msg" style="margin-top:6px">${esc(out.message_en || '')}</div><ul>${(out.negotiation_tips || []).map(t => `<li>${esc(t)}</li>`).join('')}</ul></details>`; } catch (err) { toast(err.message); } busy(b, false); });
+    on('[data-rfq]', 'click', async (e) => {
+      const b = e.currentTarget, gid = b.dataset.rfq; busy(b, true);
+      try { const out = await call('draft_rfq', { request_id: id, factory_id: b.dataset.fac || undefined }); RFQ[gid] = { text: out.message_zh || '', en: out.message_en || '', tips: out.tips || [], template: !!out.template }; await refresh(); }
+      catch (err) { busy(b, false); toast(err.message); }
+    });
+    on('[data-rfqtext]', 'input', (e) => { const d = RFQ[e.currentTarget.dataset.rfqtext]; if (d) d.text = e.currentTarget.value; });
+    on('[data-rfqcopy]', 'click', async (e) => { const t = document.querySelector(`[data-rfqtext="${e.currentTarget.dataset.rfqcopy}"]`).value; try { await navigator.clipboard.writeText(t); toast('Copied. Paste it into 1688 chat or WeChat.'); } catch (err) { toast('Select the text and copy it.'); } });
+    on('[data-rfqx]', 'click', (e) => { delete RFQ[e.currentTarget.dataset.rfqx]; $('rfq-' + e.currentTarget.dataset.rfqx).innerHTML = ''; });
+    on('[data-rfqsent]', 'click', async (e) => {
+      const gid = e.currentTarget.dataset.rfqsent, t = document.querySelector(`[data-rfqtext="${gid}"]`).value.trim();
+      const { data: g } = await sb.from('negotiations').select('log').eq('id', gid).single();
+      const { error } = await sb.from('negotiations').update({ status: 'waiting_factory', next_action: 'Wait for their quote', last_contact_at: new Date().toISOString(), log: [...(g?.log || []), { at: new Date().toISOString(), note: 'We sent the RFQ: ' + t.slice(0, 600), offer_cny: null }] }).eq('id', gid);
+      if (error) return toast(error.message); delete RFQ[gid]; toast('Logged. Waiting on the factory\u2019s quote.'); refresh();
+    });
+    on('[data-rfqtpl]', 'click', async (e) => {
+      const t = document.querySelector(`[data-rfqtext="${e.currentTarget.dataset.rfqtpl}"]`).value.trim(); if (!t) return;
+      if (!await confirmBox({ title: 'Save as your RFQ template?', body: 'Future drafts will follow this message\u2019s wording, order and tone, and fill in each request\u2019s product, quantity, deadline and specs.', note: 'Tip: you can put {产品} {数量} {交期} {规格} where those details go. Edit it any time under "RFQ template".', confirmLabel: 'Save template' })) return;
+      const err = await saveTemplate('rfq', t); if (err) return toast(err.message); toast('Template saved. Redraft to see it applied.');
+    });
+    on('[data-tpl]', 'click', async (e) => { e.preventDefault(); await templateDialog(e.currentTarget.dataset.tpl || 'rfq'); });
     on('[data-quote]', 'click', (e) => { const b = e.currentTarget; if (b.dataset.price) $('qPrice').value = b.dataset.price; if (b.dataset.fac) $('qFac').value = b.dataset.fac; $('qFac').dataset.neg = b.dataset.quote; $('calc').click(); $('qPrice').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
     let lastCalc = null;
     const rate = D.rates.find(x => x.is_default) || D.rates[0];
