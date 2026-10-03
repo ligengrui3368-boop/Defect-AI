@@ -131,6 +131,7 @@ textarea{min-height:90px;resize:vertical}
 .cmp td.best{background:var(--harbor-bg);color:var(--harbor);font-weight:600}.cmp tr.dropped td{opacity:.45}.cmp tr.open>td{border-bottom:0}
 .cmp .cd-row td{background:var(--sunk);padding:12px 14px}.cmp .stsel{width:auto;font-size:13px;padding:5px 8px;border-radius:999px}
 .cmp .st-waiting_us{border-color:var(--harbor);color:var(--harbor)}.cmp .st-agreed{border-color:var(--pass,#1f9d55);color:var(--pass,#1f9d55)}
+.cmp td.ed{cursor:pointer}.cmp td.ed:hover{background:var(--sunk)}.cmp .addv{font-size:12.5px;color:var(--harbor);white-space:nowrap}
 .grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0 12px}@media(max-width:720px){.grid4{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .rfqd{margin-top:10px;border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--panel)}
 .rfqd textarea{width:100%;font:inherit;font-size:14px;line-height:1.6;white-space:pre-wrap;resize:vertical;margin-top:8px}
@@ -279,10 +280,10 @@ function compareTable(negs, cands, r, quotes) {
       <td><a href="#/factory/${g.factory_id}"><b>${esc(f.name || 'Factory')}</b></a><div class="sm mut">${esc(f.city || '')}${listing ? ` · <a href="${esc(listing)}" target="_blank">1688 listing ↗</a>` : ''}${shop ? ` · <a href="${esc(shop)}" target="_blank">shop ↗</a>` : ''}${im ? ` · <a href="${esc(im)}" target="_blank">chat 旺旺 ↗</a>` : ''}</div>
         ${f.wechat || f.phone || f.mobile || f.contact_name ? `<div class="sm">${[f.contact_name && esc(f.contact_name), f.wechat && 'WeChat <b>' + esc(f.wechat) + '</b>', (f.mobile || f.phone) && esc(f.mobile || f.phone)].filter(Boolean).join(' · ')}</div>` : ''}</td>
       <td><select data-negst="${g.id}" class="stsel st-${g.status}">${Object.entries(NEG_ST).map(([k, l]) => `<option value="${k}" ${k === g.status ? 'selected' : ''}>${l}</option>`).join('')}</select>${g.status === 'waiting_us' && g.terms?.last_reply ? '<div class="sm" style="color:var(--harbor)">Reply ready ↓</div>' : ''}</td>
-      <td class="right${best(p, bP)}">${p != null ? `${g.agreed_cny ? '<b>' : ''}${cny(p)}${g.agreed_cny ? '</b><div class="sm">agreed</div>' : ''}` : '<span class="mut">—</span>'}${tiers.length ? `<div class="sm mut">${tiers.slice(0, 3).map(t => `${fmt(t.qty, 0)}: ${cny(t.price_cny)}`).join('<br>')}</div>` : ''}</td>
-      <td class="right${best(g.moq, bM)}">${g.moq != null ? fmt(g.moq, 0) : '<span class="mut">—</span>'}</td>
-      <td class="right${best(g.lead_time_days, bL)}">${g.lead_time_days != null ? g.lead_time_days + ' d' : '<span class="mut">—</span>'}</td>
-      <td class="right${best(g.terms?.sample_cost_cny, bS)}">${g.terms?.sample_cost_cny != null ? cny(g.terms.sample_cost_cny) : '<span class="mut">—</span>'}</td>
+      <td class="right ed${best(p, bP)}" data-edit="${g.id}" data-k="price" title="Click to edit">${p != null ? `${g.agreed_cny ? '<b>' : ''}${cny(p)}${g.agreed_cny ? '</b><div class="sm">agreed</div>' : ''}` : '<span class="addv">+ add</span>'}${tiers.length ? `<div class="sm mut">${tiers.slice(0, 3).map(t => `${fmt(t.qty, 0)}: ${cny(t.price_cny)}`).join('<br>')}</div>` : ''}</td>
+      <td class="right ed${best(g.moq, bM)}" data-edit="${g.id}" data-k="moq" title="Click to edit">${g.moq != null ? fmt(g.moq, 0) : '<span class="addv">+ add</span>'}</td>
+      <td class="right ed${best(g.lead_time_days, bL)}" data-edit="${g.id}" data-k="lead" title="Click to edit">${g.lead_time_days != null ? g.lead_time_days + ' d' : '<span class="addv">+ add</span>'}</td>
+      <td class="right ed${best(g.terms?.sample_cost_cny, bS)}" data-edit="${g.id}" data-k="sample" title="Click to edit">${g.terms?.sample_cost_cny != null ? cny(g.terms.sample_cost_cny) : '<span class="addv">+ add</span>'}</td>
       <td class="right" data-landed="${g.id}" data-price="${p ?? ''}">${p != null ? '<span class="mut">…</span>' : '<span class="mut">—</span>'}</td>
       <td>${g.last_contact_at ? `<span class="sm">${when(g.last_contact_at)}</span>` : '<span class="sm mut">never</span>'}${quiet ? `<div><span class="badge b-rev">quiet ${Math.floor(h / 24)}d</span></div>` : ''}</td>
       <td class="right"><div class="bar" style="justify-content:flex-end;gap:6px;flex-wrap:nowrap">${quiet ? `<button class="btn sm" data-nudge="${g.id}" data-fac="${g.factory_id || ''}" data-days="${Math.floor(h / 24)}">Nudge</button>` : ''}${p != null && g.status !== 'dropped' ? `<button class="btn sm primary" data-quote="${g.id}" data-fac="${g.factory_id || ''}" data-price="${p}">Use for quote</button>` : ''}<button class="btn sm" data-nopen="${g.id}">${open ? 'Close' : 'Open'}</button></div></td></tr>
@@ -1138,6 +1139,8 @@ function wire(page, id) {
     on('[data-tpl]', 'click', async (e) => { e.preventDefault(); await templateDialog(e.currentTarget.dataset.tpl || 'rfq'); });
     // Compare & quote
     on('[data-nopen]', 'click', (e) => { const gid = e.currentTarget.dataset.nopen; if (OPEN_NEG.has(gid)) OPEN_NEG.delete(gid); else OPEN_NEG.add(gid); const tr = e.currentTarget.closest('tr'), d = tr.nextElementSibling; const open = OPEN_NEG.has(gid); d.hidden = !open; tr.classList.toggle('open', open); e.currentTarget.textContent = open ? 'Close' : 'Open'; });
+    // click a number cell: open the row and jump to that field
+    on('[data-edit]', 'click', (e) => { const c = e.currentTarget, gid = c.dataset.edit; if (!OPEN_NEG.has(gid)) c.closest('tr').querySelector('[data-nopen]')?.click(); const f = document.querySelector(`[data-nv="${gid}"][data-k="${c.dataset.k}"]`); if (f) { f.scrollIntoView({ behavior: 'smooth', block: 'center' }); setTimeout(() => { f.focus(); f.select?.(); }, 250); } });
     on('[data-fc]', 'change', async (e) => { const el = e.currentTarget; const { error } = await sb.from('factories').update({ [el.dataset.k]: el.value.trim() || null }).eq('id', el.dataset.fc); toast(error ? error.message : 'Saved to this factory (used on future requests too).'); });
     on('[data-nsave]', 'click', async (e) => {
       const b = e.currentTarget, gid = b.dataset.nsave, v = (k) => document.querySelector(`[data-nv="${gid}"][data-k="${k}"]`);
