@@ -132,6 +132,17 @@ textarea{min-height:90px;resize:vertical}
 .cmp .cd-row td{background:var(--sunk);padding:12px 14px}.cmp .stsel{width:auto;font-size:13px;padding:5px 8px;border-radius:999px}
 .cmp .st-waiting_us{border-color:var(--harbor);color:var(--harbor)}.cmp .st-agreed{border-color:var(--pass,#1f9d55);color:var(--pass,#1f9d55)}
 .cmp td.ed{cursor:pointer}.cmp td.ed:hover{background:var(--sunk)}.cmp .addv{font-size:12.5px;color:var(--harbor);white-space:nowrap}
+.cmp .ml{display:none}
+@media(max-width:700px){
+  .cmp thead{display:none}.cmp,.cmp tbody,.cmp tr,.cmp td{display:block;width:100%}
+  .cmp tr:not(.cd-row){border:1px solid var(--line);border-radius:14px;padding:6px 12px 10px;margin-bottom:10px;background:var(--panel)}
+  .cmp tr.open{border-bottom-left-radius:0;border-bottom-right-radius:0;margin-bottom:0}
+  .cmp td{border:0;padding:6px 0;text-align:left!important;display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .cmp td:first-child{display:block;padding-top:10px}.cmp td .ml{display:inline;color:var(--muted);font-size:12.5px;font-weight:500}
+  .cmp td.best{background:transparent}.cmp td.best>*:not(.ml){color:var(--harbor)}
+  .cmp .cd-row td{display:block;border:1px solid var(--line);border-top:0;border-radius:0 0 14px 14px;margin-bottom:10px}
+  .cmp td:last-child .bar{width:100%;justify-content:flex-start!important;flex-wrap:wrap!important}
+}
 .grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0 12px}@media(max-width:720px){.grid4{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .rfqd{margin-top:10px;border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--panel)}
 .rfqd textarea{width:100%;font:inherit;font-size:14px;line-height:1.6;white-space:pre-wrap;resize:vertical;margin-top:8px}
@@ -259,6 +270,23 @@ function confirmBox({ title, body, note = '', confirmLabel = 'Delete' }) {
   });
 }
 // ---------- Compare & quote: every factory side by side ----------
+// quote terms and which rate card each request uses (chosen in the quote form; remembered while the page is open)
+const TERMS = [['exw', 'EXW (factory gate)'], ['fob', 'FOB (China port)'], ['cif', 'CIF (destination port)'], ['ddp_us', 'DDP to the US (landed)'], ['ddp_eu', 'DDP to Spain/EU (landed)']];
+const TERM_SHORT = { exw: 'EXW', fob: 'FOB', cif: 'CIF', ddp_us: 'DDP US', ddp_eu: 'DDP EU' };
+const QSEL = {};
+const rateFor = (rid) => D.rates.find(x => x.id === QSEL[rid]?.rate) || D.rates.find(x => x.is_default) || D.rates[0];
+const termsFor = (rid, rc, q0) => QSEL[rid]?.terms || q0?.terms || rc?.rates?.default_terms || 'ddp_us';
+async function fillCosts(rid) {
+  const t = document.querySelector('table.cmp'); if (!t) return;
+  const rc = rateFor(rid), terms = termsFor(rid, rc, null);
+  const head = document.getElementById('costHead'); if (head) head.textContent = 'Cost / unit (' + (TERM_SHORT[terms] || terms) + ')';
+  const cells = [...t.querySelectorAll('[data-landed]')].filter(c => c.dataset.price);
+  const out = (c) => c.querySelector('.cv') || c;
+  if (!rc) { cells.forEach(c => { out(c).innerHTML = '<span class="sm mut">add a rate card</span>'; }); return; }
+  const vals = await Promise.all(cells.map(async (c) => { const { data } = await sb.rpc('calc_landed_cost', { inputs: { terms, factory_price_cny: +c.dataset.price, qty: +t.dataset.qty || 1000, domestic_freight_cny: +t.dataset.dom || 0, intl_freight_usd: +t.dataset.intl || 0, mode: t.dataset.mode || 'ocean', client_unit_price: null, commission_pct: rc.rates?.commission_pct ?? 0 }, rates: rc.rates }); return data?.landed_unit_usd ?? null; }));
+  const ok = vals.filter(x => x != null), mn = ok.length > 1 ? Math.min(...ok) : null;
+  cells.forEach((c, i) => { const x = vals[i]; c.classList.remove('best'); out(c).innerHTML = x != null ? usd(x, 2) : '<span class="mut">—</span>'; if (mn != null && x === mn) c.classList.add('best'); });
+}
 const NEG_ST = { open: 'Not contacted', waiting_factory: 'Waiting on them', waiting_us: 'They replied', sample: 'Sampling', agreed: 'Agreed', dropped: 'Dropped' };
 const OPEN_NEG = new Set();
 const hrsSince = (d) => d ? (Date.now() - new Date(d).getTime()) / 3600000 : null;
@@ -279,18 +307,18 @@ function compareTable(negs, cands, r, quotes) {
     return `<tr class="${g.status === 'dropped' ? 'dropped' : ''}${open ? ' open' : ''}">
       <td><a href="#/factory/${g.factory_id}"><b>${esc(f.name || 'Factory')}</b></a><div class="sm mut">${esc(f.city || '')}${listing ? ` · <a href="${esc(listing)}" target="_blank">1688 listing ↗</a>` : ''}${shop ? ` · <a href="${esc(shop)}" target="_blank">shop ↗</a>` : ''}${im ? ` · <a href="${esc(im)}" target="_blank">chat 旺旺 ↗</a>` : ''}</div>
         ${f.wechat || f.phone || f.mobile || f.contact_name ? `<div class="sm">${[f.contact_name && esc(f.contact_name), f.wechat && 'WeChat <b>' + esc(f.wechat) + '</b>', (f.mobile || f.phone) && esc(f.mobile || f.phone)].filter(Boolean).join(' · ')}</div>` : ''}</td>
-      <td><select data-negst="${g.id}" class="stsel st-${g.status}">${Object.entries(NEG_ST).map(([k, l]) => `<option value="${k}" ${k === g.status ? 'selected' : ''}>${l}</option>`).join('')}</select>${g.status === 'waiting_us' && g.terms?.last_reply ? '<div class="sm" style="color:var(--harbor)">Reply ready ↓</div>' : ''}</td>
-      <td class="right ed${best(p, bP)}" data-edit="${g.id}" data-k="price" title="Click to edit">${p != null ? `${g.agreed_cny ? '<b>' : ''}${cny(p)}${g.agreed_cny ? '</b><div class="sm">agreed</div>' : ''}` : '<span class="addv">+ add</span>'}${tiers.length ? `<div class="sm mut">${tiers.slice(0, 3).map(t => `${fmt(t.qty, 0)}: ${cny(t.price_cny)}`).join('<br>')}</div>` : ''}</td>
-      <td class="right ed${best(g.moq, bM)}" data-edit="${g.id}" data-k="moq" title="Click to edit">${g.moq != null ? fmt(g.moq, 0) : '<span class="addv">+ add</span>'}</td>
-      <td class="right ed${best(g.lead_time_days, bL)}" data-edit="${g.id}" data-k="lead" title="Click to edit">${g.lead_time_days != null ? g.lead_time_days + ' d' : '<span class="addv">+ add</span>'}</td>
-      <td class="right ed${best(g.terms?.sample_cost_cny, bS)}" data-edit="${g.id}" data-k="sample" title="Click to edit">${g.terms?.sample_cost_cny != null ? cny(g.terms.sample_cost_cny) : '<span class="addv">+ add</span>'}</td>
-      <td class="right" data-landed="${g.id}" data-price="${p ?? ''}">${p != null ? '<span class="mut">…</span>' : '<span class="mut">—</span>'}</td>
-      <td>${g.last_contact_at ? `<span class="sm">${when(g.last_contact_at)}</span>` : '<span class="sm mut">never</span>'}${quiet ? `<div><span class="badge b-rev">quiet ${Math.floor(h / 24)}d</span></div>` : ''}</td>
+      <td><span class="ml">Status</span><select data-negst="${g.id}" class="stsel st-${g.status}">${Object.entries(NEG_ST).map(([k, l]) => `<option value="${k}" ${k === g.status ? 'selected' : ''}>${l}</option>`).join('')}</select>${g.status === 'waiting_us' && g.terms?.last_reply ? '<div class="sm" style="color:var(--harbor)">Reply ready ↓</div>' : ''}</td>
+      <td class="right ed${best(p, bP)}" data-edit="${g.id}" data-k="price" title="Click to edit"><span class="ml">Price</span>${p != null ? `${g.agreed_cny ? '<b>' : ''}${cny(p)}${g.agreed_cny ? '</b><div class="sm">agreed</div>' : ''}` : '<span class="addv">+ add</span>'}${tiers.length ? `<div class="sm mut">${tiers.slice(0, 3).map(t => `${fmt(t.qty, 0)}: ${cny(t.price_cny)}`).join('<br>')}</div>` : ''}</td>
+      <td class="right ed${best(g.moq, bM)}" data-edit="${g.id}" data-k="moq" title="Click to edit"><span class="ml">MOQ</span>${g.moq != null ? fmt(g.moq, 0) : '<span class="addv">+ add</span>'}</td>
+      <td class="right ed${best(g.lead_time_days, bL)}" data-edit="${g.id}" data-k="lead" title="Click to edit"><span class="ml">Lead time</span>${g.lead_time_days != null ? g.lead_time_days + ' d' : '<span class="addv">+ add</span>'}</td>
+      <td class="right ed${best(g.terms?.sample_cost_cny, bS)}" data-edit="${g.id}" data-k="sample" title="Click to edit"><span class="ml">Sample</span>${g.terms?.sample_cost_cny != null ? cny(g.terms.sample_cost_cny) : '<span class="addv">+ add</span>'}</td>
+      <td class="right" data-landed="${g.id}" data-price="${p ?? ''}"><span class="ml">Cost / unit</span><span class="cv">${p != null ? '<span class="mut">…</span>' : '<span class="mut">—</span>'}</span></td>
+      <td><span class="ml">Last contact</span>${g.last_contact_at ? `<span class="sm">${when(g.last_contact_at)}</span>` : '<span class="sm mut">never</span>'}${quiet ? `<div><span class="badge b-rev">quiet ${Math.floor(h / 24)}d</span></div>` : ''}</td>
       <td class="right"><div class="bar" style="justify-content:flex-end;gap:6px;flex-wrap:nowrap">${quiet ? `<button class="btn sm" data-nudge="${g.id}" data-fac="${g.factory_id || ''}" data-days="${Math.floor(h / 24)}">Nudge</button>` : ''}${p != null && g.status !== 'dropped' ? `<button class="btn sm primary" data-quote="${g.id}" data-fac="${g.factory_id || ''}" data-price="${p}">Use for quote</button>` : ''}<button class="btn sm" data-nopen="${g.id}">${open ? 'Close' : 'Open'}</button></div></td></tr>
     <tr class="cd-row" ${open ? '' : 'hidden'}><td colspan="9"><div class="cd">${negDetail(g)}</div></td></tr>`;
   }).join('');
   return `<div class="cmp-wrap"><table class="cmp" data-qty="${r.quantity || 1000}" data-dom="${q0.domestic_freight_cny ?? 0}" data-intl="${q0.intl_freight_usd ?? 0}" data-mode="${q0.mode || 'ocean'}">
-    <thead><tr><th>Factory</th><th>Status</th><th class="right">Price</th><th class="right">MOQ</th><th class="right">Lead</th><th class="right">Sample</th><th class="right" title="Factory price + freight, duty and fees from your rate card (freight from the quote form)">Landed / unit</th><th>Last contact</th><th></th></tr></thead>
+    <thead><tr><th>Factory</th><th>Status</th><th class="right">Price</th><th class="right">MOQ</th><th class="right">Lead</th><th class="right">Sample</th><th class="right" id="costHead" title="Your cost per unit at the quote's terms, from the rate card and the freight in the quote form">Cost / unit</th><th>Last contact</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 function negDetail(g) {
@@ -766,12 +794,13 @@ async function viewRequest(id) {
     </div>
   </div>
   <div>
-    <div class="panel" data-tab="negotiating" id="quotePanel"><h2>Client quote <span class="mut sm">landed cost &amp; margin</span></h2>
-      ${rate ? `<p class="sm mut">Rate card: <b>${esc(rate.name)}</b> (${dt(rate.effective_date)}) · <a href="#/rates">edit rates</a></p>` : `<p class="sm mut">No rate card. <a href="#/rates">Create one</a>.</p>`}
+    <div class="panel" data-tab="negotiating" id="quotePanel"><h2>Client quote <span class="mut sm">cost, price &amp; margin</span></h2>
+      ${(() => { const rc = rateFor(id), tm = termsFor(id, rc, quotes[0]?.inputs); return rc ? `<div class="grid2"><div><label style="margin-top:0">Rate card</label><select id="qRate">${D.rates.map(a => `<option value="${a.id}" ${a.id === rc.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select><div class="sm mut" style="margin-top:4px">${rc.rates?.pricing_model === 'exporter' ? 'Exporter pricing: the client sees only your price and terms.' : 'Agent pricing: the client sees the landed cost breakdown.'} <a href="#/rates">Edit rates</a></div></div>
+        <div><label style="margin-top:0">Terms</label><select id="qTerms">${TERMS.map(([k, l]) => `<option value="${k}" ${k === tm ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>` : `<p class="sm mut">No rate card. <a href="#/rates">Create one</a>.</p>`; })()}
       <div class="grid2"><div><label>Factory price (¥/unit)</label><input id="qPrice" type="number" step="0.01" value="${quotes[0]?.inputs?.factory_price_cny ?? s.estimated_factory_price_cny ?? ''}"></div><div><label>Quantity</label><input id="qQty" type="number" value="${r.quantity || 1000}"></div>
-        <div><label>Domestic freight to port (¥ total)</label><input id="qDom" type="number" step="1" value="${quotes[0]?.inputs?.domestic_freight_cny ?? 0}"></div><div><label>Intl freight (USD total)</label><input id="qIntl" type="number" step="1" value="${quotes[0]?.inputs?.intl_freight_usd ?? 0}"></div>
-        <div><label>Mode</label><select id="qMode"><option value="ocean">Ocean</option><option value="air">Air</option></select></div><div><label>Client price (USD/unit)</label><input id="qClient" type="number" step="0.01" value="${r.client_unit_price ?? r.target_unit_price ?? ''}"></div>
-        <div><label>Commission %</label><input id="qComm" type="number" step="0.1" value="${rate?.rates?.commission_pct ?? 6}"></div><div><label>Factory for this quote</label><select id="qFac"><option value="">—</option>${D.factories.map(f => `<option value="${f.id}">${esc(f.name)}</option>`).join('')}</select></div></div>
+        <div><label>Domestic freight to port (¥ total)</label><input id="qDom" type="number" step="1" value="${quotes[0]?.inputs?.domestic_freight_cny ?? 0}"></div><div><label>Intl freight (USD total, for CIF / DDP)</label><input id="qIntl" type="number" step="1" value="${quotes[0]?.inputs?.intl_freight_usd ?? 0}"></div>
+        <div><label>Mode</label><select id="qMode"><option value="ocean">Ocean</option><option value="air">Air</option></select></div><div><label>Price to client (USD/unit, at these terms)</label><input id="qClient" type="number" step="0.01" value="${r.client_unit_price ?? r.target_unit_price ?? ''}"></div>
+        <div><label>Our commission % <span class="mut">(agent pricing)</span></label><input id="qComm" type="number" step="0.1" value="${rateFor(id)?.rates?.commission_pct ?? 0}"></div><div><label>Factory for this quote</label><select id="qFac"><option value="">—</option>${D.factories.map(f => `<option value="${f.id}">${esc(f.name)}</option>`).join('')}</select></div></div>
       <div class="bar" style="margin-top:12px"><button class="btn primary" id="calc">Calculate</button><button class="btn" id="saveQuote" disabled>Save quote</button></div>
       <div id="calcOut"></div>
       ${quotes.length ? `<h3>Saved quotes</h3>${quotes.map(qt => `<div class="card"><div class="bar" style="justify-content:space-between"><div><b>${usd(qt.landed_unit_cost, 2)} landed</b> → ${usd(qt.client_unit_price)} <span class="mut">· margin ${fmt(qt.margin_pct, 1)}%</span><div class="sm mut">${esc(qt.factories?.name || '')} · ${dt(qt.created_at)} · ${esc(qt.status)}${qt.released_to_client ? ' · <span class="badge b-pass">released</span>' : ''}</div></div><div class="bar"><button class="btn sm" data-qrel="${qt.id}" data-on="${qt.released_to_client ? 0 : 1}">${qt.released_to_client ? 'Hide from client' : 'Release to client'}</button><button class="btn sm" data-order="${qt.id}" data-fac="${qt.factory_id || ''}" data-qty="${qt.inputs?.qty || r.quantity || ''}" data-price="${qt.inputs?.factory_price_cny || ''}" data-cp="${qt.client_unit_price || ''}">Create order</button></div></div></div>`).join('')}` : ''}
@@ -830,22 +859,30 @@ function viewClients() {
   ${D.clients.map(c => `<tr><td><b>${esc(c.company || c.name)}</b><div class="sm mut">${esc(c.company ? c.name : '')}</div></td><td>${esc(c.email || '—')}</td><td>${D.requests.filter(r => r.client_id === c.id).length}</td><td class="bar"><a class="btn sm" target="_blank" href="portal.html?c=${esc(c.portal_token)}">Open ↗</a><button class="btn sm" data-copy="${esc(c.portal_token)}">Copy link</button><button class="btn sm" data-ptog="${c.id}" data-on="${c.portal_active ? 0 : 1}">${c.portal_active ? 'Disable' : 'Enable'}</button></td></tr>`).join('')}</tbody></table>` : `<div class="empty">No clients yet.</div>`}</div>`;
 }
 
-const RATE_KEYS = [['fx_cny_per_usd', 'FX (CNY per USD)'], ['hts_duty_pct', 'HTS duty %'], ['section_301_pct', 'Section 301 %'], ['other_tariff_pct', 'Other China tariffs %'], ['mpf_pct', 'MPF %'], ['mpf_min_usd', 'MPF min $'], ['mpf_max_usd', 'MPF max $'], ['hmf_pct', 'HMF % (ocean)'], ['broker_fee_usd', 'Customs broker $ / entry'], ['insurance_pct', 'Insurance %'], ['payment_fee_pct', 'Payment / FX fee %'], ['vat_rebate_pct', 'VAT rebate %'], ['commission_pct', 'Our commission %']];
+const RATE_KEYS = [['fx_cny_per_usd', 'FX (CNY per USD)'], ['hts_duty_pct', 'HTS duty %'], ['section_301_pct', 'Section 301 %'], ['other_tariff_pct', 'Other China tariffs %'], ['mpf_pct', 'MPF %'], ['mpf_min_usd', 'MPF min $'], ['mpf_max_usd', 'MPF max $'], ['hmf_pct', 'HMF % (ocean)'], ['broker_fee_usd', 'Customs broker $ / entry'], ['insurance_pct', 'Insurance %'], ['payment_fee_pct', 'Payment / FX fee %'], ['vat_rebate_pct', 'VAT rebate %'], ['commission_pct', 'Our commission %'], ['export_fees_cny', 'China export fees ¥ / shipment'], ['eu_duty_pct', 'EU duty %'], ['eu_antidumping_pct', 'EU anti-dumping %'], ['eu_vat_pct', 'EU import VAT % (Spain 21)'], ['eu_broker_fee_usd', 'EU customs broker $']];
 function viewRates() {
   return `<div class="hello"><div><h1>Rate cards</h1><p>Duties, tariffs and fees live here, dated. Never in code. Every saved quote records which card it used.</p></div><button class="btn primary" id="addRate">New rate card</button></div>
   ${D.rates.map(a => `<div class="panel"><div class="bar" style="justify-content:space-between"><div><b>${esc(a.name)}</b> ${a.is_default ? '<span class="badge b-pass">default</span>' : ''}<div class="sm mut">Effective ${dt(a.effective_date)}${a.notes ? ' · ' + esc(a.notes) : ''}</div></div><div class="bar">${a.is_default ? '' : `<button class="btn sm" data-def="${a.id}">Make default</button>`}<button class="btn sm primary" data-rsave="${a.id}">Save</button></div></div>
-    <div class="grid3">${RATE_KEYS.map(([k, l]) => `<div><label>${l}</label><input data-rk="${a.id}:${k}" type="number" step="0.0001" value="${a.rates?.[k] ?? ''}"></div>`).join('')}<div><label>Apply VAT rebate</label><select data-rk="${a.id}:apply_vat_rebate"><option value="false" ${a.rates?.apply_vat_rebate ? '' : 'selected'}>No (client's importer)</option><option value="true" ${a.rates?.apply_vat_rebate ? 'selected' : ''}>Yes (we export)</option></select></div><div><label>Effective date</label><input data-rk="${a.id}:effective_date" type="date" value="${a.effective_date}"></div></div>
+    <div class="grid3">${RATE_KEYS.map(([k, l]) => `<div><label>${l}</label><input data-rk="${a.id}:${k}" type="number" step="0.0001" value="${a.rates?.[k] ?? ''}"></div>`).join('')}<div><label>Apply VAT rebate</label><select data-rk="${a.id}:apply_vat_rebate"><option value="false" ${a.rates?.apply_vat_rebate ? '' : 'selected'}>No (client's importer)</option><option value="true" ${a.rates?.apply_vat_rebate ? 'selected' : ''}>Yes (we export)</option></select></div><div><label>Default terms</label><select data-rk="${a.id}:default_terms">${TERMS.map(([k, l]) => `<option value="${k}" ${k === (a.rates?.default_terms || 'ddp_us') ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div><label>Pricing model</label><select data-rk="${a.id}:pricing_model"><option value="agent" ${a.rates?.pricing_model === 'exporter' ? '' : 'selected'}>Agent: client sees landed cost + commission</option><option value="exporter" ${a.rates?.pricing_model === 'exporter' ? 'selected' : ''}>Exporter: client sees only our price</option></select></div>
+      <div><label>EU import VAT recoverable</label><select data-rk="${a.id}:eu_vat_recoverable"><option value="true" ${a.rates?.eu_vat_recoverable === false ? '' : 'selected'}>Yes (VAT-registered importer)</option><option value="false" ${a.rates?.eu_vat_recoverable === false ? 'selected' : ''}>No (add VAT to cost)</option></select></div>
+      <div><label>Effective date</label><input data-rk="${a.id}:effective_date" type="date" value="${a.effective_date}"></div></div>
     <p class="sm mut">Check the HTS duty for each product, current Section 301 and other China tariff rates, and the MPF min/max for this fiscal year before quoting. HTS lookups: hts.usitc.gov.</p></div>`).join('')}`;
 }
 
 // ---------- render + wiring ----------
 function calcRows(c) {
-  const row = (l, v, b) => `<tr><td>${l}</td><td class="right">${b ? '<b>' + v + '</b>' : v}</td></tr>`;
+  const row = (l, v, b) => `<tr><td>${l}</td><td class="right">${b ? '<b>' + v + '</b>' : v}</td></tr>`, nz = (x) => x != null && Math.abs(+x) > 0.004;
+  const t = c.terms || 'ddp_us', exp = c.pricing_model === 'exporter', land = t === 'ddp_us' || t === 'ddp_eu';
   return `<div class="wrap" style="margin-top:12px"><table><tbody>
-    ${row('Goods (ex-works)', usd(c.goods_usd))}${row('Domestic freight', usd(c.domestic_freight_usd))}${c.vat_rebate_usd ? row('VAT rebate', '−' + usd(c.vat_rebate_usd)) : ''}${row('FOB value', usd(c.fob_usd), true)}
-    ${row('International freight', usd(c.intl_freight_usd))}${row(`Duties &amp; tariffs (${fmt(c.duty_pct_total, 2)}%)`, usd(c.duty_usd))}${row('MPF', usd(c.mpf_usd))}${row('HMF', usd(c.hmf_usd))}${row('Broker', usd(c.broker_fee_usd))}${row('Insurance', usd(c.insurance_usd))}${row('Payment fees', usd(c.payment_fee_usd))}
-    ${row('Landed total', usd(c.landed_total_usd), true)}${row('Landed per unit', usd(c.landed_unit_usd, 4), true)}
-    ${c.client_unit_price != null ? row(`Our commission (${fmt(c.commission_pct, 1)}%)`, usd(c.commission_usd)) + row('Client price per unit', usd(c.client_unit_price)) + row('Client profit per unit', usd(c.profit_unit_usd, 4), true) + row('Client margin', `<span class="num" style="font-size:30px;color:${c.margin_pct < 0 ? 'var(--fail)' : c.margin_pct < 15 ? 'var(--review)' : 'var(--pass)'}">${fmt(c.margin_pct, 1)}%</span>`) : ''}
+    ${row('Goods (factory price)', usd(c.goods_usd))}${nz(c.domestic_freight_usd) ? row('Domestic freight to port', usd(c.domestic_freight_usd)) : ''}${nz(c.export_fees_usd) ? row('Export fees (declaration, port)', usd(c.export_fees_usd)) : ''}${nz(c.vat_rebate_usd) ? row('Export VAT rebate', '−' + usd(c.vat_rebate_usd)) : ''}
+    ${t !== 'exw' ? row('FOB value', usd(c.fob_usd), true) : ''}${nz(c.intl_freight_usd) ? row('International freight', usd(c.intl_freight_usd)) : ''}${nz(c.insurance_usd) ? row('Insurance', usd(c.insurance_usd)) : ''}
+    ${land ? row(`Duties &amp; tariffs (${fmt(c.duty_pct_total, 2)}%)`, usd(c.duty_usd)) : ''}${nz(c.mpf_usd) ? row('MPF', usd(c.mpf_usd)) : ''}${nz(c.hmf_usd) ? row('HMF', usd(c.hmf_usd)) : ''}${nz(c.broker_fee_usd) ? row('Customs broker', usd(c.broker_fee_usd)) : ''}
+    ${t === 'ddp_eu' && nz(c.import_vat_usd) ? row(`Import VAT ${fmt(c.import_vat_pct, 0)}% ${c.vat_recoverable ? '<span class="mut">(recoverable, not in cost)</span>' : ''}`, usd(c.import_vat_usd)) : ''}${nz(c.payment_fee_usd) ? row('Payment fees', usd(c.payment_fee_usd)) : ''}
+    ${row(`Our cost at ${TERM_SHORT[t] || t}`, usd(c.landed_total_usd), true)}${row('Cost per unit', usd(c.landed_unit_usd, 4), true)}
+    ${c.client_unit_price != null ? (exp
+      ? row(`Your price per unit (${TERM_SHORT[t] || t})`, usd(c.client_unit_price)) + row('Your profit per unit', usd(c.profit_unit_usd, 4), true) + row('Your margin', `<span class="num" style="font-size:30px;color:${c.margin_pct < 0 ? 'var(--fail)' : c.margin_pct < 10 ? 'var(--review)' : 'var(--pass)'}">${fmt(c.margin_pct, 1)}%</span>`)
+      : row(`Our commission (${fmt(c.commission_pct, 1)}%)`, usd(c.commission_usd)) + row('Client price per unit', usd(c.client_unit_price)) + row('Client profit per unit', usd(c.profit_unit_usd, 4), true) + row('Client margin', `<span class="num" style="font-size:30px;color:${c.margin_pct < 0 ? 'var(--fail)' : c.margin_pct < 15 ? 'var(--review)' : 'var(--pass)'}">${fmt(c.margin_pct, 1)}%</span>`)) : ''}
   </tbody></table></div>`;
 }
 
@@ -1184,21 +1221,15 @@ function wire(page, id) {
         OPEN_NEG.add(ng.id); toast('Added to the comparison.'); await refresh();
       } catch (err) { busy(b, false); toast(err.message || String(err)); }
     };
-    // landed cost per factory, from the same calculation as the quote (rate card + the freight in the quote form)
-    (async () => {
-      const t = document.querySelector('table.cmp'), rc = D.rates.find(x => x.is_default) || D.rates[0]; if (!t) return;
-      const cells = [...t.querySelectorAll('[data-landed]')].filter(c => c.dataset.price);
-      if (!rc) { cells.forEach(c => { c.innerHTML = '<span class="sm mut">add a rate card</span>'; }); return; }
-      const vals = await Promise.all(cells.map(async (c) => { const { data } = await sb.rpc('calc_landed_cost', { inputs: { factory_price_cny: +c.dataset.price, qty: +t.dataset.qty || 1000, domestic_freight_cny: +t.dataset.dom || 0, intl_freight_usd: +t.dataset.intl || 0, mode: t.dataset.mode || 'ocean', client_unit_price: null, commission_pct: rc.rates?.commission_pct ?? 6 }, rates: rc.rates }); return data?.landed_unit_usd ?? null; }));
-      const ok = vals.filter(x => x != null), mn = ok.length > 1 ? Math.min(...ok) : null;
-      cells.forEach((c, i) => { const x = vals[i]; c.innerHTML = x != null ? usd(x, 2) : '<span class="mut">—</span>'; if (mn != null && x === mn) c.classList.add('best'); });
-    })();
+    // cost per unit for each factory, from the same calculation as the quote (chosen rate card + terms + freight)
+    fillCosts(id);
     on('[data-quote]', 'click', (e) => { const b = e.currentTarget; if (b.dataset.price) $('qPrice').value = b.dataset.price; if (b.dataset.fac) $('qFac').value = b.dataset.fac; $('qFac').dataset.neg = b.dataset.quote; $('calc').click(); $('qPrice').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
     let lastCalc = null;
-    const rate = D.rates.find(x => x.is_default) || D.rates[0];
-    $('calc').onclick = async () => { if (!rate) return toast('Create a rate card first'); const inputs = { factory_price_cny: +$('qPrice').value || 0, qty: +$('qQty').value || 1, domestic_freight_cny: +$('qDom').value || 0, intl_freight_usd: +$('qIntl').value || 0, mode: $('qMode').value, client_unit_price: $('qClient').value ? +$('qClient').value : null, commission_pct: +$('qComm').value };
-      const { data, error } = await sb.rpc('calc_landed_cost', { inputs, rates: rate.rates }); if (error) return toast(error.message); lastCalc = { inputs, breakdown: data }; $('calcOut').innerHTML = calcRows(data); $('saveQuote').disabled = false; };
-    $('saveQuote').onclick = async () => { if (!lastCalc) return; const c = lastCalc.breakdown; const { error } = await sb.from('quotes').insert({ workspace_id: ws, request_id: id, factory_id: $('qFac').value || null, negotiation_id: $('qFac').dataset.neg || null, assumption_id: rate.id, inputs: lastCalc.inputs, breakdown: c, landed_unit_cost: c.landed_unit_usd, client_unit_price: c.client_unit_price, margin_pct: c.margin_pct }); if (error) return toast(error.message); if (['negotiating', 'shortlisted'].includes(r.status)) await sb.from('sourcing_requests').update({ status: 'quoted', client_unit_price: c.client_unit_price }).eq('id', id); await refresh(); };
+    if ($('qRate')) $('qRate').onchange = () => { const rc = D.rates.find(x => x.id === $('qRate').value); QSEL[id] = { rate: rc.id, terms: rc.rates?.default_terms || 'ddp_us' }; render(); };
+    if ($('qTerms')) $('qTerms').onchange = () => { QSEL[id] = { rate: rateFor(id)?.id, terms: $('qTerms').value }; fillCosts(id); if (lastCalc) $('calc').click(); };
+    $('calc').onclick = async () => { const rate = rateFor(id); if (!rate) return toast('Create a rate card first'); const inputs = { terms: $('qTerms')?.value || termsFor(id, rate, null), factory_price_cny: +$('qPrice').value || 0, qty: +$('qQty').value || 1, domestic_freight_cny: +$('qDom').value || 0, intl_freight_usd: +$('qIntl').value || 0, mode: $('qMode').value, client_unit_price: $('qClient').value ? +$('qClient').value : null, commission_pct: +$('qComm').value };
+      const { data, error } = await sb.rpc('calc_landed_cost', { inputs, rates: rate.rates }); if (error) return toast(error.message); data.pricing_model = rate.rates?.pricing_model || 'agent'; lastCalc = { inputs, breakdown: data, rate }; $('calcOut').innerHTML = calcRows(data); $('saveQuote').disabled = false; };
+    $('saveQuote').onclick = async () => { if (!lastCalc) return; const c = lastCalc.breakdown; const { error } = await sb.from('quotes').insert({ workspace_id: ws, request_id: id, factory_id: $('qFac').value || null, negotiation_id: $('qFac').dataset.neg || null, assumption_id: lastCalc.rate.id, inputs: lastCalc.inputs, breakdown: c, landed_unit_cost: c.landed_unit_usd, client_unit_price: c.client_unit_price, margin_pct: c.margin_pct }); if (error) return toast(error.message); if (['negotiating', 'shortlisted'].includes(r.status)) await sb.from('sourcing_requests').update({ status: 'quoted', client_unit_price: c.client_unit_price }).eq('id', id); await refresh(); };
     on('[data-qrel]', 'click', (e) => upd('quotes', { released_to_client: e.currentTarget.dataset.on === '1', status: e.currentTarget.dataset.on === '1' ? 'sent' : 'draft' }, e.currentTarget.dataset.qrel));
     on('[data-order]', 'click', async (e) => { const b = e.currentTarget; const { error } = await sb.from('sourcing_orders').insert({ workspace_id: ws, request_id: id, quote_id: b.dataset.order, factory_id: b.dataset.fac || null, client_id: r.client_id, qty: +b.dataset.qty || null, unit_price_cny: +b.dataset.price || null, client_unit_price: +b.dataset.cp || null }); if (error) return toast(error.message); await sb.from('quotes').update({ status: 'accepted' }).eq('id', b.dataset.order); await sb.from('sourcing_requests').update({ status: 'ordered' }).eq('id', id); await refresh(); });
     on('[data-bal]', 'change', (e) => upd('sourcing_orders', { balance_paid: e.currentTarget.checked }, e.currentTarget.dataset.bal));
@@ -1246,7 +1277,7 @@ function wire(page, id) {
     $('addRate').onclick = async () => { const name = prompt('Rate card name (e.g. "Camping chairs, Oct 2026")'); if (!name) return; const base = D.rates.find(x => x.is_default)?.rates || {}; const { error } = await sb.from('cost_assumptions').insert({ workspace_id: ws, name, rates: base, is_default: !D.rates.length }); if (error) return toast(error.message); await refresh(); };
     on('[data-def]', 'click', async (e) => { await sb.from('cost_assumptions').update({ is_default: false }).eq('workspace_id', ws); await upd('cost_assumptions', { is_default: true }, e.currentTarget.dataset.def); });
     on('[data-rsave]', 'click', async (e) => { const aid = e.currentTarget.dataset.rsave; const a = D.rates.find(x => x.id === aid); const rates = { ...(a.rates || {}) }; let eff = a.effective_date;
-      document.querySelectorAll(`[data-rk^="${aid}:"]`).forEach(el => { const k = el.dataset.rk.split(':')[1]; if (k === 'effective_date') eff = el.value || eff; else if (k === 'apply_vat_rebate') rates[k] = el.value === 'true'; else if (el.value !== '') rates[k] = parseFloat(el.value); });
+      document.querySelectorAll(`[data-rk^="${aid}:"]`).forEach(el => { const k = el.dataset.rk.split(':')[1]; if (k === 'effective_date') eff = el.value || eff; else if (k === 'apply_vat_rebate' || k === 'eu_vat_recoverable') rates[k] = el.value === 'true'; else if (k === 'default_terms' || k === 'pricing_model') rates[k] = el.value; else if (el.value !== '') rates[k] = parseFloat(el.value); });
       await upd('cost_assumptions', { rates, effective_date: eff }, aid); toast('Rates saved'); });
   }
 }
