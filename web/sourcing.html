@@ -378,6 +378,12 @@ const clientOptions = (sel) => `<option value="">— no client yet —</option>$
 let NEW_FORM = {};
 // ---------- account, team and invites ----------
 let ME = null;
+// whose requests to show when several people share a workspace: 'mine' or 'all' (remembered on this device)
+let SCOPE = (() => { try { return localStorage.getItem('lathe-scope') || 'mine'; } catch (e) { return 'mine'; } })();
+const TEAM = () => (D.people || []).filter(p => p.email).length > 1;
+const myId = () => ME?.id || (D.people || []).find(p => p.is_you)?.user_id;
+const scoped = (list) => TEAM() && SCOPE === 'mine' ? list.filter(r => r.owner_id === myId()) : list;
+const personName = (uid) => { const p = (D.people || []).find(x => x.user_id === uid); return !p ? 'nobody' : p.is_you ? 'You' : (p.email || 'someone').split('@')[0]; };
 const SITE = new URL('./', location.href).href.split('?')[0].split('#')[0];
 const joinUrl = (token) => SITE + 'login.html?join=' + token;
 const afterLogin = (target) => { try { localStorage.setItem('lathe-after-login', target); } catch (e) {} };
@@ -499,14 +505,16 @@ function liveRefresh() {
   }, 600);
 }
 async function load() {
-  const [r, c, f, a, fl, fh] = await Promise.all([
+  const [r, c, f, a, fl, fh, pp] = await Promise.all([
     sb.from('sourcing_requests').select('*, clients(name, company)').eq('workspace_id', ws).order('updated_at', { ascending: false }),
     sb.from('clients').select('*').eq('workspace_id', ws).order('created_at', { ascending: false }),
     sb.from('factories').select('*').eq('workspace_id', ws).order('updated_at', { ascending: false }),
     sb.from('cost_assumptions').select('*').eq('workspace_id', ws).order('effective_date', { ascending: false }),
     sb.from('request_flow').select('*').eq('workspace_id', ws),
     sb.from('factory_history').select('*').eq('workspace_id', ws).gt('negotiated', 0),
+    sb.rpc('workspace_people', { p_ws: ws }),
   ]);
+  D.people = pp.data || [];
   D.fhist = Object.fromEntries((fh.data || []).map(x => [x.factory_id, x]));
   D.requests = r.data || []; D.clients = c.data || []; D.factories = f.data || []; D.rates = a.data || [];
   D.flow = Object.fromEntries((fl.data || []).map(x => [x.id, x]));
@@ -515,21 +523,22 @@ async function load() {
 
 // ---------- views ----------
 function viewRequests() {
-  const live = D.requests.filter(r => r.status !== 'closed');
-  const inPhase = (k) => D.requests.filter(r => TAB_OF[r.status] === k && (k === 'order' || r.status !== 'closed'));
+  const all = scoped(D.requests);
+  const live = all.filter(r => r.status !== 'closed');
+  const inPhase = (k) => all.filter(r => TAB_OF[r.status] === k && (k === 'order' || r.status !== 'closed'));
   const shown = LIST_FILTER === 'all' ? live : inPhase(LIST_FILTER);
   const box = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg>';
   return `<div class="hello"><div><h1>Requests</h1><p>What clients want made, and the next step on each one.</p></div>
-    <div class="bar"><a class="btn primary" href="#/new">New request</a></div></div>
+    <div class="bar">${TEAM() ? `<div class="filt" role="group" aria-label="Whose requests" style="margin:0"><button data-scope="mine" aria-pressed="${SCOPE === 'mine'}">Mine<b>${D.requests.filter(r => r.owner_id === myId() && r.status !== 'closed').length}</b></button><button data-scope="all" aria-pressed="${SCOPE === 'all'}">Everyone<b>${D.requests.filter(r => r.status !== 'closed').length}</b></button></div>` : ''}<a class="btn primary" href="#/new">New request</a></div></div>
   <div class="filt" role="group" aria-label="Filter by step"><button data-lf="all" aria-pressed="${LIST_FILTER === 'all'}">All<b>${live.length}</b></button>${PHASES.map(([k, l]) => `<button data-lf="${k}" aria-pressed="${LIST_FILTER === k}">${l}<b>${inPhase(k).length}</b></button>`).join('')}</div>
   ${shown.length ? `<ul class="rows" style="margin-top:16px">${shown.map(r => { const pi = phaseIdx(r.status), ph = (r.spec?.photos || [])[0];
     return `<li class="withdel"><a class="row rq" href="#/request/${r.id}"><span class="rqimg" ${ph ? `data-rqimg="${esc(ph)}"` : ''}>${ph ? '' : box}</span>
-      <span class="t"><b>${esc(r.title)}</b><small>${[r.clients ? esc(r.clients.company || r.clients.name) : '', r.quantity ? fmt(r.quantity, 0) + ' units' : '', r.target_unit_price ? 'target ' + usd(r.target_unit_price) : '', r.deadline ? 'due ' + dt(r.deadline) : ''].filter(Boolean).join(' · ') || 'No details yet'}</small>
+      <span class="t"><b>${esc(r.title)}</b><small>${[r.clients ? esc(r.clients.company || r.clients.name) : '', r.quantity ? fmt(r.quantity, 0) + ' units' : '', r.target_unit_price ? 'target ' + usd(r.target_unit_price) : '', r.deadline ? 'due ' + dt(r.deadline) : '', TEAM() && SCOPE === 'all' ? personName(r.owner_id) : ''].filter(Boolean).join(' · ') || 'No details yet'}</small>
         <span class="prog" title="${esc(PHASES[pi]?.[1] || '')}">${PHASES.map((p, i) => `<i class="${r.status === 'closed' || i < pi ? 'done' : i === pi ? 'on' : ''}"></i>`).join('')}</span></span>
       <span class="nxt"><small>${esc(PHASES[pi]?.[1] || '')} · next</small><b>${esc(listNext(r))}</b></span></a>
       <button class="delbtn" data-delreq="${r.id}" title="Delete request" aria-label="Delete request">${TRASH}</button></li>`; }).join('')}</ul>`
-    : `<div class="dc-empty" style="margin-top:18px">${D.requests.length ? 'Nothing at this step.' : `No requests yet. <a href="#/new">Create the first one</a>: drop in photos, write the spec, and Lathe takes it from there.`}</div>`}
-  ${LIST_FILTER === 'all' && D.requests.some(r => r.status === 'closed') ? `<p class="sm mut">${D.requests.filter(r => r.status === 'closed').length} closed (under Order).</p>` : ''}`;
+    : `<div class="dc-empty" style="margin-top:18px">${D.requests.length ? (TEAM() && SCOPE === 'mine' && !all.length ? 'Nothing assigned to you. <a href="#" data-scope="all">See everyone\u2019s requests</a>.' : 'Nothing at this step.') : `No requests yet. <a href="#/new">Create the first one</a>: drop in photos, write the spec, and Lathe takes it from there.`}</div>`}
+  ${LIST_FILTER === 'all' && all.some(r => r.status === 'closed') ? `<p class="sm mut">${all.filter(r => r.status === 'closed').length} closed (under Order).</p>` : ''}`;
 }
 
 // photos picked on the New request form (kept across re-renders until the request is created)
@@ -686,7 +695,7 @@ async function viewRequest(id) {
       <div id="rDrop" class="drop"><div class="dprev">${(s.photos || []).map(p => `<div><img data-sp="${esc(p)}" alt=""><button type="button" data-rmp="${esc(p)}" title="Remove photo">×</button></div>`).join('')}</div>
       <div class="dzt"><b>Drop photos here</b>, paste them, or <u>choose files</u></div></div><input type="file" id="rFiles" accept="image/*" multiple hidden>`;
   return `<div class="hello"><div><a class="sm" href="#/requests">← Requests</a><h1>${esc(r.title)}</h1><p>${esc(client ? (client.company || client.name) : 'No client')} · created ${dt(r.created_at)}${r.hts_code ? ` · HTS ${esc(r.hts_code)}` : ''}</p></div>
-    <div class="bar"><select id="stSel" class="btn" style="width:auto">${STATUSES.map(x => `<option value="${x}" ${x === r.status ? 'selected' : ''}>${SLABEL[x]}</option>`).join('')}</select>${client ? `<a class="btn" target="_blank" href="portal.html?c=${esc(client.portal_token)}">Client portal ↗</a>` : ''}<button class="btn danger" id="delReq">Delete</button></div></div>
+    <div class="bar">${TEAM() ? `<label class="sm mut" style="margin:0;display:flex;align-items:center;gap:6px">Owner <select id="ownSel" class="btn" style="width:auto">${(D.people || []).filter(p => p.email).map(p => `<option value="${p.user_id}" ${p.user_id === r.owner_id ? 'selected' : ''}>${esc(p.is_you ? 'You' : p.email)}</option>`).join('')}${r.owner_id ? '' : '<option value="" selected>Nobody</option>'}</select></label>` : ''}<select id="stSel" class="btn" style="width:auto">${STATUSES.map(x => `<option value="${x}" ${x === r.status ? 'selected' : ''}>${SLABEL[x]}</option>`).join('')}</select>${client ? `<a class="btn" target="_blank" href="portal.html?c=${esc(client.portal_token)}">Client portal ↗</a>` : ''}<button class="btn danger" id="delReq">Delete</button></div></div>
   ${phaseBar(r.status, tab)}
   ${(() => { const n = INTAKE_BUSY.has(r.id) ? { t: 'Reading the spec…', h: 'The AI is structuring the spec' + ((r.spec?.photos || []).length ? ', reading your photos' : '') + ' and writing the Chinese 1688 search terms. About 20 seconds.', working: true } : flowNext(FLOW_NOW); if (!n.t) return ''; if (n.working) return `<div class="nextbar working"><div><small>Working on it</small><b>${esc(n.t)}</b><span>${n.h}</span></div><span class="spin" aria-label="Working"></span></div>`; return `<div class="nextbar"><div><small>Next step</small><b>${esc(n.t)}</b>${n.h ? `<span>${n.h}</span>` : ''}</div>${n.b ? `<div class="bar">${n.b2 ? `<button class="btn" id="nextGo2" data-act="${n.act2}">${esc(n.b2)}</button>` : ''}<button class="btn primary" id="nextGo" data-act="${n.act}" data-arg="${esc(n.arg || '')}">${esc(n.b)} →</button></div>` : ''}</div>`; })()}
   <div class="tabbed" data-show="${tab}" id="tabbed">
@@ -849,6 +858,7 @@ function wire(page, id) {
   const on = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(ev, fn));
   if (!page || page === 'requests') {
     on('[data-lf]', 'click', (e) => { LIST_FILTER = e.currentTarget.dataset.lf; render(); });
+    on('[data-scope]', 'click', (e) => { e.preventDefault(); SCOPE = e.currentTarget.dataset.scope; try { localStorage.setItem('lathe-scope', SCOPE); } catch (err) {} render(); });
     const ps = [...new Set([...document.querySelectorAll('[data-rqimg]')].map(x => x.dataset.rqimg))];
     if (ps.length) sb.storage.from('photos').createSignedUrls(ps, 3600).then(({ data }) => (data || []).forEach((d, i) => { if (d.signedUrl) document.querySelectorAll(`[data-rqimg="${CSS.escape(ps[i])}"]`).forEach(el => { el.style.backgroundImage = `url("${d.signedUrl}")`; }); }));
   }
@@ -888,7 +898,7 @@ function wire(page, id) {
     if ($('pwSave')) $('pwSave').onclick = async () => { const p = $('newPw').value; if (p.length < 8) return toast('At least 8 characters'); const { error } = await sb.auth.updateUser({ password: p }); if (error) return toast(error.message); toast('Password saved'); $('pwRow').style.display = 'none'; };
     if ($('aOut')) $('aOut').onclick = async () => { if (!await confirmBox({ title: 'Sign out?', body: 'Your work stays saved. Sign in again with your email to get back to it.', confirmLabel: 'Sign out' })) return; await sb.auth.signOut(); useWorkspace(null); location.replace('login.html'); };
     if ($('wsRename')) $('wsRename').onclick = async () => { const name = $('wsName').value.trim(); if (!name) return; const { error } = await sb.from('workspaces').update({ name }).eq('id', ws); if (error) return toast(error.message); $('sync').textContent = name; toast('Renamed'); };
-    on('[data-wsw]', 'click', (e) => { useWorkspace(e.currentTarget.dataset.wsw); location.hash = '#/requests'; location.reload(); });
+    on('[data-wsw]', 'click', (e) => { useWorkspace(e.currentTarget.dataset.wsw); location.href = './'; });
     on('[data-rmm]', 'click', async (e) => { const b = e.currentTarget; if (!await confirmBox({ title: 'Remove from workspace?', body: `<b>${esc(b.dataset.em)}</b> will lose access to this workspace. Their past work stays.`, confirmLabel: 'Remove' })) return; const { error } = await sb.from('workspace_members').delete().eq('workspace_id', ws).eq('user_id', b.dataset.rmm); if (error) return toast(error.message); toast('Removed'); render(); });
     if ($('invGo')) $('invGo').onclick = async (e) => {
       const email = $('invEmail').value.trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return toast('Enter their email');
@@ -973,6 +983,7 @@ function wire(page, id) {
   if (page === 'request') {
     const r = D.requests.find(x => x.id === id);
     $('stSel').onchange = (e) => { delete VIEW_TAB[id]; upd('sourcing_requests', { status: e.target.value }, id); };
+    if ($('ownSel')) $('ownSel').onchange = async (e) => { const { error } = await sb.from('sourcing_requests').update({ owner_id: e.target.value || null }).eq('id', id); if (error) return toast(error.message); toast(e.target.value === myId() ? 'It\u2019s yours now.' : 'Handed over to ' + personName(e.target.value) + '.'); await refresh(); };
     const setTab = (t, scroll) => { if (t === 'quote') t = 'negotiating'; VIEW_TAB[id] = t; $('tabbed').dataset.show = t; document.querySelectorAll('[data-phase]').forEach(x => x.classList.toggle('view', x.dataset.phase === t)); if (scroll) $('tabbed').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
     on('[data-phase]', 'click', (e) => setTab(e.currentTarget.dataset.phase));
     on('[data-goto]', 'click', async (e) => { const t = e.currentTarget.dataset.goto; setTab(t, true); if (t === 'sourcing' && r.status === 'intake' && r.spec?.intake_at) await sb.from('sourcing_requests').update({ status: 'sourcing' }).eq('id', id); });
