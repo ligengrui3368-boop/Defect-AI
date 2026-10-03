@@ -631,14 +631,31 @@ async function draftRfq(sb: SupabaseClient, body: Any) {
   let factory: Any = null;
   if (body.factory_id) { const { data } = await sb.from("factories").select("*").eq("id", body.factory_id).single(); factory = data; }
   const target = body.target_cny ?? r.spec?.estimated_factory_price_cny ?? null;
-  const out = await askJson(`Write a first-contact RFQ message to a Chinese factory on 1688 / WeChat, from a buyer's sourcing agent (the agent is Chinese-speaking; the end client is a US brand, don't name the client).
-Spec: ${specText(r)}
+  // the workspace's own template, when there is one, decides the wording and structure
+  const { data: tpl } = await sb.from("message_templates").select("body").eq("workspace_id", r.workspace_id).eq("kind", "rfq").maybeSingle();
+  const template = String(tpl?.body ?? "").trim();
+  const facts = `Product and spec: ${specText(r)}
+Quantity: ${r.quantity ?? "unknown"}. Needed by: ${r.deadline ?? "not set"}.
 Factory: ${factory ? JSON.stringify({ name: factory.name, city: factory.city }) : "unknown"}
-${target ? `Our target ex-works unit price: about ${target} CNY (do not state it; ask for their best tiered price instead).` : ""}
-Rules: natural professional Simplified Chinese as a real 采购 would write; ask for 阶梯报价 (quantity tiers), MOQ, 交期, 打样费用与周期, 是否源头工厂 (ask directly), 材质/认证 confirmation, 包装 options, 付款方式 (propose 30% deposit, 70% after passing our pre-shipment photo inspection). Mention we inspect randomly sampled units by photo before the balance payment. Keep it under 220 Chinese characters plus a short spec list.
-Return JSON: { subject_zh, message_zh, spec_list_zh (string, bullet lines), message_en (faithful English translation), negotiation_tips (string[] – 3 to 5 tips for the negotiator for this product/factory type) }.`);
-  return { ok: true, ...out };
+${target ? `Our target ex-works unit price is about ${target} CNY: never state it; ask for their price instead.` : ""}
+The buyer is a sourcing agent; the end client is a US brand: never name the client.`;
+  const out = await askJson(template
+    ? `Fill in this RFQ template for a Chinese factory (1688 / WeChat).
+${facts}
+
+TEMPLATE (follow it exactly: keep its wording, line breaks, order, length and tone; replace placeholders such as {产品} {数量} {交期} {规格} {目标价} {工厂} or 【...】 and any product-specific details with this request's facts; do not add greetings, sections or questions it doesn't have; if it has a spec section, keep it to the few specs that matter most):
+"""${template}"""
+
+Return JSON: { "message_zh": the filled-in message, "message_en": faithful English translation, "tips": up to 3 short negotiation tips (English) }.`
+    : `Write a SHORT first-contact RFQ to a Chinese factory on 1688 / WeChat, as a real 采购 would: natural Simplified Chinese, WeChat style.
+${facts}
+
+Shape: one greeting line; one line saying what we need (product, quantity, deadline); a compact numbered list of at most 5 questions (阶梯报价, MOQ and 交期, 打样费用与周期, 是否源头工厂, 付款方式: propose 30% deposit and 70% after our sampled photo inspection passes); then at most 4 short spec lines; one sign-off line. Under 150 Chinese characters before the spec lines. No paragraphs of explanation.
+
+Return JSON: { "message_zh": the whole message, "message_en": faithful English translation, "tips": up to 3 short negotiation tips (English) }.`, 1500);
+  return { ok: true, message_zh: String(out?.message_zh ?? "").trim(), message_en: String(out?.message_en ?? "").trim(), tips: Array.isArray(out?.tips) ? out.tips.slice(0, 3) : [], template: !!template };
 }
+
 
 async function verify(sb: SupabaseClient, body: Any) {
   const { data: f } = await sb.from("factories").select("*").eq("id", body.factory_id).single();
