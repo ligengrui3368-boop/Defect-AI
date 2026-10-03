@@ -69,7 +69,7 @@ body{margin:0;font-size:15px;line-height:1.5}
     <div class="grow"></div>
     <a class="quiet" href="site/">Website</a>
     <div class="meta" id="sync">Connecting…</div>
-  </nav><script src="nav.js?v=7"></script>
+  </nav><script src="nav.js?v=8"></script>
 
   <main class="dc-main">
     <div class="dc-bar"><h1>Home</h1><div class="sp"></div>
@@ -155,6 +155,8 @@ async function load() {
   D.allReqs = D.reqs; D.team = D.people.filter(p => p.email).length > 1;
   const me = (D.people.find(p => p.is_you) || {}).user_id;
   if (D.team && homeScope() === 'mine') D.reqs = D.reqs.filter(x => x.owner_id === me);
+  // "What changed" follows the same switch
+  if (D.team && homeScope() === 'mine') { const ids = new Set(D.reqs.map(x => x.id)); D.acts = D.acts.filter(x => !x.request_id || ids.has(x.request_id)); }
   D.flow = Object.fromEntries((r[5].data || []).map(x => [x.id, x]));
 }
 
