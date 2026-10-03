@@ -80,8 +80,8 @@
   // Updates: what other people (clients, teammates, factory inspections, background searches) did since you last
   // looked. Reads the activity timeline with the signed-in user's own token, so it only sees their workspace.
   (function updates() {
-    var cfg = window.DEFECT_CHECK_CONFIG || {}, tok = null, me = null;
-    try { Object.keys(localStorage).forEach(function (k) { if (/^sb-.*-auth-token$/.test(k)) { var v = JSON.parse(localStorage.getItem(k)); if (v && v.access_token) { tok = v.access_token; me = v.user && v.user.email; } } }); } catch (e) {}
+    var cfg = window.DEFECT_CHECK_CONFIG || {}, tok = null, me = null, myUid = null;
+    try { Object.keys(localStorage).forEach(function (k) { if (/^sb-.*-auth-token$/.test(k)) { var v = JSON.parse(localStorage.getItem(k)); if (v && v.access_token) { tok = v.access_token; me = v.user && v.user.email; myUid = v.user && v.user.id; } } }); } catch (e) {}
     if (!tok || !cfg.supabaseUrl || /[?&](f|demo)=/.test(location.search) || file === 'login.html' || file === 'portal.html') return;
     var ws = null; try { ws = localStorage.getItem('lathe-ws'); } catch (e) {}
     var SEEN = 'lathe-updates-seen', seen = 0; try { seen = +localStorage.getItem(SEEN) || 0; } catch (e) {}
@@ -94,18 +94,23 @@
       '#updPop a{display:block;padding:10px 12px;border-radius:10px;color:inherit;text-decoration:none;font-size:13.5px;line-height:1.45}#updPop a:hover{background:var(--sunk,#f3f3f1)}#updPop small{display:block;color:var(--muted,#86868b);font-size:12px}' +
       '#updPop a.new{background:var(--harbor-bg,#eaf2ff)}#updPop h4{margin:6px 12px 8px;font-size:13px;color:var(--muted,#86868b);text-transform:uppercase;letter-spacing:.06em}';
     document.head.appendChild(css);
-    var items = [], titles = {};
+    var items = [], titles = {}, owners = {};
     var H = { apikey: cfg.supabaseAnonKey, Authorization: 'Bearer ' + tok };
     var esc = function (x) { return String(x == null ? '' : x).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
     var ago = function (d) { var m = (Date.now() - new Date(d)) / 60000; return m < 1 ? 'just now' : m < 60 ? Math.round(m) + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
     var fresh = function (a) { return new Date(a.at).getTime() > seen && a.actor !== me; };
     function paint() { var n = items.filter(fresh).length, b = btn.querySelector('.nb'); b.style.display = n ? '' : 'none'; b.textContent = n ? (n > 9 ? '9+' : n) : ''; }
+    // personal: changes to requests you own, plus anything handed to you (requests with no owner show for everyone)
+    function mine(a) { if (!a.request_id || !(a.request_id in owners)) return true; return owners[a.request_id] === myUid || owners[a.request_id] == null || (me && a.body.indexOf('Assigned to ' + me) === 0); }
     function load() {
-      fetch(cfg.supabaseUrl + '/rest/v1/activity?select=at,actor,body,request_id&order=at.desc&limit=20' + (ws ? '&workspace_id=eq.' + ws : ''), { headers: H })
+      fetch(cfg.supabaseUrl + '/rest/v1/activity?select=at,actor,body,request_id&order=at.desc&limit=60' + (ws ? '&workspace_id=eq.' + ws : ''), { headers: H })
         .then(function (r) { return r.ok ? r.json() : []; }).then(function (rows) {
-          items = Array.isArray(rows) ? rows : []; paint();
-          var ids = items.map(function (a) { return a.request_id; }).filter(function (x, i, arr) { return x && !titles[x] && arr.indexOf(x) === i; });
-          if (ids.length) fetch(cfg.supabaseUrl + '/rest/v1/sourcing_requests?select=id,title&id=in.(' + ids.join(',') + ')', { headers: H }).then(function (r) { return r.ok ? r.json() : []; }).then(function (rs) { (rs || []).forEach(function (x) { titles[x.id] = x.title; }); });
+          rows = Array.isArray(rows) ? rows : [];
+          var ids = rows.map(function (a) { return a.request_id; }).filter(function (x, i, arr) { return x && arr.indexOf(x) === i; });
+          var done = function () { items = rows.filter(mine).slice(0, 20); paint(); };
+          if (!ids.length) return done();
+          fetch(cfg.supabaseUrl + '/rest/v1/sourcing_requests?select=id,title,owner_id&id=in.(' + ids.join(',') + ')', { headers: H }).then(function (r) { return r.ok ? r.json() : []; })
+            .then(function (rs) { (rs || []).forEach(function (x) { titles[x.id] = x.title; owners[x.id] = x.owner_id; }); done(); }).catch(done);
         }).catch(function () {});
     }
     function close() { var p = document.getElementById('updPop'); if (p) p.remove(); document.removeEventListener('click', outside, true); }
@@ -113,7 +118,7 @@
     btn.onclick = function (e) {
       e.preventDefault(); if (document.getElementById('updPop')) return close();
       var p = document.createElement('div'); p.id = 'updPop';
-      p.innerHTML = '<h4>Updates</h4>' + (items.length ? items.map(function (a) { return '<a class="' + (fresh(a) ? 'new' : '') + '" href="' + (a.request_id ? 'sourcing.html#/request/' + a.request_id : 'sourcing.html#/requests') + '">' + esc(a.body) + '<small>' + esc(titles[a.request_id] || '') + (titles[a.request_id] ? ' · ' : '') + esc(a.actor === me ? 'You' : (a.actor || 'Lathe')) + ' · ' + ago(a.at) + '</small></a>'; }).join('') : '<a>Nothing yet.</a>');
+      p.innerHTML = '<h4>Your updates</h4>' + (items.length ? items.map(function (a) { return '<a class="' + (fresh(a) ? 'new' : '') + '" href="' + (a.request_id ? 'sourcing.html#/request/' + a.request_id : 'sourcing.html#/requests') + '">' + esc(a.body) + '<small>' + esc(titles[a.request_id] || '') + (titles[a.request_id] ? ' · ' : '') + esc(a.actor === me ? 'You' : (a.actor || 'Lathe')) + ' · ' + ago(a.at) + '</small></a>'; }).join('') : '<a>Nothing yet.</a>');
       var r = btn.getBoundingClientRect(); p.style.left = Math.min(r.right + 8, innerWidth - 392) + 'px'; p.style.top = Math.max(12, Math.min(r.top, innerHeight - 420)) + 'px';
       if (innerWidth < 760) { p.style.left = '12px'; p.style.top = (r.bottom + 8) + 'px'; }
       document.body.appendChild(p); setTimeout(function () { document.addEventListener('click', outside, true); }, 0);
