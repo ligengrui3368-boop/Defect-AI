@@ -125,6 +125,13 @@ textarea{min-height:90px;resize:vertical}
 .ms span.done{background:var(--harbor-bg);color:var(--harbor)}.ms span.on{background:var(--ink);color:var(--panel)}
 .oact{background:var(--sunk);border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.5}.oact .bar{margin-top:10px}
 .tl{list-style:none;margin:6px 0 0;padding:0}.tl li{display:grid;grid-template-columns:92px 1fr;gap:2px 12px;padding:7px 0;border-top:1px solid var(--line);font-size:13.5px;line-height:1.45}.tl li:first-child{border-top:0}.tl time{color:var(--muted);font-size:12.5px}.tl small{grid-column:2;color:var(--muted);font-size:12px}
+.cmp-wrap{overflow-x:auto;margin-top:8px}.cmp{width:100%;border-collapse:collapse;font-size:14px}
+.cmp th{font-size:12px;color:var(--muted);font-weight:600;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+.cmp td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top}.cmp .right{text-align:right}
+.cmp td.best{background:var(--harbor-bg);color:var(--harbor);font-weight:600}.cmp tr.dropped td{opacity:.45}.cmp tr.open>td{border-bottom:0}
+.cmp .cd-row td{background:var(--sunk);padding:12px 14px}.cmp .stsel{width:auto;font-size:13px;padding:5px 8px;border-radius:999px}
+.cmp .st-waiting_us{border-color:var(--harbor);color:var(--harbor)}.cmp .st-agreed{border-color:var(--pass,#1f9d55);color:var(--pass,#1f9d55)}
+.grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0 12px}@media(max-width:720px){.grid4{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .rfqd{margin-top:10px;border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--panel)}
 .rfqd textarea{width:100%;font:inherit;font-size:14px;line-height:1.6;white-space:pre-wrap;resize:vertical;margin-top:8px}
 #tpl textarea{width:100%;min-height:260px;font:inherit;font-size:14px;line-height:1.6}
@@ -250,12 +257,67 @@ function confirmBox({ title, body, note = '', confirmLabel = 'Delete' }) {
     document.addEventListener('keydown', key); document.body.appendChild(el); el.querySelector('[data-x="0"]').focus();
   });
 }
+// ---------- Compare & quote: every factory side by side ----------
+const NEG_ST = { open: 'Not contacted', waiting_factory: 'Waiting on them', waiting_us: 'They replied', sample: 'Sampling', agreed: 'Agreed', dropped: 'Dropped' };
+const OPEN_NEG = new Set();
+const hrsSince = (d) => d ? (Date.now() - new Date(d).getTime()) / 3600000 : null;
+function compareTable(negs, cands, r, quotes) {
+  if (!negs.length) return `<div class="empty">No factories yet. On Find factories, press Negotiate on the ones you like, or add one you found yourself below.</div>`;
+  const live = negs.filter(g => g.status !== 'dropped');
+  const price = (g) => g.agreed_cny ?? g.current_offer_cny;
+  const min = (f) => { const v = live.map(f).filter(x => x != null && x > 0); return v.length > 1 ? Math.min(...v) : null; };
+  const bP = min(price), bM = min(g => g.moq), bL = min(g => g.lead_time_days), bS = min(g => g.terms?.sample_cost_cny);
+  const best = (v, b) => v != null && b != null && v === b ? ' best' : '';
+  const q0 = quotes?.[0]?.inputs || {};
+  const rows = negs.slice().sort((a, b) => (a.status === 'dropped') - (b.status === 'dropped') || ((price(a) ?? 1e9) - (price(b) ?? 1e9))).map(g => {
+    const f = g.factories || {}, cand = cands.find(c => c.id === g.candidate_id);
+    const listing = cand?.listing_url || f.source_url, shop = f.shop_url, im = cand?.listing_data?.signals?.im_url || f.verification?.signals?.im_url || f.verification?.im_url;
+    const h = hrsSince(g.last_contact_at), quiet = g.status === 'waiting_factory' && h != null && h > 48;
+    const p = price(g), tiers = g.terms?.tiers || g.terms?.last_reply?.tiers || [];
+    const open = OPEN_NEG.has(g.id);
+    return `<tr class="${g.status === 'dropped' ? 'dropped' : ''}${open ? ' open' : ''}">
+      <td><a href="#/factory/${g.factory_id}"><b>${esc(f.name || 'Factory')}</b></a><div class="sm mut">${esc(f.city || '')}${listing ? ` · <a href="${esc(listing)}" target="_blank">1688 listing ↗</a>` : ''}${shop ? ` · <a href="${esc(shop)}" target="_blank">shop ↗</a>` : ''}${im ? ` · <a href="${esc(im)}" target="_blank">chat 旺旺 ↗</a>` : ''}</div>
+        ${f.wechat || f.phone || f.mobile || f.contact_name ? `<div class="sm">${[f.contact_name && esc(f.contact_name), f.wechat && 'WeChat <b>' + esc(f.wechat) + '</b>', (f.mobile || f.phone) && esc(f.mobile || f.phone)].filter(Boolean).join(' · ')}</div>` : ''}</td>
+      <td><select data-negst="${g.id}" class="stsel st-${g.status}">${Object.entries(NEG_ST).map(([k, l]) => `<option value="${k}" ${k === g.status ? 'selected' : ''}>${l}</option>`).join('')}</select>${g.status === 'waiting_us' && g.terms?.last_reply ? '<div class="sm" style="color:var(--harbor)">Reply ready ↓</div>' : ''}</td>
+      <td class="right${best(p, bP)}">${p != null ? `${g.agreed_cny ? '<b>' : ''}${cny(p)}${g.agreed_cny ? '</b><div class="sm">agreed</div>' : ''}` : '<span class="mut">—</span>'}${tiers.length ? `<div class="sm mut">${tiers.slice(0, 3).map(t => `${fmt(t.qty, 0)}: ${cny(t.price_cny)}`).join('<br>')}</div>` : ''}</td>
+      <td class="right${best(g.moq, bM)}">${g.moq != null ? fmt(g.moq, 0) : '<span class="mut">—</span>'}</td>
+      <td class="right${best(g.lead_time_days, bL)}">${g.lead_time_days != null ? g.lead_time_days + ' d' : '<span class="mut">—</span>'}</td>
+      <td class="right${best(g.terms?.sample_cost_cny, bS)}">${g.terms?.sample_cost_cny != null ? cny(g.terms.sample_cost_cny) : '<span class="mut">—</span>'}</td>
+      <td class="right" data-landed="${g.id}" data-price="${p ?? ''}">${p != null ? '<span class="mut">…</span>' : '<span class="mut">—</span>'}</td>
+      <td>${g.last_contact_at ? `<span class="sm">${when(g.last_contact_at)}</span>` : '<span class="sm mut">never</span>'}${quiet ? `<div><span class="badge b-rev">quiet ${Math.floor(h / 24)}d</span></div>` : ''}</td>
+      <td class="right"><div class="bar" style="justify-content:flex-end;gap:6px;flex-wrap:nowrap">${quiet ? `<button class="btn sm" data-nudge="${g.id}" data-fac="${g.factory_id || ''}" data-days="${Math.floor(h / 24)}">Nudge</button>` : ''}${p != null && g.status !== 'dropped' ? `<button class="btn sm primary" data-quote="${g.id}" data-fac="${g.factory_id || ''}" data-price="${p}">Use for quote</button>` : ''}<button class="btn sm" data-nopen="${g.id}">${open ? 'Close' : 'Open'}</button></div></td></tr>
+    <tr class="cd-row" ${open ? '' : 'hidden'}><td colspan="9"><div class="cd">${negDetail(g)}</div></td></tr>`;
+  }).join('');
+  return `<div class="cmp-wrap"><table class="cmp" data-qty="${r.quantity || 1000}" data-dom="${q0.domestic_freight_cny ?? 0}" data-intl="${q0.intl_freight_usd ?? 0}" data-mode="${q0.mode || 'ocean'}">
+    <thead><tr><th>Factory</th><th>Status</th><th class="right">Price</th><th class="right">MOQ</th><th class="right">Lead</th><th class="right">Sample</th><th class="right" title="Factory price + freight, duty and fees from your rate card (freight from the quote form)">Landed / unit</th><th>Last contact</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
+function negDetail(g) {
+  const f = g.factories || {}, lr = g.terms?.last_reply;
+  return `<div class="grid3"><div><label style="margin-top:0">Contact name</label><input data-fc="${g.factory_id}" data-k="contact_name" value="${esc(f.contact_name || '')}"></div>
+      <div><label style="margin-top:0">WeChat</label><input data-fc="${g.factory_id}" data-k="wechat" value="${esc(f.wechat || '')}" placeholder="their WeChat ID"></div>
+      <div><label style="margin-top:0">Phone</label><input data-fc="${g.factory_id}" data-k="phone" value="${esc(f.phone || f.mobile || '')}"></div></div>
+    <div class="grid4" style="margin-top:4px"><div><label>Price ¥/unit</label><input data-nv="${g.id}" data-k="price" type="number" step="0.01" value="${g.agreed_cny ?? g.current_offer_cny ?? ''}"></div>
+      <div><label>MOQ</label><input data-nv="${g.id}" data-k="moq" type="number" value="${g.moq ?? ''}"></div>
+      <div><label>Lead time (days)</label><input data-nv="${g.id}" data-k="lead" type="number" value="${g.lead_time_days ?? ''}"></div>
+      <div><label>Sample ¥</label><input data-nv="${g.id}" data-k="sample" type="number" step="0.01" value="${g.terms?.sample_cost_cny ?? ''}"></div></div>
+    <div class="bar" style="margin-top:8px"><label style="margin:0"><input type="checkbox" data-nv="${g.id}" data-k="agreed" ${g.agreed_cny ? 'checked' : ''} style="width:auto"> This price is agreed</label><button class="btn sm primary" data-nsave="${g.id}">Save numbers</button>
+      <span style="flex:1"></span><button class="btn sm" data-paste="${g.id}">Paste their reply</button><button class="btn sm" data-rfq="${g.id}" data-fac="${g.factory_id || ''}">Draft RFQ</button></div>
+    ${lr && g.status === 'waiting_us' ? `<div class="reply"><b>They replied ${dt(lr.at)}.</b> ${esc(lr.summary || '')}
+      <div style="margin-top:6px">Your answer${lr.counter_cny ? ` (aim for <b>${cny(lr.counter_cny)}</b>)` : ''}:</div><pre>${esc(lr.counter_zh || '')}</pre>
+      <details class="sm"><summary>English</summary><div style="margin-top:4px">${esc(lr.counter_en || '')}</div></details>
+      <div class="bar" style="margin-top:8px"><button class="btn sm primary" data-cp="${esc(lr.counter_zh || '')}">Copy Chinese</button><button class="btn sm" data-sent="${g.id}">I sent it</button></div></div>` : ''}
+    <div class="rbox" data-rbox="${g.id}"><textarea data-rtext="${g.id}" rows="4" placeholder="Paste what the factory sent… (you can also paste a screenshot here)"></textarea>
+      <div class="bar" style="margin-top:8px"><label class="btn sm" style="margin:0">Add screenshot<input type="file" accept="image/*" data-rfile="${g.id}" hidden></label><span class="sm mut" data-rshot="${g.id}"></span><button class="btn sm primary" data-read="${g.id}">Read reply</button></div></div>
+    <div id="rfq-${g.id}">${rfqBox(g.id, g.factory_id)}</div>
+    ${(g.log || []).length ? `<details class="sm" style="margin-top:8px"><summary>Conversation (${g.log.length})</summary>${g.log.slice().reverse().map(l => `<div style="padding:5px 0;border-top:1px solid var(--line)"><span class="mut">${dt(l.at)}</span> ${esc(l.note)}${l.offer_cny ? ` · <b>${cny(l.offer_cny)}</b>` : ''}</div>`).join('')}</details>` : ''}`;
+}
 // ---------- RFQ drafts: editable, kept across live refreshes; workspace templates ----------
 const RFQ = {}; // negotiation id -> { text, en, tips, template }
 function rfqBox(gid, fac) {
   const d = RFQ[gid]; if (!d) return '';
   const rows = Math.min(16, Math.max(6, d.text.split('\n').length + 1));
-  return `<div class="rfqd"><div class="bar" style="justify-content:space-between"><b>RFQ draft</b><span class="sm mut">${d.template ? 'Follows your template' : 'Lathe\u2019s short default'} · <a href="#" data-tpl="rfq">${d.template ? 'Edit template' : 'Use my own template'}</a></span></div>
+  return `<div class="rfqd"><div class="bar" style="justify-content:space-between"><b>${d.nudge ? 'Follow-up' : 'RFQ draft'}</b>${d.nudge ? '' : `<span class="sm mut">${d.template ? 'Follows your template' : 'Lathe\u2019s short default'} · <a href="#" data-tpl="rfq">${d.template ? 'Edit template' : 'Use my own template'}</a></span>`}</div>
     <textarea data-rfqtext="${gid}" rows="${rows}">${esc(d.text)}</textarea>
     <div class="bar" style="margin-top:8px"><button class="btn sm primary" data-rfqcopy="${gid}">Copy</button><button class="btn sm" data-rfqsent="${gid}">I sent it</button><button class="btn sm" data-rfq="${gid}" data-fac="${fac || ''}">Redraft</button><button class="btn sm" data-rfqtpl="${gid}">Save as my template</button><button class="btn sm" data-rfqx="${gid}">Close</button></div>
     ${d.en || (d.tips || []).length ? `<details class="sm" style="margin-top:8px"><summary>English${(d.tips || []).length ? ' &amp; tips' : ''}</summary><div style="white-space:pre-wrap;margin-top:6px">${esc(d.en || '')}</div>${(d.tips || []).length ? `<ul>${d.tips.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}</details>` : ''}</div>`;
@@ -431,7 +493,7 @@ function liveRefresh() {
   clearTimeout(LIVE_T);
   LIVE_T = setTimeout(async function go() {
     const a = document.activeElement, open = (id) => { const el = document.getElementById(id); return el && el.style.display === 'block'; };
-    const busyNow = (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && app.contains(a)) || open('specEdit') || open('refreshBox') || [...document.querySelectorAll('[data-rbox]')].some(el => el.style.display === 'block') || document.getElementById('cfm') || document.getElementById('lb');
+    const busyNow = (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && app.contains(a)) || open('specEdit') || open('refreshBox') || ($('addFacBox') && $('addFacBox').style.display === 'block') || [...document.querySelectorAll('[data-rbox]')].some(el => el.style.display === 'block') || document.getElementById('cfm') || document.getElementById('lb');
     if (busyNow) { LIVE_T = setTimeout(go, 1500); return; }
     await refresh();
   }, 600);
@@ -512,10 +574,10 @@ document.addEventListener('paste', (e) => {
 });
 
 // the request page shows one stage at a time; click any step (earlier or later) to open it
-const TAB_OF = { intake: 'intake', sourcing: 'sourcing', shortlisted: 'sourcing', negotiating: 'negotiating', quoted: 'quote', approved: 'quote', ordered: 'order', closed: 'order' };
+const TAB_OF = { intake: 'intake', sourcing: 'sourcing', shortlisted: 'sourcing', negotiating: 'negotiating', quoted: 'negotiating', approved: 'negotiating', ordered: 'order', closed: 'order' };
 const VIEW_TAB = {};
-// one flow, five steps; the eight detailed statuses fold into them
-const PHASES = [['intake', 'Spec'], ['sourcing', 'Find factories'], ['negotiating', 'Negotiate'], ['quote', 'Quote'], ['order', 'Order']];
+// one flow, four steps; the eight detailed statuses fold into them (talking to factories and quoting the client are one step)
+const PHASES = [['intake', 'Spec'], ['sourcing', 'Find factories'], ['negotiating', 'Compare & quote'], ['order', 'Order']];
 const phaseIdx = (status) => PHASES.findIndex(p => p[0] === TAB_OF[status]);
 function phaseBar(status, view) {
   const pi = phaseIdx(status);
@@ -526,7 +588,7 @@ function phaseBar(status, view) {
 // (also read by Home and Operator). The app only decides which button runs each step.
 function listNext(r) { const f = D.flow?.[r.id]; return f ? (f.next_key === 'working' ? '⟳ ' : '') + f.next_title : ''; }
 const FLOW_ACT = { add_spec: ['Edit spec', 'edit'], run_intake: ['Run intake', 'intake'], search: ['Search 1688', 'search'], search_photo: ['Search by photo', 'photosearch'],
-  pick_factories: ['Review factories', 'tab', 'sourcing'], reply_factory: ['Open negotiations', 'tab', 'negotiating'], get_offers: ['Open negotiations', 'tab', 'negotiating'],
+  pick_factories: ['Review factories', 'tab', 'sourcing'], reply_factory: ['Open comparison', 'tab', 'negotiating'], get_offers: ['Open comparison', 'tab', 'negotiating'],
   build_quote: ['Build quote', 'quote'], release_quote: ['Release to client', 'release'], await_client: ['Mark approved', 'approve'], place_order: ['Create order', 'order'], track_order: ['Open order', 'tab', 'order'] };
 function flowNext(fl) {
   if (!fl) return { t: '', h: '' };
@@ -619,7 +681,7 @@ async function viewRequest(id) {
   const glance = [['Quantity', fmt(r.quantity, 0)], ['Client target', r.target_unit_price != null ? usd(r.target_unit_price) + ' / unit' : '—'], ['Deadline', dt(r.deadline)],
     ...(s.at_a_glance || []).map(g => [g.label, g.value]), ...(s.estimated_factory_price_cny ? [['Est. factory price', cny(s.estimated_factory_price_cny)]] : [])];
   const rate = D.rates.find(x => x.is_default) || D.rates[0];
-  const tab = VIEW_TAB[id] || TAB_OF[r.status] || 'intake';
+  const tab0 = VIEW_TAB[id] || TAB_OF[r.status] || 'intake', tab = tab0 === 'quote' ? 'negotiating' : tab0;
   const photoBox = `<label>Product photos <span class="mut">(up to 6; the intake agent reads them, and Sourcing can search 1688 with them)</span></label>
       <div id="rDrop" class="drop"><div class="dprev">${(s.photos || []).map(p => `<div><img data-sp="${esc(p)}" alt=""><button type="button" data-rmp="${esc(p)}" title="Remove photo">×</button></div>`).join('')}</div>
       <div class="dzt"><b>Drop photos here</b>, paste them, or <u>choose files</u></div></div><input type="file" id="rFiles" accept="image/*" multiple hidden>`;
@@ -679,27 +741,20 @@ async function viewRequest(id) {
       <div class="panel-foot"><button class="btn" data-goto="negotiating">Next: negotiate →</button></div>
     </div>
 
-    <div class="panel" data-tab="negotiating"><h2>3 · Negotiate <span class="mut sm">${negs.length}</span></h2>
-      <p class="sm mut">You negotiate. Log each offer here so the quote uses the agreed price. "Draft RFQ" writes the first Chinese message · <a href="#" data-tpl="rfq">RFQ template</a></p>
-      ${negs.length ? negs.map(g => `<div class="card"><div class="bar" style="justify-content:space-between"><b>${esc(g.factories?.name || 'Factory')}</b> <span class="badge ${g.status === 'agreed' ? 'b-pass' : g.status === 'dropped' ? 'b-fail' : 'b-harbor'}">${esc(g.status.replace('_', ' '))}</span></div>${g.factories ? `<div class="cbox">${contactBits(g.factories, true) || '<span class="sm mut">No contact details yet. Add them on the factory page.</span>'}</div>` : ''}
-        <div class="kv" style="margin-top:6px"><b>Current offer</b><span>${cny(g.current_offer_cny)}</span><b>Target</b><span>${cny(g.target_cny)}</span><b>Agreed</b><span>${g.agreed_cny ? '<b>' + cny(g.agreed_cny) + '</b>' : '—'}</span><b>MOQ / lead time</b><span>${fmt(g.moq, 0)} / ${g.lead_time_days ?? '—'} days</span><b>Terms</b><span>${esc(g.incoterm || '')} ${esc(g.payment_terms || '')}</span>${g.next_action ? `<b>Next</b><span>${esc(g.next_action)}</span>` : ''}</div>
-        ${(g.log || []).length ? `<details class="sm" style="margin-top:6px"><summary>${g.log.length} log entries</summary>${g.log.slice().reverse().map(l => `<div style="padding:4px 0;border-top:1px solid var(--line)"><span class="mut">${dt(l.at)}</span> ${esc(l.note)}${l.offer_cny ? ` · <b>${cny(l.offer_cny)}</b>` : ''}</div>`).join('')}</details>` : ''}
-        <div class="bar" style="margin-top:10px"><input data-lognote="${g.id}" placeholder="Log note (e.g. 他们报¥26，说MOQ 500)" style="flex:1;min-width:160px"><input data-logoffer="${g.id}" type="number" step="0.01" placeholder="¥ offer" style="width:100px"><button class="btn sm" data-log="${g.id}">Log</button>
-          <select data-negst="${g.id}" class="btn sm" style="width:auto">${['open', 'waiting_factory', 'waiting_us', 'sample', 'agreed', 'dropped'].map(x => `<option value="${x}" ${x === g.status ? 'selected' : ''}>${x.replace('_', ' ')}</option>`).join('')}</select>
-          <button class="btn sm" data-agree="${g.id}">Set agreed ¥</button><button class="btn sm" data-rfq="${g.id}" data-fac="${g.factory_id || ''}">Draft RFQ</button><button class="btn sm primary" data-quote="${g.id}" data-fac="${g.factory_id || ''}" data-price="${g.agreed_cny || g.current_offer_cny || ''}">Quote →</button></div>
-        ${g.terms?.last_reply && g.status === 'waiting_us' ? `<div class="reply"><b>Factory replied ${dt(g.terms.last_reply.at)}.</b> ${esc(g.terms.last_reply.summary || '')}${g.terms.last_reply.tiers?.length ? `<div class="sm mut">Tiers: ${g.terms.last_reply.tiers.map(t => `${fmt(t.qty, 0)} pcs ${cny(t.price_cny)}`).join(' · ')}</div>` : ''}
-          <div style="margin-top:6px">Your counter${g.terms.last_reply.counter_cny ? ` (aim for <b>${cny(g.terms.last_reply.counter_cny)}</b>)` : ''}:</div><pre>${esc(g.terms.last_reply.counter_zh || '')}</pre>
-          <details class="sm"><summary>English</summary><div style="margin-top:4px">${esc(g.terms.last_reply.counter_en || '')}</div></details>
-          <div class="bar" style="margin-top:8px"><button class="btn sm primary" data-cp="${esc(g.terms.last_reply.counter_zh || '')}">Copy Chinese</button><button class="btn sm" data-sent="${g.id}">I sent it</button></div></div>` : ''}
-        <div class="bar" style="margin-top:10px"><button class="btn sm" data-paste="${g.id}">Paste factory reply</button><span class="sm mut">Paste their WeChat or 1688 message, or a screenshot. Lathe reads the price and terms and drafts your answer.</span></div>
-        <div class="rbox" data-rbox="${g.id}"><textarea data-rtext="${g.id}" rows="4" placeholder="Paste what the factory sent… (you can also paste a screenshot here)"></textarea>
-          <div class="bar" style="margin-top:8px"><label class="btn sm" style="margin:0">Add screenshot<input type="file" accept="image/*" data-rfile="${g.id}" hidden></label><span class="sm mut" data-rshot="${g.id}"></span><button class="btn sm primary" data-read="${g.id}">Read reply</button></div></div>
-        <div id="rfq-${g.id}">${rfqBox(g.id, g.factory_id)}</div></div>`).join('') : `<div class="empty">No negotiations yet. On the Find factories step, press Negotiate on the factories you like.</div>`}
-      <div class="panel-foot"><button class="btn" data-goto="quote">Next: quote →</button></div>
+    <div class="panel" data-tab="negotiating"><h2>3 · Compare &amp; quote <span class="mut sm">${negs.filter(g => g.status !== 'dropped').length} factories</span></h2>
+      <p class="sm mut">Every factory you're talking to, side by side. Open a row to add their WeChat, paste their reply, or draft a message. Best value in each column is highlighted · <a href="#" data-tpl="rfq">RFQ template</a></p>
+      ${compareTable(negs, cands, r, quotes)}
+      <div class="bar" style="margin-top:10px"><button class="btn sm" id="addFacBtn">+ Add a factory you found</button><span class="sm mut">Found one on 1688 yourself? Paste its link and add it here.</span></div>
+      <div id="addFacBox" class="rbox"><div class="grid3">
+        <div style="grid-column:span 2"><label style="margin-top:0">1688 link (listing or shop)</label><input id="afLink" placeholder="https://detail.1688.com/offer/…"></div>
+        <div><label style="margin-top:0">Factory name</label><input id="afName" placeholder="e.g. 邢台市…有限公司"></div>
+        <div><label>Price ¥/unit</label><input id="afPrice" type="number" step="0.01"></div><div><label>MOQ</label><input id="afMoq" type="number"></div><div><label>Lead time (days)</label><input id="afLead" type="number"></div>
+        <div><label>Contact name</label><input id="afContact"></div><div><label>WeChat</label><input id="afWechat"></div><div><label>Phone</label><input id="afPhone"></div></div>
+        <div class="bar" style="margin-top:10px"><button class="btn sm primary" id="afGo">Add to comparison</button><span class="sm mut">Only the name or link is needed; fill in the rest when you know it.</span></div></div>
     </div>
   </div>
   <div>
-    <div class="panel" data-tab="quote"><h2>4 · Quote <span class="mut sm">landed cost &amp; margin</span></h2>
+    <div class="panel" data-tab="negotiating" id="quotePanel"><h2>Client quote <span class="mut sm">landed cost &amp; margin</span></h2>
       ${rate ? `<p class="sm mut">Rate card: <b>${esc(rate.name)}</b> (${dt(rate.effective_date)}) · <a href="#/rates">edit rates</a></p>` : `<p class="sm mut">No rate card. <a href="#/rates">Create one</a>.</p>`}
       <div class="grid2"><div><label>Factory price (¥/unit)</label><input id="qPrice" type="number" step="0.01" value="${quotes[0]?.inputs?.factory_price_cny ?? s.estimated_factory_price_cny ?? ''}"></div><div><label>Quantity</label><input id="qQty" type="number" value="${r.quantity || 1000}"></div>
         <div><label>Domestic freight to port (¥ total)</label><input id="qDom" type="number" step="1" value="${quotes[0]?.inputs?.domestic_freight_cny ?? 0}"></div><div><label>Intl freight (USD total)</label><input id="qIntl" type="number" step="1" value="${quotes[0]?.inputs?.intl_freight_usd ?? 0}"></div>
@@ -716,7 +771,7 @@ async function viewRequest(id) {
       ${reqs.length ? reqs.map(x => `<div class="card" style="padding:8px 12px"><span class="badge ${x.kind === 'defect_to_watch' ? 'b-fail' : x.kind === 'question' ? 'b-rev' : x.kind === 'approval' ? 'b-pass' : ''}">${esc(x.kind.replace('_', ' '))}</span> <span class="sm mut">${esc(x.author)} · ${dt(x.created_at)}</span><div>${esc(x.body)}</div></div>`).join('') : `<p class="sm mut">Nothing yet. Clients add these in their portal; they feed the QC standard.</p>`}
       <div class="bar" style="margin-top:10px"><select id="rqKind" class="btn sm" style="width:auto"><option value="requirement">requirement</option><option value="defect_to_watch">defect to watch</option><option value="question">question</option></select><input id="rqBody" placeholder="Add a note as the team" style="flex:1"><button class="btn sm" id="rqAdd">Add</button></div>
     </div>
-    <div class="panel" data-tab="order"><h2>5 · Order</h2>
+    <div class="panel" data-tab="order"><h2>4 · Order</h2>
       ${orders.length ? orders.map(od => orderCard(od, r, OLINKS, OSESS)).join('') : `<p class="sm mut">No order yet. When the client approves a quote, press "Create order" on it (or on the next-step bar).</p>`}
     </div>
   </div></div>`;
@@ -918,7 +973,7 @@ function wire(page, id) {
   if (page === 'request') {
     const r = D.requests.find(x => x.id === id);
     $('stSel').onchange = (e) => { delete VIEW_TAB[id]; upd('sourcing_requests', { status: e.target.value }, id); };
-    const setTab = (t, scroll) => { VIEW_TAB[id] = t; $('tabbed').dataset.show = t; document.querySelectorAll('[data-phase]').forEach(x => x.classList.toggle('view', x.dataset.phase === t)); if (scroll) $('tabbed').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    const setTab = (t, scroll) => { if (t === 'quote') t = 'negotiating'; VIEW_TAB[id] = t; $('tabbed').dataset.show = t; document.querySelectorAll('[data-phase]').forEach(x => x.classList.toggle('view', x.dataset.phase === t)); if (scroll) $('tabbed').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
     on('[data-phase]', 'click', (e) => setTab(e.currentTarget.dataset.phase));
     on('[data-goto]', 'click', async (e) => { const t = e.currentTarget.dataset.goto; setTab(t, true); if (t === 'sourcing' && r.status === 'intake' && r.spec?.intake_at) await sb.from('sourcing_requests').update({ status: 'sourcing' }).eq('id', id); });
     const nextAct = async (act, arg, btn) => {
@@ -1030,7 +1085,7 @@ function wire(page, id) {
     });
     on('[data-rfq]', 'click', async (e) => {
       const b = e.currentTarget, gid = b.dataset.rfq; busy(b, true);
-      try { const out = await call('draft_rfq', { request_id: id, factory_id: b.dataset.fac || undefined }); RFQ[gid] = { text: out.message_zh || '', en: out.message_en || '', tips: out.tips || [], template: !!out.template }; await refresh(); }
+      try { const out = await call('draft_rfq', { request_id: id, factory_id: b.dataset.fac || undefined }); RFQ[gid] = { text: out.message_zh || '', en: out.message_en || '', tips: out.tips || [], template: !!out.template }; OPEN_NEG.add(gid); await refresh(); }
       catch (err) { busy(b, false); toast(err.message); }
     });
     on('[data-rfqtext]', 'input', (e) => { const d = RFQ[e.currentTarget.dataset.rfqtext]; if (d) d.text = e.currentTarget.value; });
@@ -1039,7 +1094,7 @@ function wire(page, id) {
     on('[data-rfqsent]', 'click', async (e) => {
       const gid = e.currentTarget.dataset.rfqsent, t = document.querySelector(`[data-rfqtext="${gid}"]`).value.trim();
       const { data: g } = await sb.from('negotiations').select('log').eq('id', gid).single();
-      const { error } = await sb.from('negotiations').update({ status: 'waiting_factory', next_action: 'Wait for their quote', last_contact_at: new Date().toISOString(), log: [...(g?.log || []), { at: new Date().toISOString(), note: 'We sent the RFQ: ' + t.slice(0, 600), offer_cny: null }] }).eq('id', gid);
+      const { error } = await sb.from('negotiations').update({ status: 'waiting_factory', next_action: 'Wait for their quote', last_contact_at: new Date().toISOString(), log: [...(g?.log || []), { at: new Date().toISOString(), note: (RFQ[gid]?.nudge ? 'We followed up: ' : 'We sent the RFQ: ') + t.slice(0, 600), offer_cny: null }] }).eq('id', gid);
       if (error) return toast(error.message); delete RFQ[gid]; toast('Logged. Waiting on the factory\u2019s quote.'); refresh();
     });
     on('[data-rfqtpl]', 'click', async (e) => {
@@ -1048,6 +1103,60 @@ function wire(page, id) {
       const err = await saveTemplate('rfq', t); if (err) return toast(err.message); toast('Template saved. Redraft to see it applied.');
     });
     on('[data-tpl]', 'click', async (e) => { e.preventDefault(); await templateDialog(e.currentTarget.dataset.tpl || 'rfq'); });
+    // Compare & quote
+    on('[data-nopen]', 'click', (e) => { const gid = e.currentTarget.dataset.nopen; if (OPEN_NEG.has(gid)) OPEN_NEG.delete(gid); else OPEN_NEG.add(gid); const tr = e.currentTarget.closest('tr'), d = tr.nextElementSibling; const open = OPEN_NEG.has(gid); d.hidden = !open; tr.classList.toggle('open', open); e.currentTarget.textContent = open ? 'Close' : 'Open'; });
+    on('[data-fc]', 'change', async (e) => { const el = e.currentTarget; const { error } = await sb.from('factories').update({ [el.dataset.k]: el.value.trim() || null }).eq('id', el.dataset.fc); toast(error ? error.message : 'Saved to this factory (used on future requests too).'); });
+    on('[data-nsave]', 'click', async (e) => {
+      const b = e.currentTarget, gid = b.dataset.nsave, v = (k) => document.querySelector(`[data-nv="${gid}"][data-k="${k}"]`);
+      const num = (k) => { const x = parseFloat(v(k).value); return isNaN(x) ? null : x; };
+      const price = num('price'), agreed = v('agreed').checked;
+      const { data: g } = await sb.from('negotiations').select('status, terms, log').eq('id', gid).single();
+      const patch = { current_offer_cny: price, agreed_cny: agreed ? price : null, moq: num('moq') != null ? Math.round(num('moq')) : null, lead_time_days: num('lead') != null ? Math.round(num('lead')) : null,
+        terms: { ...(g?.terms || {}), sample_cost_cny: num('sample') }, last_contact_at: new Date().toISOString(),
+        log: [...(g?.log || []), { at: new Date().toISOString(), note: 'Updated: ' + [price != null && '¥' + price + (agreed ? ' agreed' : ''), num('moq') != null && 'MOQ ' + num('moq'), num('lead') != null && num('lead') + ' days', num('sample') != null && 'sample ¥' + num('sample')].filter(Boolean).join(', '), offer_cny: price }] };
+      if (agreed && price != null) patch.status = 'agreed'; else if (g?.status === 'agreed') patch.status = 'waiting_us';
+      busy(b, true); const { error } = await sb.from('negotiations').update(patch).eq('id', gid); if (error) { busy(b, false); return toast(error.message); } toast('Saved.'); await refresh();
+    });
+    on('[data-nudge]', 'click', async (e) => {
+      const b = e.currentTarget, gid = b.dataset.nudge; busy(b, true);
+      try { const out = await call('draft_rfq', { request_id: id, factory_id: b.dataset.fac || undefined, kind: 'nudge', days: +b.dataset.days || 2 }); RFQ[gid] = { text: out.message_zh || '', en: out.message_en || '', tips: [], template: false, nudge: true }; OPEN_NEG.add(gid); await refresh(); }
+      catch (err) { busy(b, false); toast(err.message); }
+    });
+    if ($('addFacBtn')) $('addFacBtn').onclick = () => { const b = $('addFacBox'); b.style.display = b.style.display === 'block' ? 'none' : 'block'; if (b.style.display === 'block') $('afLink').focus(); };
+    if ($('afGo')) $('afGo').onclick = async (e) => {
+      const b = e.currentTarget, v = (k) => $(k).value.trim(), link = v('afLink'), name = v('afName');
+      if (!link && !name) return toast('Add the 1688 link or the factory name');
+      busy(b, true);
+      try {
+        const isShop = /\.1688\.com/i.test(link) && !/detail\.1688\.com\/offer/i.test(link), clean = link.split('#')[0];
+        let fac = null;
+        if (clean) { for (const col of ['source_url', 'shop_url']) { if (fac) break; const { data } = await sb.from('factories').select('id').eq('workspace_id', ws).eq(col, isShop ? clean.split('?')[0] : clean).limit(1); fac = data?.[0] || null; } }
+        if (!fac && name) { const { data } = await sb.from('factories').select('id').eq('workspace_id', ws).eq('name', name).limit(1); fac = data?.[0] || null; }
+        const contact = { contact_name: v('afContact') || undefined, wechat: v('afWechat') || undefined, phone: v('afPhone') || undefined };
+        if (!fac) {
+          const { data, error } = await sb.from('factories').insert({ workspace_id: ws, name: name || ('1688 supplier ' + (clean.match(/\d{6,}/)?.[0] || '')).trim(), source: /1688\.com/i.test(clean) ? '1688' : 'manual', source_url: clean && !isShop ? clean : null, shop_url: isShop ? clean.split('?')[0] : null, ...contact }).select('id').single();
+          if (error) throw error; fac = data;
+        } else if (Object.values(contact).some(Boolean)) await sb.from('factories').update(contact).eq('id', fac.id);
+        const { data: dup } = await sb.from('negotiations').select('id').eq('request_id', id).eq('factory_id', fac.id).limit(1);
+        if (dup?.length) { busy(b, false); OPEN_NEG.add(dup[0].id); toast('That factory is already in the comparison.'); return refresh(); }
+        const price = parseFloat(v('afPrice')); const now = new Date().toISOString();
+        const { data: ng, error } = await sb.from('negotiations').insert({ workspace_id: ws, request_id: id, factory_id: fac.id, target_cny: r.spec?.estimated_factory_price_cny ?? null,
+          current_offer_cny: isNaN(price) ? null : price, moq: parseInt(v('afMoq')) || null, lead_time_days: parseInt(v('afLead')) || null, status: 'open', last_contact_at: isNaN(price) ? null : now,
+          log: [{ at: now, note: 'Added by you' + (clean ? ': ' + clean : ''), offer_cny: isNaN(price) ? null : price }] }).select('id').single();
+        if (error) throw error;
+        ['afLink', 'afName', 'afPrice', 'afMoq', 'afLead', 'afContact', 'afWechat', 'afPhone'].forEach(k => { $(k).value = ''; });
+        OPEN_NEG.add(ng.id); toast('Added to the comparison.'); await refresh();
+      } catch (err) { busy(b, false); toast(err.message || String(err)); }
+    };
+    // landed cost per factory, from the same calculation as the quote (rate card + the freight in the quote form)
+    (async () => {
+      const t = document.querySelector('table.cmp'), rc = D.rates.find(x => x.is_default) || D.rates[0]; if (!t) return;
+      const cells = [...t.querySelectorAll('[data-landed]')].filter(c => c.dataset.price);
+      if (!rc) { cells.forEach(c => { c.innerHTML = '<span class="sm mut">add a rate card</span>'; }); return; }
+      const vals = await Promise.all(cells.map(async (c) => { const { data } = await sb.rpc('calc_landed_cost', { inputs: { factory_price_cny: +c.dataset.price, qty: +t.dataset.qty || 1000, domestic_freight_cny: +t.dataset.dom || 0, intl_freight_usd: +t.dataset.intl || 0, mode: t.dataset.mode || 'ocean', client_unit_price: null, commission_pct: rc.rates?.commission_pct ?? 6 }, rates: rc.rates }); return data?.landed_unit_usd ?? null; }));
+      const ok = vals.filter(x => x != null), mn = ok.length > 1 ? Math.min(...ok) : null;
+      cells.forEach((c, i) => { const x = vals[i]; c.innerHTML = x != null ? usd(x, 2) : '<span class="mut">—</span>'; if (mn != null && x === mn) c.classList.add('best'); });
+    })();
     on('[data-quote]', 'click', (e) => { const b = e.currentTarget; if (b.dataset.price) $('qPrice').value = b.dataset.price; if (b.dataset.fac) $('qFac').value = b.dataset.fac; $('qFac').dataset.neg = b.dataset.quote; $('calc').click(); $('qPrice').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
     let lastCalc = null;
     const rate = D.rates.find(x => x.is_default) || D.rates[0];
