@@ -122,7 +122,7 @@ function render() {
   const greet = now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening';
   const openPos = D.pos.filter(p => !p.closed);
   $('navClients').innerHTML = D.clients.map(c => `<a href="#" data-client="${c.id}"><i></i>${esc(c.company || c.name)}<b>${counts[c.id] || ''}</b></a>`).join('');
-  app.innerHTML = `${ANON ? `<a href="sourcing.html#/account" style="display:block;background:var(--harbor-bg,#eef4f7);border-radius:12px;padding:12px 16px;margin-bottom:14px;color:inherit;text-decoration:none;font-size:14px"><b>You're not signed in.</b> Your work is saved, but only this browser can open it. <u>Sign in or create an account →</u></a>` : ''}<div class="hello"><h2>${greet}</h2><p>${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}. ${waiting.length ? `${waiting.length} request${waiting.length === 1 ? ' needs' : 's need'} you.` : open.length ? 'Nothing is waiting on you.' : 'No open requests yet.'}</p></div>
+  app.innerHTML = `${ANON ? `<a href="sourcing.html#/account" style="display:block;background:var(--harbor-bg,#eef4f7);border-radius:12px;padding:12px 16px;margin-bottom:14px;color:inherit;text-decoration:none;font-size:14px"><b>You're not signed in.</b> Your work is saved, but only this browser can open it. <u>Sign in or create an account →</u></a>` : ''}<div class="hello">${D.team ? `<div class="tabs" style="float:right;margin:0" role="group" aria-label="Whose requests"><button data-scope="mine" aria-pressed="${homeScope() === 'mine'}">Mine</button><button data-scope="all" aria-pressed="${homeScope() === 'all'}">Everyone</button></div>` : ''}<h2>${greet}</h2><p>${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}. ${waiting.length ? `${waiting.length} request${waiting.length === 1 ? ' needs' : 's need'} you.` : open.length ? 'Nothing is waiting on you.' : 'No open requests yet.'}</p></div>
   ${open.length ? `<div class="tabs" role="group" aria-label="Filter by client"><button data-tab="all" aria-pressed="${tab === 'all'}">All clients <span>${open.length}</span></button>${D.clients.filter(c => counts[c.id]).map(c => `<button data-tab="${c.id}" aria-pressed="${tab === c.id}">${esc(c.company || c.name)} <span>${counts[c.id]}</span></button>`).join('')}${counts.none ? `<button data-tab="none" aria-pressed="${tab === 'none'}">No client <span>${counts.none}</span></button>` : ''}</div>` : ''}
   ${shown.length ? `<ul class="rows">${shown.map(r => { const [step, ring] = nextStep(r); const attn = waiting.includes(r);
       return `<li><a class="row" href="sourcing.html#/request/${r.id}"><span class="ring ${ring}"></span><span class="t"><b>${esc(r.title)}</b><small>${esc(step)}${r.quantity ? `, ${Number(r.quantity).toLocaleString()} units` : ''}</small></span><span class="chips">${attn ? '<span class="tag dot" title="Needs you"></span>' : ''}${due(r.deadline)}${r.client_id ? `<span class="tag">${esc(clientName(r.client_id))}</span>` : ''}</span></a></li>`; }).join('')}</ul>`
@@ -131,22 +131,30 @@ function render() {
       return `<li><a class="row" href="${rq ? 'sourcing.html#/request/' + rq.id : 'sourcing.html#/requests'}"><span class="t"><b>${esc(a.body)}</b><small>${rq ? esc(rq.title) + ' · ' : ''}${esc(a.actor === ME_EMAIL ? 'You' : (a.actor || 'Lathe'))} · ${t}</small></span></a></li>`; }).join('')}</ul>` : ''}
   ${window.LATHE_SHOW_QC && openPos.length ? `<div class="dc-sec">Orders in progress</div><ul class="rows">${openPos.map(p => `<li><a class="row" href="ops.html#/po/${p.id}"><span class="ring half"></span><span class="t"><b>${esc(p.po_number)}</b><small>${esc(p.supplier_name || 'Factory')}${p.supplier_city ? ', ' + esc(p.supplier_city) : ''}</small></span><span class="chips">${due(p.ship_by)}<span class="tag">Order</span></span></a></li>`).join('')}</ul>` : ''}`;
   app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+  app.querySelectorAll('[data-scope]').forEach(b => b.onclick = async () => { try { localStorage.setItem('lathe-scope', b.dataset.scope); } catch (e) {} await load(); render(); });
   document.querySelectorAll('[data-client]').forEach(a => a.onclick = (e) => { e.preventDefault(); tab = a.dataset.client; render(); });
 }
 
+const homeScope = () => { try { return localStorage.getItem('lathe-scope') || 'mine'; } catch (e) { return 'mine'; } };
 async function load() {
   const q = (t, sel, order) => sb.from(t).select(sel).eq('workspace_id', ws).order(order, { ascending: false }).limit(300);
   const r = await Promise.all([
-    q('sourcing_requests', 'id, title, status, client_id, quantity, deadline, spec, updated_at', 'updated_at'),
+    q('sourcing_requests', 'id, title, status, client_id, quantity, deadline, spec, updated_at, owner_id', 'updated_at'),
     q('clients', 'id, name, company', 'created_at'),
     q('purchase_orders', 'id, po_number, supplier_name, supplier_city, ship_by, closed', 'created_at'),
     q('negotiations', 'id, request_id, status', 'updated_at'),
     q('quotes', 'id, request_id, released_to_client, status', 'created_at'),
     sb.from('request_flow').select('*').eq('workspace_id', ws),
     sb.from('activity').select('at, actor, body, request_id').eq('workspace_id', ws).order('at', { ascending: false }).limit(8),
+    sb.rpc('workspace_people', { p_ws: ws }),
   ]);
+  D.people = r[7].data || [];
   D.acts = r[6].data || [];
   [D.reqs, D.clients, D.pos, D.negs, D.quotes] = r.slice(0, 5).map(x => x.data || []);
+  // in a shared workspace, Home shows your own requests unless you choose Everyone (same switch as the Requests list)
+  D.allReqs = D.reqs; D.team = D.people.filter(p => p.email).length > 1;
+  const me = (D.people.find(p => p.is_you) || {}).user_id;
+  if (D.team && homeScope() === 'mine') D.reqs = D.reqs.filter(x => x.owner_id === me);
   D.flow = Object.fromEntries((r[5].data || []).map(x => [x.id, x]));
 }
 
